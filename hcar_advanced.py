@@ -1431,22 +1431,41 @@ class HCARFramework:
     def _prune_fixed_bias_with_solution(self, solution: Dict):
         """
         Principled pruning: Remove fixed-arity constraints violated by confirmed solution.
-        
+
         This is a key methodological principle - only use confirmed ground truth.
+        According to CONSTRAINT 2 in CLAUDE.md: "Bias pruning MUST only use confirmed
+        solutions (E+ and oracle-verified queries)".
         """
+        if not CPMPY_AVAILABLE or not hasattr(self, 'variables'):
+            return
+
         to_remove = []
         for constraint in self.B_fixed:
             if constraint.constraint is not None:
-                # Check if solution violates this constraint
-                # (Implementation depends on constraint representation)
-                # For now, placeholder
-                pass
-        
+                try:
+                    # Create a model with the constraint and the solution
+                    test_model = Model()
+                    test_model += constraint.constraint
+
+                    # Add solution as constraints
+                    for var_name, value in solution.items():
+                        if var_name in self.variables:
+                            var_obj = self.variables[var_name]
+                            test_model += (var_obj == value)
+
+                    # If UNSAT, the solution violates this constraint -> remove it
+                    if not test_model.solve():
+                        to_remove.append(constraint)
+                        logger.debug(f"    Removing {constraint.id} (violated by solution)")
+
+                except Exception as e:
+                    logger.debug(f"Error checking constraint {constraint.id}: {e}")
+
         for c in to_remove:
             self.B_fixed.remove(c)
-        
+
         if to_remove:
-            logger.info(f"  Pruned {len(to_remove)} fixed-arity constraints")
+            logger.info(f"  Pruned {len(to_remove)} fixed-arity constraints using confirmed solution")
     
     def _phase3_active_learning(
         self,
