@@ -100,13 +100,20 @@ def construct_vm_allocation(pm_data, vm_data):
     }
 
     variables = []
-    
+
+    # Add VM assignment variables
     for vm in sorted(vm_data.keys()):
         variables.append(vm_assignments[vm])
-    
+
+    # Add resource utilization variables
+    for resource in sorted(resource_types):
+        for pm in sorted(pm_data.keys()):
+            variables.append(utilization[resource][pm])
+
+    # Add GPU-related variables (if any)
     for vm in sorted(gpu_assignments.keys()):
         variables.append(gpu_assignments[vm])
-    
+
     for pm in sorted(gpu_utilization.keys()):
         variables.append(gpu_utilization[pm])
 

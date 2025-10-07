@@ -279,17 +279,19 @@ class IntelligentSubsetExplorer:
         rejected_constraint: Constraint,
         positive_examples: List[Dict],
         learned_globals: List[Constraint],
-        config: HCARConfig
+        config: HCARConfig,
+        variables: Dict[str, Any] = None
     ) -> List[Constraint]:
         """
         Generate informed subsets by removing the most likely culprit variable.
-        
+
         Args:
             rejected_constraint: The constraint that was refuted
             positive_examples: Initial positive examples (ground truth)
             learned_globals: Already validated global constraints
             config: HCAR configuration
-        
+            variables: Variable objects dict (for creating CPMpy constraints)
+
         Returns:
             List of new candidate constraints (subsets of original scope)
         """
@@ -320,12 +322,12 @@ class IntelligentSubsetExplorer:
         for i in range(num_subsets):
             culprit_var = sorted_vars[i][0]
             new_scope = [v for v in scope if v != culprit_var]
-            
+
             # Create new constraint with reduced scope
             new_constraint = IntelligentSubsetExplorer._create_subset_constraint(
-                rejected_constraint, new_scope, culprit_var
+                rejected_constraint, new_scope, culprit_var, variables
             )
-            
+
             if new_constraint:
                 new_candidates.append(new_constraint)
         
@@ -472,18 +474,58 @@ class IntelligentSubsetExplorer:
     def _create_subset_constraint(
         parent: Constraint,
         new_scope: List[str],
-        removed_var: str
+        removed_var: str,
+        variables: Dict[str, Any] = None
     ) -> Optional[Constraint]:
         """Create a new constraint candidate with reduced scope."""
         if len(new_scope) < 2:
             return None
-        
+
         new_id = f"{parent.id}_sub_{removed_var}"
-        
-        # Create new constraint object (simplified - needs actual CPMpy constraint)
+
+        # Create actual CPMpy constraint object with reduced scope
+        constraint_obj = None
+        if CPMPY_AVAILABLE and variables:
+            try:
+                # Get variable objects for new scope
+                constraint_vars = [variables[v] for v in new_scope if v in variables]
+
+                if len(constraint_vars) == len(new_scope):
+                    # All variables found, create constraint based on type
+                    if parent.constraint_type == "AllDifferent":
+                        from cpmpy import AllDifferent
+                        constraint_obj = AllDifferent(constraint_vars)
+
+                    elif parent.constraint_type == "Sum":
+                        # Extract constant from parent ID (e.g., "sum_eq_cpu_PM_11" -> 11)
+                        import re
+                        match = re.search(r'_(\d+)', parent.id)
+                        if match:
+                            constant = int(match.group(1))
+                            if 'leq' in parent.id:
+                                constraint_obj = (sum(constraint_vars) <= constant)
+                            else:
+                                constraint_obj = (sum(constraint_vars) == constant)
+
+                    elif parent.constraint_type == "Count":
+                        # Extract value and constant from parent ID
+                        import re
+                        match = re.search(r'val(\d+)_cnt(\d+)', parent.id)
+                        if match:
+                            target_value = int(match.group(1))
+                            constant = int(match.group(2))
+                            from cpmpy import Count
+                            if 'leq' in parent.id:
+                                constraint_obj = (Count(constraint_vars, target_value) <= constant)
+                            else:
+                                constraint_obj = (Count(constraint_vars, target_value) == constant)
+
+            except Exception as e:
+                logger.warning(f"Failed to create constraint object for subset {new_id}: {e}")
+
         new_constraint = Constraint(
             id=new_id,
-            constraint=None,  # Will be created by constraint generator
+            constraint=constraint_obj,
             scope=new_scope,
             constraint_type=parent.constraint_type,
             arity=len(new_scope),
@@ -493,7 +535,7 @@ class IntelligentSubsetExplorer:
             features={},
             parent_id=parent.id
         )
-        
+
         return new_constraint
 
 
@@ -767,19 +809,41 @@ class HCARFramework:
         domains: Dict[str, List]
     ) -> Set[Constraint]:
         """
-        Simple pattern-based extraction of global constraints.
-        
-        This is a basic implementation. For production use, integrate with
-        your existing feature_extraction.py or other pattern detection methods.
+        Pattern-based extraction of global constraints.
+
+        Detects three types of patterns:
+        1. AllDifferent: All values in a group are distinct
+        2. Sum: Sum of variables equals/bounded by a constant
+        3. Count: Count of value occurrences equals/bounded by a constant
         """
         candidates = set()
-        
-        # Group variables by naming pattern (e.g., row, column)
+
+        # 1. Extract AllDifferent constraints
+        candidates.update(self._extract_alldifferent_patterns(positive_examples, variables))
+
+        # 2. Extract Sum constraints
+        candidates.update(self._extract_sum_patterns(positive_examples, variables, domains))
+
+        # 3. Extract Count constraints
+        candidates.update(self._extract_count_patterns(positive_examples, variables, domains))
+
+        logger.info(f"  Extracted {len(candidates)} global constraint candidates")
+        return candidates
+
+    def _extract_alldifferent_patterns(
+        self,
+        positive_examples: List[Dict],
+        variables: Dict[str, Any]
+    ) -> Set[Constraint]:
+        """Extract AllDifferent constraint candidates."""
+        candidates = set()
+
+        # Group variables by naming pattern (e.g., row, column, block)
         var_groups = self._group_variables_by_pattern(list(variables.keys()))
-        
+
         for group_name, var_names in var_groups.items():
             if len(var_names) >= 2:
-                # Check if AllDifferent holds in examples
+                # Check if AllDifferent holds in all examples
                 holds_in_all = True
                 for example in positive_examples:
                     values = [example.get(v) for v in var_names if v in example]
@@ -787,7 +851,7 @@ class HCARFramework:
                         if len(values) != len(set(values)):
                             holds_in_all = False
                             break
-                
+
                 if holds_in_all and len(var_names) > 2:
                     # Create candidate constraint
                     try:
@@ -797,7 +861,7 @@ class HCARFramework:
                             constraint_obj = AllDifferent(constraint_vars)
                         else:
                             constraint_obj = None
-                        
+
                         candidate = Constraint(
                             id=f"alldiff_{group_name}",
                             constraint=constraint_obj,
@@ -808,11 +872,205 @@ class HCARFramework:
                             confidence=0.5
                         )
                         candidates.add(candidate)
-                        logger.debug(f"  Found candidate: {candidate.id} with {candidate.arity} variables")
+                        logger.debug(f"  Found AllDifferent: {candidate.id} with {candidate.arity} variables")
                     except Exception as e:
-                        logger.warning(f"Failed to create constraint for {group_name}: {e}")
-        
-        logger.info(f"  Extracted {len(candidates)} global constraint candidates")
+                        logger.warning(f"Failed to create AllDifferent for {group_name}: {e}")
+
+        return candidates
+
+    def _extract_sum_patterns(
+        self,
+        positive_examples: List[Dict],
+        variables: Dict[str, Any],
+        domains: Dict[str, List]
+    ) -> Set[Constraint]:
+        """
+        Extract Sum constraint candidates.
+
+        Looks for patterns like: sum(group) == constant or sum(group) <= constant
+        Common in resource allocation, scheduling problems.
+        """
+        candidates = set()
+
+        # Group variables by common prefix (e.g., "cpu_", "memory_", "assign_")
+        var_groups = self._group_variables_by_prefix(list(variables.keys()))
+
+        for group_name, var_names in var_groups.items():
+            if len(var_names) < 2:
+                continue
+
+            # Check if sum is consistent across all examples
+            sum_values = []
+            valid = True
+
+            for example in positive_examples:
+                values = [example.get(v) for v in var_names if v in example]
+                if len(values) == len(var_names):
+                    sum_values.append(sum(values))
+                else:
+                    valid = False
+                    break
+
+            if not valid or not sum_values:
+                continue
+
+            # Check if sum is constant or bounded
+            min_sum = min(sum_values)
+            max_sum = max(sum_values)
+
+            # Pattern 1: Sum equals constant (all examples have same sum)
+            if min_sum == max_sum:
+                constant = min_sum
+                try:
+                    if CPMPY_AVAILABLE:
+                        constraint_vars = [variables[v] for v in var_names if v in variables]
+                        constraint_obj = (sum(constraint_vars) == constant)
+                    else:
+                        constraint_obj = None
+
+                    candidate = Constraint(
+                        id=f"sum_eq_{group_name}_{constant}",
+                        constraint=constraint_obj,
+                        scope=var_names,
+                        constraint_type="Sum",
+                        arity=len(var_names),
+                        level=0,
+                        confidence=0.5
+                    )
+                    candidates.add(candidate)
+                    logger.debug(f"  Found Sum==: {candidate.id}")
+                except Exception as e:
+                    logger.warning(f"Failed to create Sum constraint: {e}")
+
+            # Pattern 2: Sum bounded by maximum (sum <= constant)
+            # Only if there's variation in the sum values
+            elif max_sum > min_sum:
+                # Check if max_sum could be a capacity bound
+                # Heuristic: if max_sum appears in multiple examples or seems like a round number
+                if max_sum % 5 == 0 or max_sum % 10 == 0 or sum_values.count(max_sum) >= 2:
+                    try:
+                        if CPMPY_AVAILABLE:
+                            constraint_vars = [variables[v] for v in var_names if v in variables]
+                            constraint_obj = (sum(constraint_vars) <= max_sum)
+                        else:
+                            constraint_obj = None
+
+                        candidate = Constraint(
+                            id=f"sum_leq_{group_name}_{max_sum}",
+                            constraint=constraint_obj,
+                            scope=var_names,
+                            constraint_type="Sum",
+                            arity=len(var_names),
+                            level=0,
+                            confidence=0.3  # Lower confidence for bounded constraints
+                        )
+                        candidates.add(candidate)
+                        logger.debug(f"  Found Sum<=: {candidate.id}")
+                    except Exception as e:
+                        logger.warning(f"Failed to create Sum<= constraint: {e}")
+
+        return candidates
+
+    def _extract_count_patterns(
+        self,
+        positive_examples: List[Dict],
+        variables: Dict[str, Any],
+        domains: Dict[str, List]
+    ) -> Set[Constraint]:
+        """
+        Extract Count constraint candidates.
+
+        Looks for patterns like: count(group, value) == constant or count(group, value) <= constant
+        Common in scheduling, assignment problems.
+        """
+        candidates = set()
+
+        # Group variables by common prefix
+        var_groups = self._group_variables_by_prefix(list(variables.keys()))
+
+        for group_name, var_names in var_groups.items():
+            if len(var_names) < 2:
+                continue
+
+            # For each possible value, check if count is consistent
+            # First, determine the range of values that appear
+            all_values = set()
+            for example in positive_examples:
+                for v in var_names:
+                    if v in example:
+                        all_values.add(example[v])
+
+            # For each value, check if count pattern exists
+            for target_value in all_values:
+                count_values = []
+                valid = True
+
+                for example in positive_examples:
+                    values = [example.get(v) for v in var_names if v in example]
+                    if len(values) == len(var_names):
+                        count = values.count(target_value)
+                        count_values.append(count)
+                    else:
+                        valid = False
+                        break
+
+                if not valid or not count_values:
+                    continue
+
+                min_count = min(count_values)
+                max_count = max(count_values)
+
+                # Pattern 1: Count equals constant
+                if min_count == max_count and min_count > 0:
+                    constant = min_count
+                    try:
+                        if CPMPY_AVAILABLE:
+                            from cpmpy import Count
+                            constraint_vars = [variables[v] for v in var_names if v in variables]
+                            constraint_obj = (Count(constraint_vars, target_value) == constant)
+                        else:
+                            constraint_obj = None
+
+                        candidate = Constraint(
+                            id=f"count_eq_{group_name}_val{target_value}_cnt{constant}",
+                            constraint=constraint_obj,
+                            scope=var_names,
+                            constraint_type="Count",
+                            arity=len(var_names),
+                            level=0,
+                            confidence=0.5
+                        )
+                        candidates.add(candidate)
+                        logger.debug(f"  Found Count==: {candidate.id}")
+                    except Exception as e:
+                        logger.warning(f"Failed to create Count constraint: {e}")
+
+                # Pattern 2: Count bounded (count <= constant)
+                elif max_count > min_count and max_count > 0:
+                    # Heuristic: consider upper bound if it appears multiple times
+                    if count_values.count(max_count) >= 2:
+                        try:
+                            if CPMPY_AVAILABLE:
+                                from cpmpy import Count
+                                constraint_vars = [variables[v] for v in var_names if v in variables]
+                                constraint_obj = (Count(constraint_vars, target_value) <= max_count)
+                            else:
+                                constraint_obj = None
+
+                            candidate = Constraint(
+                                id=f"count_leq_{group_name}_val{target_value}_cnt{max_count}",
+                                constraint=constraint_obj,
+                                scope=var_names,
+                                constraint_type="Count",
+                                arity=len(var_names),
+                                level=0,
+                                confidence=0.3
+                            )
+                            candidates.add(candidate)
+                            logger.debug(f"  Found Count<=: {candidate.id}")
+                        except Exception as e:
+                            logger.warning(f"Failed to create Count<= constraint: {e}")
+
         return candidates
     
     def _generate_fixed_bias_simple(
@@ -879,14 +1137,41 @@ class HCARFramework:
         logger.info(f"  Generated {len(candidates)} fixed-arity constraint candidates")
         return candidates
     
+    def _group_variables_by_prefix(self, var_names: List[str]) -> Dict[str, List[str]]:
+        """
+        Group variables by common prefix (for Sum/Count pattern detection).
+
+        Examples:
+        - "cpu_PM1", "cpu_PM2" -> group "cpu"
+        - "assign_VM1", "assign_VM2" -> group "assign"
+        - "memory_PM1", "memory_PM2" -> group "memory"
+        """
+        import re
+
+        groups = {}
+
+        for var_name in var_names:
+            # Extract prefix (text before first number or underscore+number)
+            match = re.match(r'^([a-zA-Z_]+?)(?:_?\d|$)', var_name)
+            if match:
+                prefix = match.group(1).rstrip('_')
+                if prefix not in groups:
+                    groups[prefix] = []
+                groups[prefix].append(var_name)
+
+        # Filter out groups with only 1 variable
+        groups = {k: v for k, v in groups.items() if len(v) > 1}
+
+        return groups
+
     def _group_variables_by_pattern(self, var_names: List[str]) -> Dict[str, List[str]]:
         """
         Group variables by naming patterns (e.g., rows, columns, blocks).
-        
+
         This is a simple heuristic. For production, use more sophisticated methods.
         """
         import re
-        
+
         groups = {}
         
         # Collect all numeric indices to determine grid size
@@ -1000,9 +1285,12 @@ class HCARFramework:
     ):
         """
         Phase 2: Query-Driven Interactive Refinement.
-        
+
         Core of the HCAR framework - validates and corrects global constraints.
         """
+        # Store variables for subset generation
+        self.variables = variables
+        self.domains = domains
         budget_pool = 0
         
         while (self.B_globals and 
@@ -1111,7 +1399,8 @@ class HCARFramework:
                         candidate,
                         self.confirmed_solutions,
                         self.C_validated_globals,
-                        self.config
+                        self.config,
+                        self.variables  # Pass variables for constraint creation
                     )
                     
                     for new_cand in new_candidates:
@@ -1492,7 +1781,8 @@ class ExperimentRunner:
                 learned_model,
                 target_model,
                 variables,
-                domains
+                domains,
+                hcar  # Pass HCAR instance for variable access
             )
             
             # Combine metrics
@@ -1537,14 +1827,17 @@ class ExperimentRunner:
         target_model: List,
         variables: Dict[str, Any],
         domains: Dict[str, List],
+        hcar_instance = None,
         num_samples: int = 100
     ) -> Dict[str, float]:
         """
         Evaluate learned model quality using solution-space metrics.
-        
+
         Returns:
             Dictionary with S-Precision and S-Recall
         """
+        # Store variables for validation
+        self.variables = variables if hcar_instance is None else hcar_instance.variables
         # Generate sample solutions from both models
         learned_solutions = self._sample_solutions(learned_model, variables, domains, num_samples)
         target_solutions = self._sample_solutions(target_model, variables, domains, num_samples)
@@ -1612,15 +1905,48 @@ class ExperimentRunner:
         return solutions
     
     def _is_valid_solution(self, solution: Dict, model: List) -> bool:
-        """Check if solution satisfies all constraints in model."""
-        # Simplified validation
+        """
+        Check if solution satisfies all constraints in model.
+
+        Args:
+            solution: Variable assignment dict
+            model: List of constraints (either Constraint objects or CPMpy constraints)
+
+        Returns:
+            True if solution satisfies all constraints, False otherwise
+        """
+        if not CPMPY_AVAILABLE:
+            return True  # Cannot validate without CPMpy
+
         try:
+            # Build a model with all constraints
+            cpm_model = Model()
+
             for constraint in model:
-                # Would need to evaluate constraint on solution
-                # (implementation depends on constraint representation)
-                pass
-            return True
-        except:
+                if isinstance(constraint, Constraint):
+                    if constraint.constraint is not None:
+                        cpm_model += constraint.constraint
+                else:
+                    # Direct CPMpy constraint
+                    cpm_model += constraint
+
+            # Check if the specific solution satisfies the model
+            # We do this by adding the solution as constraints and checking satisfiability
+            temp_constraints = []
+            for var_name, value in solution.items():
+                if var_name in self.variables:
+                    var_obj = self.variables[var_name]
+                    temp_constraints.append(var_obj == value)
+
+            # Create temporary model with solution constraints
+            test_model = Model(cpm_model.constraints + temp_constraints)
+
+            # If SAT, the solution is valid; if UNSAT, it violates some constraint
+            result = test_model.solve()
+            return result
+
+        except Exception as e:
+            logger.debug(f"Error validating solution: {e}")
             return False
     
     def _aggregate_results(self, results: List[Dict]) -> Dict[str, Any]:

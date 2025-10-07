@@ -98,9 +98,11 @@ class BenchmarkConfig:
                     domains[var_name] = (0, 1)
             
             # Get target model constraints from oracle
-            # The ConstraintOracle stores constraints in C_T attribute
+            # The ConstraintOracle stores constraints in .constraints attribute
             if hasattr(oracle, 'C_T'):
                 target_model = oracle.C_T
+            elif hasattr(oracle, 'constraints'):
+                target_model = oracle.constraints
             else:
                 target_model = []
             
@@ -123,7 +125,7 @@ class BenchmarkConfig:
                             return OracleResponse.INVALID
                     
                     # Check if assignment satisfies all constraints
-                    is_valid = oracle.ask_query(var_values)
+                    is_valid = oracle.answer_membership_query(var_values)
                     return OracleResponse.VALID if is_valid else OracleResponse.INVALID
                     
                 except Exception as e:
@@ -271,9 +273,9 @@ def get_benchmark_configs(use_global_constraints=True):
             ('Nurse_Rostering', nurse_rostering_global.construct_nurse_rostering, {
                 'shifts_per_day': 3,
                 'num_days': 7,
-                'num_nurses': 8,  # Need at least shifts_per_day * nurses_per_shift = 6
+                'num_nurses': 8,
                 'nurses_per_shift': 2,
-                'max_workdays': 5
+                'max_workdays': 6  # Fixed: Was 5, which made problem UNSAT (40 capacity < 42 needed)
             }),
         ]
     else:
@@ -316,9 +318,9 @@ def get_benchmark_configs(use_global_constraints=True):
             ('Nurse_Rostering', nurse_rostering_binary.construct_nurse_rostering, {
                 'shifts_per_day': 3,
                 'num_days': 7,
-                'num_nurses': 8,  # Need at least shifts_per_day * nurses_per_shift = 6
+                'num_nurses': 8,
                 'nurses_per_shift': 2,
-                'max_workdays': 5
+                'max_workdays': 6  # Fixed: Was 5, which made problem UNSAT (40 capacity < 42 needed)
             }),
         ]
     
@@ -395,28 +397,28 @@ def print_results_summary(benchmark: str, method: str, results: Dict):
         return
     
     # Model Quality
-    print("\n📊 Model Quality:")
+    print("\nModel Quality:")
     print(f"  S-Precision: {results.get('s_precision_mean', 0):.1f}% "
-          f"(±{results.get('s_precision_std', 0):.1f})")
+          f"(+/-{results.get('s_precision_std', 0):.1f})")
     print(f"  S-Recall:    {results.get('s_recall_mean', 0):.1f}% "
-          f"(±{results.get('s_recall_std', 0):.1f})")
-    
+          f"(+/-{results.get('s_recall_std', 0):.1f})")
+
     # Query Efficiency
-    print("\n🔍 Query Efficiency:")
-    print(f"  Phase 2 (Q₂): {results.get('queries_phase2_mean', 0):.0f} "
-          f"(±{results.get('queries_phase2_std', 0):.0f})")
-    print(f"  Phase 3 (Q₃): {results.get('queries_phase3_mean', 0):.0f} "
-          f"(±{results.get('queries_phase3_std', 0):.0f})")
-    print(f"  Total (Q_Σ):  {results.get('queries_total_mean', 0):.0f} "
-          f"(±{results.get('queries_total_std', 0):.0f})")
-    
+    print("\nQuery Efficiency:")
+    print(f"  Phase 2 (Q2): {results.get('queries_phase2_mean', 0):.0f} "
+          f"(+/-{results.get('queries_phase2_std', 0):.0f})")
+    print(f"  Phase 3 (Q3): {results.get('queries_phase3_mean', 0):.0f} "
+          f"(+/-{results.get('queries_phase3_std', 0):.0f})")
+    print(f"  Total (QSum):  {results.get('queries_total_mean', 0):.0f} "
+          f"(+/-{results.get('queries_total_std', 0):.0f})")
+
     # Computational Cost
-    print("\n⏱️  Computational Cost:")
+    print("\nComputational Cost:")
     print(f"  Time: {results.get('time_seconds_mean', 0):.1f}s "
-          f"(±{results.get('time_seconds_std', 0):.1f}s)")
-    
+          f"(+/-{results.get('time_seconds_std', 0):.1f}s)")
+
     # Model Size
-    print("\n📋 Learned Model:")
+    print("\nLearned Model:")
     print(f"  Global constraints: {results.get('num_global_constraints_mean', 0):.0f}")
     print(f"  Fixed constraints:  {results.get('num_fixed_constraints_mean', 0):.0f}")
     print(f"  Total:             {results.get('total_constraints_mean', 0):.0f}")
