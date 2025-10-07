@@ -1,0 +1,213 @@
+# HCAR Configuration Template
+# ===========================
+# Configuration file for running HCAR experiments
+# Copy and modify for your specific experiments
+
+# Experiment Metadata
+experiment:
+  name: "HCAR_Experiment_1"
+  description: "Full comparison on all benchmarks"
+  output_directory: "hcar_results"
+  timestamp: true  # Append timestamp to results
+
+# HCAR Algorithm Parameters
+hcar:
+  # Budget and Time Limits
+  total_budget: 500              # Total number of oracle queries allowed
+  max_time_seconds: 1800.0       # Maximum wall-clock time (30 minutes)
+  query_timeout: 30.0            # Timeout per query generation (seconds)
+  
+  # Confidence Thresholds
+  theta_min: 0.15                # Rejection threshold for constraints
+  theta_max: 0.85                # Acceptance threshold for constraints
+  
+  # Bayesian Update Parameters
+  alpha: 0.1                     # Oracle noise parameter
+  beta_positive: 0.7             # Update weight for positive evidence
+  beta_negative: 0.3             # Update weight for negative evidence
+  
+  # Intelligent Subset Exploration
+  max_subset_depth: 3            # Maximum depth for subset exploration
+  subset_generation_strategy: "intelligent"  # Options: "intelligent", "heuristic"
+  
+  # Culprit Score Weights (for intelligent exploration)
+  culprit_score_weights:
+    structural_isolation: 0.4    # Weight for structural isolation metric
+    weak_constraint_support: 0.3 # Weight for weak support metric
+    value_pattern_deviation: 0.3 # Weight for pattern deviation metric
+  
+  # Budget Allocation
+  base_budget_per_constraint: 10 # Base budget for each constraint
+  uncertainty_weight: 0.5        # Weight for uncertainty-based allocation
+  budget_redistribution: true    # Redistribute unused budget
+  
+  # Machine Learning Prior
+  enable_ml_prior: true          # Use ML for prior estimation
+  ml_model: "xgboost"            # Options: "xgboost", "random_forest", "heuristic"
+  ml_model_path: null            # Path to pre-trained model (optional)
+  
+  # Phase 3 (Active Learning)
+  use_mquacq: true               # Use MQuAcq-2 for Phase 3
+  mquacq_timeout: 600.0          # Timeout for Phase 3 (seconds)
+
+# Benchmarks Configuration
+benchmarks:
+  # Which benchmarks to run
+  enabled:
+    - "Sudoku"
+    - "UEFA"
+    - "VM_Allocation"
+    - "Exam_Timetabling"
+    - "Nurse_Rostering"
+  
+  # Number of initial positive examples
+  num_initial_examples: 5
+  
+  # Benchmark-specific parameters
+  sudoku:
+    size: 9  # 9x9 Sudoku
+    difficulty: "medium"
+  
+  uefa:
+    num_teams: 32
+    num_groups: 8
+  
+  vm_allocation:
+    num_vms: 20
+    num_pms: 10
+  
+  exam_timetabling:
+    num_exams: 30
+    num_timeslots: 10
+  
+  nurse_rostering:
+    num_nurses: 15
+    num_days: 7
+    num_shifts: 3
+
+# Method Variants to Compare
+methods:
+  enabled:
+    - "HCAR-Advanced"     # Proposed method with all features
+    - "HCAR-Heuristic"    # Baseline with positional heuristics
+    - "HCAR-NoRefine"     # Ablation without Phase 2
+    # - "MQuAcq-2"        # Pure active learning (may timeout)
+  
+  # Method-specific overrides
+  HCAR-Advanced:
+    # Uses default HCAR config above
+    enable_ml_prior: true
+    subset_generation_strategy: "intelligent"
+  
+  HCAR-Heuristic:
+    # Disable ML, use simple heuristics
+    enable_ml_prior: false
+    subset_generation_strategy: "heuristic"
+  
+  HCAR-NoRefine:
+    # Skip Phase 2 entirely
+    total_budget: 0  # No refinement queries
+    max_subset_depth: 0
+
+# Evaluation Configuration
+evaluation:
+  # Metrics to compute
+  metrics:
+    - "s_precision"      # Solution-space Precision
+    - "s_recall"         # Solution-space Recall
+    - "queries_phase2"   # Queries in refinement
+    - "queries_phase3"   # Queries in active learning
+    - "queries_total"    # Total queries
+    - "time_seconds"     # Wall-clock time
+    - "num_constraints"  # Learned model size
+  
+  # Solution sampling for evaluation
+  num_sample_solutions: 100  # Number of solutions to sample for metrics
+  sampling_timeout: 60.0     # Timeout for solution sampling
+  
+  # Number of runs per configuration
+  num_runs: 3
+  
+  # Statistical reporting
+  report_mean: true
+  report_std: true
+  report_confidence_interval: true
+  confidence_level: 0.95
+
+# Output Configuration
+output:
+  # File formats
+  save_json: true
+  save_csv: true
+  save_latex: true  # Generate LaTeX table
+  
+  # Verbosity
+  log_level: "INFO"  # Options: "DEBUG", "INFO", "WARNING", "ERROR"
+  log_to_file: true
+  log_file: "hcar_experiment.log"
+  
+  # Detailed outputs
+  save_learned_models: true
+  save_query_traces: false     # Warning: Can be very large
+  save_confidence_evolution: true
+
+# Reproducibility
+reproducibility:
+  random_seed: 42
+  deterministic_solver: true
+  parallel_execution: false  # Set true for faster experiments (less reproducible)
+
+# Advanced Options
+advanced:
+  # Query Generation
+  query_generation_strategy: "projection"  # Options: "projection", "basic"
+  use_query_diversity: true
+  
+  # Constraint Extraction (Phase 1)
+  pattern_detection_method: "modelseeker"  # Options: "modelseeker", "custom"
+  global_constraint_types:
+    - "AllDifferent"
+    - "Sum"
+    - "Count"
+  
+  # Fixed-arity bias
+  max_arity: 3  # Maximum arity for fixed-arity constraints
+  use_bias_pruning: true
+  
+  # Performance optimizations
+  cache_solver_results: true
+  parallel_query_generation: false
+  
+  # Experimental features
+  enable_noise_handling: true
+  adaptive_budget_allocation: true
+  early_stopping: true
+
+# Baselines Configuration (for comparison)
+baselines:
+  MQuAcq-2:
+    enabled: false
+    timeout: 3600.0  # 1 hour (may still not complete)
+    max_queries: 10000
+  
+  Pure-Passive:
+    enabled: false
+    method: "modelseeker"
+  
+  Random-Queries:
+    enabled: false
+    num_queries: 500
+
+# Plotting and Visualization
+visualization:
+  generate_plots: true
+  plot_formats: ["png", "pdf"]
+  
+  plots_to_generate:
+    - "confidence_evolution"      # How confidence changes over time
+    - "query_efficiency"          # Queries vs. accuracy
+    - "comparison_bar_chart"      # Method comparison
+    - "subset_exploration_tree"   # Visualization of subset exploration
+  
+  plot_style: "seaborn"  # Options: "matplotlib", "seaborn", "ggplot"
+

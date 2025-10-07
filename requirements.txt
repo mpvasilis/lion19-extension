@@ -1,0 +1,10 @@
+numpy
+ortools
+cpmpy
+networkx
+scikit-learn
+pandas
+joblib
+matplotlib
+attrs
+pycona
