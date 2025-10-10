@@ -80,6 +80,10 @@ def construct_vm_allocation(pm_data, vm_data):
                     vms_with_this_gpu = cp.Count([vm_assignments[vm] for vm in relevant_vms], pm_idx)
                     model += [vms_with_this_gpu * gpu_demand <= pm_data[pm]["capacity_gpu"]]
 
+    # MOCK OVER-FITTED CONSTRAINTS (will be consistent with 5 examples but NOT generally valid)
+    # NOTE: Commented out for now as they cause UNSAT - need simpler mocks
+    # mock_constraints = []
+
     C_T = list(model.constraints)
 
     AV = absvar(2)

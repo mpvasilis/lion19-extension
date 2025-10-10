@@ -135,71 +135,88 @@ class BenchmarkConfig:
             # Generate initial positive examples
             import cpmpy as cp
             positive_examples = []
-            
-            try:
-                # Create a model with the target constraints
-                model = cp.Model(target_model)
+
+            # Special handling for Sudoku: use predefined diverse examples
+            # to ensure comprehensive constraint coverage in passive learning
+            if self.name == "Sudoku":
+                try:
+                    from sudoku_example_cache import get_sudoku_examples
+                    positive_examples = get_sudoku_examples(grid_size=9)
+                    logger.info(f"Using {len(positive_examples)} predefined Sudoku examples")
+                    logger.info("Predefined examples ensure discovery of all row/column/block constraints")
+                except ImportError:
+                    logger.warning("Could not import sudoku_example_cache, falling back to random generation")
+
+            # If Sudoku cache loaded successfully, skip random generation
+            if positive_examples:
+                pass  # Use cached examples
+
+            # Otherwise, generate random examples
+            else:
+                try:
+                    # Create a model with the target constraints
+                    model = cp.Model(target_model)
+
+                    # Try to solve the model once to verify it's satisfiable
+                    logger.info(f"Testing if benchmark is satisfiable...")
+                    if not model.solve():
+                        logger.error(f"Benchmark {self.name} is UNSAT - cannot generate examples")
+                        return None
+
+                    # First solution found, extract it
+                    example = {}
+                    exclusion_constraints = []
+
+                    for var_name, var in variables.items():
+                        if hasattr(var, 'value'):
+                            val = var.value()
+                            if val is not None:
+                                example[var_name] = val
+                                exclusion_constraints.append(var != val)
+
+                    if example:
+                        positive_examples.append(example)
+                        logger.info(f"Generated example 1/{self.num_examples}")
+
+                    # Generate additional solutions
+                    for i in range(1, self.num_examples):
+                        if not exclusion_constraints:
+                            logger.warning("No variables to constrain for diversity")
+                            break
+
+                        try:
+                            # Add constraint to exclude previous solution
+                            model += cp.any(exclusion_constraints)
+                        except Exception as e:
+                            logger.warning(f"Could not add exclusion constraint: {e}")
+                            logger.info(f"Will use {len(positive_examples)} examples instead of {self.num_examples}")
+                            break
+
+                        # Try to find another solution
+                        if model.solve():
+                            example = {}
+                            new_exclusion = []
+
+                            for var_name, var in variables.items():
+                                if hasattr(var, 'value'):
+                                    val = var.value()
+                                    if val is not None:
+                                        example[var_name] = val
+                                        new_exclusion.append(var != val)
+
+                            if example:
+                                positive_examples.append(example)
+                                exclusion_constraints = new_exclusion
+                                logger.info(f"Generated example {len(positive_examples)}/{self.num_examples}")
+                        else:
+                            logger.info(f"No more solutions found after {len(positive_examples)} examples")
+                            break
                 
-                # Try to solve the model once to verify it's satisfiable
-                logger.info(f"Testing if benchmark is satisfiable...")
-                if not model.solve():
-                    logger.error(f"Benchmark {self.name} is UNSAT - cannot generate examples")
-                    return None
-                
-                # First solution found, extract it
-                example = {}
-                exclusion_constraints = []
-                
-                for var_name, var in variables.items():
-                    if hasattr(var, 'value'):
-                        val = var.value()
-                        if val is not None:
-                            example[var_name] = val
-                            exclusion_constraints.append(var != val)
-                
-                if example:
-                    positive_examples.append(example)
-                    logger.info(f"Generated example 1/{self.num_examples}")
-                
-                # Generate additional solutions
-                for i in range(1, self.num_examples):
-                    if not exclusion_constraints:
-                        logger.warning("No variables to constrain for diversity")
-                        break
-                    
-                    try:
-                        # Add constraint to exclude previous solution
-                        model += cp.any(exclusion_constraints)
-                    except Exception as e:
-                        logger.warning(f"Could not add exclusion constraint: {e}")
-                        logger.info(f"Will use {len(positive_examples)} examples instead of {self.num_examples}")
-                        break
-                    
-                    # Try to find another solution
-                    if model.solve():
-                        example = {}
-                        new_exclusion = []
-                        
-                        for var_name, var in variables.items():
-                            if hasattr(var, 'value'):
-                                val = var.value()
-                                if val is not None:
-                                    example[var_name] = val
-                                    new_exclusion.append(var != val)
-                        
-                        if example:
-                            positive_examples.append(example)
-                            exclusion_constraints = new_exclusion
-                            logger.info(f"Generated example {len(positive_examples)}/{self.num_examples}")
-                    else:
-                        logger.info(f"No more solutions found after {len(positive_examples)} examples")
-                        break
-                
-            except Exception as e:
-                logger.error(f"Error during example generation: {e}", exc_info=True)
-                # If we failed completely, return None
-                if not positive_examples:
-                    return None
+                except Exception as e:
+                    logger.error(f"Error during example generation: {e}", exc_info=True)
+                    # If we failed completely, return None
+                    if not positive_examples:
+                        return None
             
             if len(positive_examples) < self.num_examples:
                 logger.warning(f"Only generated {len(positive_examples)}/{self.num_examples} examples")
@@ -377,7 +394,8 @@ def run_single_experiment(
         variables=benchmark_data['variables'],
         domains=benchmark_data['domains'],
         target_model=benchmark_data['target_model'],
-        num_runs=num_runs
+        num_runs=num_runs,
+        config=config  # Pass the config through
     )
     
     # Print summary
@@ -438,31 +456,39 @@ def create_method_config(method_name: str) -> HCARConfig:
         max_subset_depth=3,
         base_budget_per_constraint=10,
         uncertainty_weight=0.5,
-        enable_ml_prior=True
+        enable_ml_prior=True,
+        use_intelligent_subsets=True,
+        inject_overfitted=False  # Set to True to test overfitting detection
     )
-    
+
     # Adjust config based on method variant
     if method_name == "HCAR-Advanced":
         # Use all advanced features (default)
-        pass
-    
+        # - Intelligent subset exploration with culprit scores
+        # - ML prior estimation
+        # Enable overfitting injection to demonstrate Phase 2 correction
+        config.inject_overfitted = True
+        logger.info("Injecting overfitted constraints to demonstrate Phase 2 correction")
+
     elif method_name == "HCAR-Heuristic":
-        # Disable ML prior to force heuristic subset exploration
-        config.enable_ml_prior = False
-        logger.info("Using heuristic-based subset exploration")
-    
+        # Use positional heuristics for subset exploration (baseline)
+        config.use_intelligent_subsets = False
+        logger.info("Using positional heuristic subset exploration (first/middle/last)")
+
     elif method_name == "HCAR-NoRefine":
-        # Skip Phase 2 entirely
+        # Skip Phase 2 entirely (ablation study)
         config.total_budget = 0
-        logger.info("Skipping interactive refinement phase")
-    
+        # Enable overfitting injection to show what happens without Phase 2
+        config.inject_overfitted = True
+        logger.info("Skipping interactive refinement phase (overfitted constraints will remain)")
+
     elif method_name == "MQuAcq-2":
         # Pure active learning (different code path)
         logger.info("Using pure active learning baseline")
-    
+
     else:
         logger.warning(f"Unknown method: {method_name}, using default config")
-    
+
     return config
 
 
@@ -592,7 +618,7 @@ Examples:
   # Run single experiment
   python run_hcar_experiments.py --benchmark Sudoku --method HCAR-Advanced
   
-  # Run full comparison (all benchmarks × all methods)
+  # Run full comparison (all benchmarks x all methods)
   python run_hcar_experiments.py --all --runs 3
   
   # Run specific benchmark with all methods

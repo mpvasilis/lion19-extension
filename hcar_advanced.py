@@ -96,16 +96,25 @@ class HCARConfig:
     
     # Subset exploration
     max_subset_depth: int = 3  # Maximum depth for subset exploration
-    
+    use_intelligent_subsets: bool = True  # Use intelligent culprit scores (False = positional heuristics)
+    use_counterexample_repair: bool = True  # Use counterexample-driven minimal repair (most advanced)
+
     # Budget allocation
     base_budget_per_constraint: int = 10
     uncertainty_weight: float = 0.5
     
     # Phase 3 (Active learning)
     use_mquacq: bool = True  # Use MQuAcq-2 for Phase 3
-    
+
+    # Experimental validation
+    inject_overfitted: bool = False  # Inject deliberate overfitted constraints for testing
+
     # Feature extraction for ML
     enable_ml_prior: bool = True
+
+    # Domain expert hints (optional)
+    domain_hints: Optional[Dict] = None
+    enable_hint_normalization: bool = True
 
 
 class FeatureExtractor:
@@ -266,14 +275,584 @@ class MLPriorEstimator:
         return [features.get(name, 0.0) for name in feature_names]
 
 
+class CounterexampleRepair:
+    """
+    Implements counterexample-driven minimal repair mechanism.
+
+    When a constraint is refuted by a counterexample, this class:
+    1. Analyzes which variables cause the violation
+    2. Generates minimal repair hypotheses (remove minimum variables)
+    3. Filters repairs for consistency with positive examples
+    4. Ranks repairs using ML prior and structural metrics
+
+    This is more principled than heuristic culprit scores as it uses
+    the actual counterexample to identify conflicts.
+    """
+
+    @staticmethod
+    def repair_from_counterexample(
+        rejected_constraint: Constraint,
+        counterexample: Dict,
+        positive_examples: List[Dict],
+        learned_globals: List[Constraint],
+        config: HCARConfig,
+        variables: Dict[str, Any] = None,
+        ml_prior: 'MLPriorEstimator' = None
+    ) -> List[Constraint]:
+        """
+        Generate minimal repair hypotheses from counterexample.
+
+        Args:
+            rejected_constraint: The constraint refuted by counterexample
+            counterexample: The valid solution that violates the constraint
+            positive_examples: Original positive examples (for consistency check)
+            learned_globals: Already validated constraints
+            config: HCAR configuration
+            variables: Variable objects dict
+            ml_prior: ML prior estimator for ranking
+
+        Returns:
+            List of repair hypotheses, ranked by plausibility
+        """
+        if rejected_constraint.level >= config.max_subset_depth:
+            logger.info(f"Max subset depth reached for {rejected_constraint.id}")
+            return []
+
+        scope = rejected_constraint.scope
+        if len(scope) <= 2:
+            logger.info(f"Scope too small for repair: {rejected_constraint.id}")
+            return []
+
+        # Step 1: Identify variables causing violation in counterexample
+        violating_vars = CounterexampleRepair._identify_violating_variables(
+            rejected_constraint, counterexample, variables
+        )
+
+        if not violating_vars:
+            logger.warning(f"Could not identify violating variables for {rejected_constraint.id}")
+            return []
+
+        logger.info(f"Counterexample analysis: violating variables = {violating_vars}")
+
+        # Step 2: Generate minimal repair hypotheses
+        repair_hypotheses = CounterexampleRepair._generate_minimal_repairs(
+            rejected_constraint, violating_vars, counterexample, variables
+        )
+
+        logger.info(f"Generated {len(repair_hypotheses)} minimal repair hypotheses")
+
+        # Step 3: Filter for consistency with positive examples
+        consistent_repairs = CounterexampleRepair._filter_consistent_repairs(
+            repair_hypotheses, positive_examples
+        )
+
+        logger.info(f"Filtered to {len(consistent_repairs)} repairs consistent with E+")
+
+        if not consistent_repairs:
+            return []
+
+        # Step 4: Rank repairs by plausibility
+        ranked_repairs = CounterexampleRepair._rank_repairs(
+            consistent_repairs, positive_examples, ml_prior
+        )
+
+        # Return top-k repairs (limit to avoid bias pollution)
+        max_repairs = min(2, len(ranked_repairs))
+        top_repairs = ranked_repairs[:max_repairs]
+
+        for i, repair in enumerate(top_repairs):
+            logger.info(f"  Repair {i+1}: {repair.id} (score={repair.confidence:.3f})")
+
+        return top_repairs
+
+    @staticmethod
+    def _identify_violating_variables(
+        constraint: Constraint,
+        counterexample: Dict,
+        variables: Dict[str, Any]
+    ) -> List[str]:
+        """
+        Identify which variables in the scope cause the violation.
+
+        For AllDifferent: find variables with duplicate values (precise)
+        For Sum: use contribution analysis + statistical outliers (principled)
+        For Count: use direct violation analysis (precise)
+        """
+        scope = constraint.scope
+        constraint_type = constraint.constraint_type
+        violating_vars = []
+
+        # Extract values from counterexample
+        values = {}
+        for var_name in scope:
+            if var_name in counterexample:
+                values[var_name] = counterexample[var_name]
+
+        if len(values) != len(scope):
+            return []  # Incomplete assignment
+
+        if constraint_type == "AllDifferent":
+            # PRECISE: Find variables with duplicate values
+            value_to_vars = {}
+            for var, val in values.items():
+                if val not in value_to_vars:
+                    value_to_vars[val] = []
+                value_to_vars[val].append(var)
+
+            # Variables involved in duplicates are violating
+            for val, vars_with_val in value_to_vars.items():
+                if len(vars_with_val) > 1:
+                    violating_vars.extend(vars_with_val)
+
+        elif constraint_type == "Sum":
+            # PRINCIPLED: Contribution analysis for Sum constraints
+            violating_vars = CounterexampleRepair._identify_violating_vars_sum(
+                constraint, values
+            )
+
+        elif constraint_type == "Count":
+            # PRECISE: Direct violation analysis for Count constraints
+            violating_vars = CounterexampleRepair._identify_violating_vars_count(
+                constraint, values
+            )
+
+        return list(set(violating_vars))
+
+    @staticmethod
+    def _identify_violating_vars_sum(
+        constraint: Constraint,
+        values: Dict[str, int]
+    ) -> List[str]:
+        """
+        Identify violating variables for Sum constraints using contribution analysis.
+
+        Strategy:
+        1. Calculate actual sum and violation amount
+        2. Find variables whose removal would fix the violation (contribution analysis)
+        3. Fallback to statistical outliers if contribution analysis fails
+        """
+        var_list = list(values.keys())
+        val_list = [values[v] for v in var_list]
+
+        if not val_list:
+            return []
+
+        actual_sum = sum(val_list)
+
+        # Extract bound and operator from constraint
+        # Try to parse CPMpy constraint object
+        bound = None
+        operator = None
+
+        try:
+            # CPMpy constraints have structure like: sum(vars) <= bound
+            constraint_obj = constraint.constraint
+            if hasattr(constraint_obj, 'args'):
+                # Look for comparison operators
+                if hasattr(constraint_obj, '__class__'):
+                    op_name = constraint_obj.__class__.__name__
+                    if 'LessEqual' in op_name or '<=' in str(constraint_obj):
+                        operator = '<='
+                        # Try to extract bound from args
+                        for arg in constraint_obj.args:
+                            if isinstance(arg, (int, float)):
+                                bound = arg
+                    elif 'Equal' in op_name or '==' in str(constraint_obj):
+                        operator = '=='
+                        for arg in constraint_obj.args:
+                            if isinstance(arg, (int, float)):
+                                bound = arg
+        except:
+            pass
+
+        # If we have bound and operator, use contribution analysis
+        if bound is not None:
+            violation_amount = actual_sum - bound if operator == '<=' else abs(actual_sum - bound)
+
+            if violation_amount > 0:
+                # Find variables that could fix violation if removed
+                candidates = []
+                for var in var_list:
+                    var_value = values[var]
+                    # If removing this variable would fix or reduce violation significantly
+                    if var_value >= violation_amount * 0.5:  # At least 50% of violation
+                        candidates.append(var)
+
+                if candidates:
+                    return candidates
+
+        # FALLBACK: Statistical outlier detection
+        mean_val = sum(val_list) / len(val_list)
+        std_val = (sum((v - mean_val)**2 for v in val_list) / len(val_list))**0.5
+
+        outliers = []
+        for var in var_list:
+            if std_val > 0 and abs(values[var] - mean_val) > std_val:
+                outliers.append(var)
+
+        # If no outliers, take variables with extreme values
+        if not outliers:
+            max_val = max(val_list)
+            min_val = min(val_list)
+            for var in var_list:
+                if values[var] == max_val or values[var] == min_val:
+                    outliers.append(var)
+
+        return outliers
+
+    @staticmethod
+    def _identify_violating_vars_count(
+        constraint: Constraint,
+        values: Dict[str, int]
+    ) -> List[str]:
+        """
+        Identify violating variables for Count constraints using direct violation analysis.
+
+        Strategy:
+        1. Determine target value and expected count
+        2. If actual_count > expected: return variables WITH target value
+        3. If actual_count < expected: return variables WITHOUT target value
+        """
+        var_list = list(values.keys())
+
+        # Extract target value and bound from constraint
+        target_value = None
+        bound = None
+        operator = None
+
+        try:
+            # CPMpy Count constraints: Count(vars, value) op bound
+            constraint_obj = constraint.constraint
+            constraint_str = str(constraint_obj)
+
+            # Try to parse from string representation
+            # Example: "Count([x1, x2, x3], 5) == 2"
+            if 'Count' in constraint_str:
+                # Extract target value (number after variables list)
+                # Need to handle nested brackets: Count([x1, x2], 5)
+                import re
+                match = re.search(r'Count\(.+?,\s*(\d+)\)', constraint_str)
+                if match:
+                    target_value = int(match.group(1))
+
+                # Extract operator and bound
+                if '<=' in constraint_str:
+                    operator = '<='
+                    match = re.search(r'<=\s*(\d+)', constraint_str)
+                    if match:
+                        bound = int(match.group(1))
+                elif '==' in constraint_str:
+                    operator = '=='
+                    match = re.search(r'==\s*(\d+)', constraint_str)
+                    if match:
+                        bound = int(match.group(1))
+        except:
+            pass
+
+        # If we couldn't extract parameters, fallback to statistical analysis
+        if target_value is None or bound is None:
+            # Use statistical outlier detection as fallback
+            val_list = [values[v] for v in var_list]
+            mean_val = sum(val_list) / len(val_list)
+            std_val = (sum((v - mean_val)**2 for v in val_list) / len(val_list))**0.5
+
+            outliers = []
+            for var in var_list:
+                if std_val > 0 and abs(values[var] - mean_val) > std_val:
+                    outliers.append(var)
+
+            return outliers if outliers else var_list[:len(var_list)//2]
+
+        # DIRECT VIOLATION ANALYSIS
+        # Count how many variables have the target value
+        vars_with_value = [v for v in var_list if values[v] == target_value]
+        vars_without_value = [v for v in var_list if values[v] != target_value]
+        actual_count = len(vars_with_value)
+
+        if operator == '==' or operator == '<=':
+            if actual_count > bound:
+                # Too many variables have the target value
+                # Any of them could be removed
+                return vars_with_value
+            elif actual_count < bound and operator == '==':
+                # Too few variables have the target value
+                # Removing variables WITHOUT the value might help
+                return vars_without_value
+
+        # If analysis inconclusive, return all as candidates
+        return var_list
+
+    @staticmethod
+    def _generate_minimal_repairs(
+        parent: Constraint,
+        violating_vars: List[str],
+        counterexample: Dict,
+        variables: Dict[str, Any]
+    ) -> List[Constraint]:
+        """
+        Generate minimal repair hypotheses by removing violating variables.
+
+        Strategy: For each violating variable, create a repair by removing it.
+        These are minimal in the sense that we remove single variables.
+        """
+        repairs = []
+
+        for var_to_remove in violating_vars:
+            new_scope = [v for v in parent.scope if v != var_to_remove]
+
+            if len(new_scope) < 2:
+                continue
+
+            # Create repair hypothesis
+            repair = IntelligentSubsetExplorer._create_subset_constraint(
+                parent, new_scope, var_to_remove, variables
+            )
+
+            if repair:
+                repairs.append(repair)
+
+        return repairs
+
+    @staticmethod
+    def _filter_consistent_repairs(
+        repairs: List[Constraint],
+        positive_examples: List[Dict]
+    ) -> List[Constraint]:
+        """
+        Filter repairs: keep only those consistent with positive examples E+.
+        """
+        consistent = []
+
+        for repair in repairs:
+            is_consistent = True
+
+            for example in positive_examples:
+                # Check if repair holds on this example
+                if not CounterexampleRepair._check_constraint_on_example(repair, example):
+                    is_consistent = False
+                    break
+
+            if is_consistent:
+                consistent.append(repair)
+
+        return consistent
+
+    @staticmethod
+    def _check_constraint_on_example(constraint: Constraint, example: Dict) -> bool:
+        """Check if constraint is satisfied by example."""
+        scope = constraint.scope
+        constraint_type = constraint.constraint_type
+
+        # Extract values
+        values = []
+        for var in scope:
+            if var in example:
+                values.append(example[var])
+            else:
+                return True  # Cannot check, assume consistent
+
+        if len(values) != len(scope):
+            return True
+
+        # Check based on type
+        if constraint_type == "AllDifferent":
+            return len(values) == len(set(values))
+
+        elif constraint_type == "Sum":
+            # Extract constant from constraint ID
+            import re
+            match = re.search(r'_(\d+)', constraint.id)
+            if match:
+                constant = int(match.group(1))
+                actual_sum = sum(values)
+                if 'leq' in constraint.id:
+                    return actual_sum <= constant
+                else:
+                    return actual_sum == constant
+
+        elif constraint_type == "Count":
+            # Extract value and constant from constraint ID
+            import re
+            match = re.search(r'val(\d+)_cnt(\d+)', constraint.id)
+            if match:
+                target_value = int(match.group(1))
+                constant = int(match.group(2))
+                count = values.count(target_value)
+                if 'leq' in constraint.id:
+                    return count <= constant
+                else:
+                    return count == constant
+
+        return True
+
+    @staticmethod
+    def _rank_repairs(
+        repairs: List[Constraint],
+        positive_examples: List[Dict],
+        ml_prior: 'MLPriorEstimator' = None
+    ) -> List[Constraint]:
+        """
+        Rank repair hypotheses by plausibility score.
+
+        Score combines:
+        1. ML prior (if available)
+        2. Arity (prefer larger scopes - closer to original)
+        3. Structural metrics
+        4. Frequency analysis on E+ (how consistent removed variable is)
+        """
+        scored_repairs = []
+
+        for repair in repairs:
+            score = 0.0
+
+            # 1. ML Prior (30% weight)
+            if ml_prior:
+                try:
+                    prior = ml_prior.estimate_prior(repair)
+                    score += 0.3 * prior
+                except:
+                    score += 0.3 * 0.5  # Default
+
+            # 2. Arity preference (25% weight) - prefer larger scopes
+            max_arity = max(r.arity for r in repairs) if repairs else 1
+            if max_arity > 0:
+                score += 0.25 * (repair.arity / max_arity)
+
+            # 3. Structural coherence (25% weight)
+            # Prefer constraints where variables have similar naming patterns
+            structural_score = CounterexampleRepair._structural_coherence(repair.scope)
+            score += 0.25 * structural_score
+
+            # 4. Frequency consistency (20% weight)
+            # Prefer repairs where removed variable shows inconsistent pattern in E+
+            if positive_examples and hasattr(repair, 'parent_id'):
+                # Find which variable was removed (compare with parent)
+                parent_scope = None
+                for other_repair in repairs:
+                    if other_repair.parent_id and len(other_repair.scope) > len(repair.scope):
+                        parent_scope = other_repair.scope
+                        break
+
+                if parent_scope:
+                    removed_var = [v for v in parent_scope if v not in repair.scope]
+                    if removed_var:
+                        freq_score = CounterexampleRepair._frequency_consistency(
+                            removed_var[0], repair, positive_examples
+                        )
+                        score += 0.2 * freq_score
+                else:
+                    score += 0.2 * 0.5  # Neutral if cannot determine
+
+            repair.confidence = score
+            scored_repairs.append((score, repair))
+
+        # Sort by score (descending)
+        scored_repairs.sort(key=lambda x: x[0], reverse=True)
+
+        return [repair for score, repair in scored_repairs]
+
+    @staticmethod
+    def _frequency_consistency(
+        removed_var: str,
+        repair: Constraint,
+        positive_examples: List[Dict]
+    ) -> float:
+        """
+        Calculate frequency consistency score for removed variable.
+
+        Higher score = variable shows inconsistent pattern in E+,
+        indicating it was correctly identified as spurious.
+
+        For Sum/Count: Check if removed variable has unusual values/behavior.
+        For AllDifferent: Not applicable (already precisely identified).
+        """
+        if not positive_examples or removed_var not in positive_examples[0]:
+            return 0.5  # Neutral
+
+        constraint_type = repair.constraint_type
+
+        if constraint_type == "AllDifferent":
+            # AllDifferent already has precise identification
+            return 0.5  # Neutral
+
+        # Extract values of removed variable across E+
+        removed_var_values = []
+        for ex in positive_examples:
+            if removed_var in ex:
+                removed_var_values.append(ex[removed_var])
+
+        if not removed_var_values:
+            return 0.5
+
+        # Extract values of remaining variables in repair scope
+        remaining_values = []
+        for var in repair.scope:
+            for ex in positive_examples:
+                if var in ex:
+                    remaining_values.append(ex[var])
+
+        if not remaining_values:
+            return 0.5
+
+        # Calculate statistics
+        removed_mean = sum(removed_var_values) / len(removed_var_values)
+        removed_std = (sum((v - removed_mean)**2 for v in removed_var_values) / len(removed_var_values))**0.5
+
+        remaining_mean = sum(remaining_values) / len(remaining_values)
+        remaining_std = (sum((v - remaining_mean)**2 for v in remaining_values) / len(remaining_values))**0.5
+
+        # If removed variable has significantly different distribution, higher score
+        if remaining_std > 0 and removed_std > 0:
+            mean_diff = abs(removed_mean - remaining_mean) / max(remaining_mean, 1)
+            std_ratio = abs(removed_std - remaining_std) / max(remaining_std, 1)
+
+            # Normalize to [0, 1]
+            consistency_score = min(1.0, (mean_diff + std_ratio) / 2)
+            return consistency_score
+
+        return 0.5
+
+    @staticmethod
+    def _structural_coherence(scope: List[str]) -> float:
+        """
+        Measure structural coherence of variable names in scope.
+        Higher = more coherent (similar naming patterns).
+        """
+        if len(scope) <= 1:
+            return 1.0
+
+        import re
+
+        # Extract naming patterns
+        patterns = []
+        for var in scope:
+            # Extract prefix and indices
+            match = re.match(r'^([a-zA-Z_]+?)[\[\(]?(\d+)', var)
+            if match:
+                patterns.append(match.group(1))
+
+        if not patterns:
+            return 0.5
+
+        # Calculate coherence: fraction with same prefix
+        from collections import Counter
+        counts = Counter(patterns)
+        most_common_count = counts.most_common(1)[0][1] if counts else 0
+
+        return most_common_count / len(patterns)
+
+
 class IntelligentSubsetExplorer:
     """
     Implements the Intelligent Subset Exploration mechanism.
-    
+
     Uses data-driven "culprit scores" to identify the most likely
     incorrect variable in a rejected constraint's scope.
+
+    NOTE: This is the original heuristic-based approach.
+    CounterexampleRepair is the newer, more principled approach.
     """
-    
+
     @staticmethod
     def generate_informed_subsets(
         rejected_constraint: Constraint,
@@ -539,6 +1118,87 @@ class IntelligentSubsetExplorer:
         return new_constraint
 
 
+class HeuristicSubsetExplorer:
+    """
+    Implements the Heuristic Subset Exploration mechanism (baseline).
+
+    Uses simple positional heuristics (first/middle/last) to identify
+    which variable to remove from a rejected constraint's scope.
+
+    This is the baseline approach to demonstrate that intelligent
+    culprit scores outperform blind positional guessing.
+    """
+
+    @staticmethod
+    def generate_informed_subsets(
+        rejected_constraint: Constraint,
+        positive_examples: List[Dict],
+        learned_globals: List[Constraint],
+        config: HCARConfig,
+        variables: Dict[str, Any] = None
+    ) -> List[Constraint]:
+        """
+        Generate subsets using positional heuristics.
+
+        Tries removing variables from first, middle, and last positions
+        without any data-driven analysis.
+
+        Args:
+            rejected_constraint: The constraint that was refuted
+            positive_examples: Initial positive examples (unused in heuristic)
+            learned_globals: Already validated global constraints (unused)
+            config: HCAR configuration
+            variables: Variable objects dict (for creating CPMpy constraints)
+
+        Returns:
+            List of new candidate constraints (subsets of original scope)
+        """
+        if rejected_constraint.level >= config.max_subset_depth:
+            logger.info(f"Max subset depth reached for {rejected_constraint.id}")
+            return []
+
+        scope = rejected_constraint.scope
+        if len(scope) <= 2:
+            logger.info(f"Scope too small to generate subsets for {rejected_constraint.id}")
+            return []
+
+        # POSITIONAL HEURISTIC: Try removing first, middle, or last variable
+        positions_to_try = []
+
+        # First position
+        positions_to_try.append(0)
+
+        # Middle position (if scope is large enough)
+        if len(scope) > 3:
+            positions_to_try.append(len(scope) // 2)
+
+        # Last position (only if we don't already have 2 positions)
+        if len(positions_to_try) < 2 and len(scope) > 2:
+            positions_to_try.append(len(scope) - 1)
+
+        logger.info(f"Heuristic exploration for {rejected_constraint.id}: "
+                   f"trying positions {positions_to_try} (first/middle/last)")
+
+        # Generate new candidates by removing variables at these positions
+        new_candidates = []
+
+        for position in positions_to_try:
+            removed_var = scope[position]
+            new_scope = [v for i, v in enumerate(scope) if i != position]
+
+            # Create new constraint with reduced scope
+            new_constraint = IntelligentSubsetExplorer._create_subset_constraint(
+                rejected_constraint, new_scope, removed_var, variables
+            )
+
+            if new_constraint:
+                new_candidates.append(new_constraint)
+                logger.info(f"  → Heuristic subset: removed {removed_var} "
+                           f"(position {position})")
+
+        return new_candidates
+
+
 class BayesianUpdater:
     """Bayesian confidence updating mechanism."""
     
@@ -551,34 +1211,40 @@ class BayesianUpdater:
         alpha: float = 0.1
     ) -> float:
         """
-        Update constraint confidence using Bayesian rule.
-        
+        Update constraint confidence using unified probabilistic belief update.
+
+        ROBUST TO NOISY ORACLES: Both oracle responses trigger probabilistic updates
+        rather than deterministic hard refutation. This makes the system resilient
+        to occasional oracle errors.
+
+        Formulas:
+        - If response == INVALID (evidence supports constraint):
+          P_new(c) = P_old(c) + (1 - P_old(c)) * (1 - alpha)
+        - If response == VALID (evidence refutes constraint):
+          P_new(c) = P_old(c) * alpha
+
         Args:
             current_prob: Current P(c)
-            query: The query assignment
+            query: The query assignment (unused, kept for interface compatibility)
             response: Oracle response (Valid/Invalid)
-            constraint: The constraint being tested
-            alpha: Noise parameter (probability of oracle error)
-        
+            constraint: The constraint being tested (unused, kept for interface)
+            alpha: Noise parameter (probability of oracle error), default 0.1
+
         Returns:
-            Updated probability
+            Updated probability in [0, 1]
         """
         if response == OracleResponse.INVALID:
             # Query violated constraint and was correctly rejected
             # This is positive evidence for the constraint
-            # P(c | evidence) ∝ P(evidence | c) * P(c)
-            likelihood = 1.0 - alpha  # High likelihood if c is true
-            new_prob = (likelihood * current_prob) / (
-                likelihood * current_prob + alpha * (1 - current_prob)
-            )
-            # Boost update
-            new_prob = current_prob + 0.7 * (new_prob - current_prob)
-        
+            # Increase confidence multiplicatively
+            new_prob = current_prob + (1 - current_prob) * (1 - alpha)
+
         else:  # response == OracleResponse.VALID
             # Query violated constraint but was accepted by oracle
-            # This is strong negative evidence - constraint is wrong
-            new_prob = 0.0  # Hard refutation
-        
+            # This is negative evidence - the constraint is likely wrong
+            # Decrease confidence multiplicatively (probabilistic, not hard refutation)
+            new_prob = current_prob * alpha
+
         return np.clip(new_prob, 0.0, 1.0)
 
 
@@ -687,7 +1353,15 @@ class HCARFramework:
         
         # Components
         self.ml_prior = MLPriorEstimator(config)
-        self.subset_explorer = IntelligentSubsetExplorer()
+
+        # Conditionally instantiate subset explorer based on config
+        if config.use_intelligent_subsets:
+            self.subset_explorer = IntelligentSubsetExplorer()
+            logger.info("Using IntelligentSubsetExplorer (data-driven culprit scores)")
+        else:
+            self.subset_explorer = HeuristicSubsetExplorer()
+            logger.info("Using HeuristicSubsetExplorer (positional heuristics)")
+
         self.query_generator = QueryGenerator(config)
         
         # State
@@ -727,10 +1401,14 @@ class HCARFramework:
         self.start_time = time.time()
         logger.info(f"=== Starting HCAR on {self.problem_name} ===")
         logger.info(f"Initial examples: {len(positive_examples)}")
-        
+
+        # Log ground truth constraints if available
+        if target_model is not None:
+            self._log_ground_truth(target_model, variables)
+
         # Store confirmed solutions
         self.confirmed_solutions = positive_examples.copy()
-        
+
         # Phase 1: Passive Candidate Generation
         logger.info("\n--- Phase 1: Passive Candidate Generation ---")
         self._phase1_passive_generation(positive_examples, variables, domains)
@@ -738,7 +1416,14 @@ class HCARFramework:
         # Phase 2: Query-Driven Interactive Refinement
         logger.info("\n--- Phase 2: Query-Driven Interactive Refinement ---")
         self._phase2_interactive_refinement(oracle_func, variables, domains)
-        
+
+        # HCAR-NoRefine: Accept all unvalidated globals without refinement
+        if self.config.total_budget == 0 and self.B_globals:
+            logger.info(f"NoRefine mode: Accepting all {len(self.B_globals)} global candidates without validation")
+            logger.info("WARNING: This may include over-fitted constraints (expected to degrade recall)")
+            self.C_validated_globals.extend(list(self.B_globals))
+            self.B_globals.clear()
+
         # Phase 3: Final Active Learning
         logger.info("\n--- Phase 3: Final Active Learning ---")
         self._phase3_active_learning(oracle_func, variables, domains, positive_examples, target_model)
@@ -765,6 +1450,47 @@ class HCARFramework:
         
         return final_model, metrics
     
+    def _log_ground_truth(self, target_model: List, variables: Dict[str, Any]):
+        """Log ground truth constraints to file for analysis."""
+        log_file = "ground_truth.log"
+        file_handler = logging.FileHandler(log_file, mode='w')
+        file_handler.setLevel(logging.INFO)
+        file_handler.setFormatter(logging.Formatter('%(message)s'))
+        logger.addHandler(file_handler)
+
+        logger.info("="*80)
+        logger.info("GROUND TRUTH CONSTRAINTS")
+        logger.info("="*80)
+        logger.info(f"Total constraints: {len(target_model)}")
+        logger.info("")
+
+        # Analyze constraint types
+        from collections import Counter
+        constraint_types = Counter()
+
+        for idx, c in enumerate(target_model):
+            constraint_str = str(c)
+            constraint_types[type(c).__name__] += 1
+
+            logger.info(f"{idx+1}. {constraint_str}")
+
+            # Try to extract more details
+            if hasattr(c, 'name'):
+                logger.info(f"   Name: {c.name}")
+            if hasattr(c, 'args'):
+                logger.info(f"   Args: {len(c.args)}")
+
+        logger.info("")
+        logger.info("Constraint Type Summary:")
+        for ctype, count in sorted(constraint_types.items()):
+            logger.info(f"  {ctype}: {count}")
+
+        logger.info("="*80)
+        logger.info(f"Ground truth log written to: {log_file}")
+
+        logger.removeHandler(file_handler)
+        file_handler.close()
+
     def _phase1_passive_generation(
         self,
         positive_examples: List[Dict],
@@ -791,7 +1517,12 @@ class HCARFramework:
         self.B_fixed = self._generate_fixed_bias_simple(
             variables, domains, positive_examples
         )
-        
+
+        # Inject overfitted constraints for experimental validation
+        if self.config.inject_overfitted:
+            logger.info(f"Config.inject_overfitted is True, calling injection method...")
+            self._inject_overfitted_constraints(positive_examples, variables, domains)
+
         logger.info(f"Phase 1 complete: {len(self.B_globals)} global candidates, "
                    f"{len(self.B_fixed)} fixed-arity candidates")
         
@@ -816,18 +1547,58 @@ class HCARFramework:
         2. Sum: Sum of variables equals/bounded by a constant
         3. Count: Count of value occurrences equals/bounded by a constant
         """
+        # Setup detailed logging to file
+        log_file = "pattern_detection.log"
+        file_handler = logging.FileHandler(log_file, mode='w')
+        file_handler.setLevel(logging.DEBUG)
+        file_handler.setFormatter(logging.Formatter('%(message)s'))
+        logger.addHandler(file_handler)
+
+        logger.info("="*80)
+        logger.info("PATTERN DETECTION - PHASE 1")
+        logger.info("="*80)
+        logger.info(f"Variables: {len(variables)}")
+        logger.info(f"Examples: {len(positive_examples)}")
+        logger.info("")
+
         candidates = set()
 
-        # 1. Extract AllDifferent constraints
-        candidates.update(self._extract_alldifferent_patterns(positive_examples, variables))
+        # 1. Extract AllDifferent constraints (standard patterns)
+        logger.info("--- Extracting AllDifferent Patterns ---")
+        alldiff = self._extract_alldifferent_patterns(positive_examples, variables)
+        candidates.update(alldiff)
+        logger.info(f"Found {len(alldiff)} AllDifferent candidates (row/col/block patterns)")
+        logger.info("")
+
+        # 1b. Extract cross-boundary AllDifferent patterns
+        logger.info("--- Extracting Cross-Boundary AllDifferent Patterns ---")
+        cross_boundary = self._extract_cross_boundary_alldiff(positive_examples, variables)
+        candidates.update(cross_boundary)
+        logger.info(f"Found {len(cross_boundary)} cross-boundary AllDifferent candidates")
+        logger.info("")
 
         # 2. Extract Sum constraints
-        candidates.update(self._extract_sum_patterns(positive_examples, variables, domains))
+        logger.info("--- Extracting Sum Patterns ---")
+        sum_constraints = self._extract_sum_patterns(positive_examples, variables, domains)
+        candidates.update(sum_constraints)
+        logger.info(f"Found {len(sum_constraints)} Sum candidates")
+        logger.info("")
 
         # 3. Extract Count constraints
-        candidates.update(self._extract_count_patterns(positive_examples, variables, domains))
+        logger.info("--- Extracting Count Patterns ---")
+        count_constraints = self._extract_count_patterns(positive_examples, variables, domains)
+        candidates.update(count_constraints)
+        logger.info(f"Found {len(count_constraints)} Count candidates")
+        logger.info("")
 
-        logger.info(f"  Extracted {len(candidates)} global constraint candidates")
+        logger.info(f"TOTAL: {len(candidates)} global constraint candidates")
+        logger.info("="*80)
+        logger.info(f"Detailed log written to: {log_file}")
+
+        # Remove file handler
+        logger.removeHandler(file_handler)
+        file_handler.close()
+
         return candidates
 
     def _extract_alldifferent_patterns(
@@ -839,16 +1610,38 @@ class HCARFramework:
         candidates = set()
 
         # Group variables by naming pattern (e.g., row, column, block)
+        logger.info("Grouping variables by pattern...")
         var_groups = self._group_variables_by_pattern(list(variables.keys()))
+        logger.info(f"Found {len(var_groups)} variable groups:")
+        for group_name in sorted(var_groups.keys()):
+            logger.info(f"  {group_name}: {len(var_groups[group_name])} variables")
 
-        for group_name, var_names in var_groups.items():
+        logger.info("")
+        logger.info("Checking AllDifferent property for each group:")
+
+        for group_name, var_names in sorted(var_groups.items()):
             if len(var_names) >= 2:
+                logger.info(f"\n  Group: {group_name} ({len(var_names)} vars)")
+                logger.info(f"    Variables: {var_names[:10]}{'...' if len(var_names) > 10 else ''}")
+
                 # Check if AllDifferent holds in all examples
                 holds_in_all = True
-                for example in positive_examples:
+                for ex_idx, example in enumerate(positive_examples):
                     values = [example.get(v) for v in var_names if v in example]
                     if len(values) == len(var_names):
-                        if len(values) != len(set(values)):
+                        unique_values = len(set(values))
+                        is_alldiff = (len(values) == unique_values)
+
+                        if ex_idx < 2:  # Log first 2 examples
+                            logger.info(f"    Example {ex_idx+1}: {len(values)} vars, {unique_values} unique -> {'PASS' if is_alldiff else 'FAIL'}")
+                            if not is_alldiff:
+                                # Find duplicates
+                                from collections import Counter
+                                counts = Counter(values)
+                                duplicates = {val: count for val, count in counts.items() if count > 1}
+                                logger.info(f"      Duplicates: {duplicates}")
+
+                        if not is_alldiff:
                             holds_in_all = False
                             break
 
@@ -872,9 +1665,126 @@ class HCARFramework:
                             confidence=0.5
                         )
                         candidates.add(candidate)
-                        logger.debug(f"  Found AllDifferent: {candidate.id} with {candidate.arity} variables")
+                        logger.info(f"    RESULT: ACCEPTED as candidate")
                     except Exception as e:
-                        logger.warning(f"Failed to create AllDifferent for {group_name}: {e}")
+                        logger.warning(f"    RESULT: FAILED to create - {e}")
+                else:
+                    reason = "too small" if len(var_names) <= 2 else "not all different"
+                    logger.info(f"    RESULT: REJECTED ({reason})")
+
+        return candidates
+
+    def _extract_cross_boundary_alldiff(
+        self,
+        positive_examples: List[Dict],
+        variables: Dict[str, Any]
+    ) -> Set[Constraint]:
+        """
+        Extract AllDifferent constraints that span across row/day boundaries.
+
+        Examples:
+        - Consecutive days: last shift of day X + first shift of day X+1
+        - Cross-shift patterns: specific combinations across shifts
+
+        This handles patterns that _group_variables_by_pattern cannot detect.
+        """
+        import re
+        candidates = set()
+
+        logger.info("Parsing variable indices...")
+
+        # Parse variable indices
+        var_indices = {}
+        for var_name in variables.keys():
+            nums = re.findall(r'\d+', var_name)
+            if len(nums) >= 3:
+                idx1, idx2, idx3 = int(nums[0]), int(nums[1]), int(nums[2])
+                var_indices[var_name] = (idx1, idx2, idx3)
+            elif len(nums) >= 2:
+                idx1, idx2 = int(nums[0]), int(nums[1])
+                var_indices[var_name] = (idx1, idx2, None)
+
+        if not var_indices:
+            logger.info("  No multi-dimensional variables found")
+            return candidates
+
+        # Determine dimensions
+        max_idx1 = max(idx[0] for idx in var_indices.values())
+        max_idx2 = max(idx[1] for idx in var_indices.values())
+
+        logger.info(f"  Variable structure: {len(var_indices)} vars with dimensions [{max_idx1+1}, {max_idx2+1}, ...]")
+
+        # Pattern 1: Consecutive "rows" or "days" with specific "columns" or "shifts"
+        # Example: last column of row X + first column of row X+1
+        logger.info("\n  Pattern: Consecutive rows/days with specific columns/shifts")
+
+        for idx1 in range(max_idx1):
+            # Try to find variables at "boundary" positions
+            # Last position in idx1, first position in idx1+1
+
+            # Collect variables with idx1 and last idx2 (max_idx2)
+            last_vars = [v for v, (i1, i2, i3) in var_indices.items()
+                        if i1 == idx1 and i2 == max_idx2]
+
+            # Collect variables with idx1+1 and first idx2 (0)
+            first_vars = [v for v, (i1, i2, i3) in var_indices.items()
+                         if i1 == idx1+1 and i2 == 0]
+
+            if not last_vars or not first_vars:
+                continue
+
+            combined_vars = last_vars + first_vars
+
+            if len(combined_vars) < 3:  # Need at least 3 for AllDifferent
+                continue
+
+            logger.info(f"\n    Testing boundary between {idx1} and {idx1+1}:")
+            logger.info(f"      Group: {len(combined_vars)} vars = {len(last_vars)} from [{idx1},{max_idx2}] + {len(first_vars)} from [{idx1+1},0]")
+
+            # Check if AllDifferent holds in all examples
+            holds_in_all = True
+            for ex_idx, example in enumerate(positive_examples):
+                values = [example.get(v) for v in combined_vars if v in example]
+                if len(values) == len(combined_vars):
+                    unique_values = len(set(values))
+                    is_alldiff = (len(values) == unique_values)
+
+                    if ex_idx < 2:  # Log first 2 examples
+                        logger.info(f"      Example {ex_idx+1}: {len(values)} vars, {unique_values} unique -> {'PASS' if is_alldiff else 'FAIL'}")
+                        if not is_alldiff:
+                            from collections import Counter
+                            counts = Counter(values)
+                            duplicates = {val: count for val, count in counts.items() if count > 1}
+                            logger.info(f"        Duplicates: {duplicates}")
+
+                    if not is_alldiff:
+                        holds_in_all = False
+                        break
+
+            if holds_in_all:
+                try:
+                    if CPMPY_AVAILABLE:
+                        from cpmpy import AllDifferent
+                        constraint_vars = [variables[v] for v in combined_vars if v in variables]
+                        constraint_obj = AllDifferent(constraint_vars)
+                    else:
+                        constraint_obj = None
+
+                    candidate = Constraint(
+                        id=f"alldiff_boundary_{idx1}_{idx1+1}",
+                        constraint=constraint_obj,
+                        scope=combined_vars,
+                        constraint_type="AllDifferent",
+                        arity=len(combined_vars),
+                        level=0,
+                        confidence=0.5
+                    )
+                    candidates.add(candidate)
+                    logger.info(f"      RESULT: ACCEPTED as candidate")
+                except Exception as e:
+                    logger.warning(f"      RESULT: FAILED to create - {e}")
+            else:
+                logger.info(f"      RESULT: REJECTED (not all different)")
 
         return candidates
 
@@ -985,12 +1895,23 @@ class HCARFramework:
         """
         candidates = set()
 
-        # Group variables by common prefix
-        var_groups = self._group_variables_by_prefix(list(variables.keys()))
+        logger.info("Detecting value frequency patterns...")
 
-        for group_name, var_names in var_groups.items():
+        # Strategy 1: Group variables by common prefix
+        logger.info("\nStrategy 1: Grouping by common prefix")
+        var_groups = self._group_variables_by_prefix(list(variables.keys()))
+        logger.info(f"Found {len(var_groups)} prefix groups")
+
+        # Strategy 2: Use ALL variables as one group (for global count constraints)
+        logger.info("\nStrategy 2: Checking global count patterns")
+        var_groups['all_vars'] = list(variables.keys())
+        logger.info(f"Added 'all_vars' group with {len(var_groups['all_vars'])} variables")
+
+        for group_name, var_names in sorted(var_groups.items()):
             if len(var_names) < 2:
                 continue
+
+            logger.info(f"\n  Checking group: {group_name} ({len(var_names)} vars)")
 
             # For each possible value, check if count is consistent
             # First, determine the range of values that appear
@@ -1000,8 +1921,10 @@ class HCARFramework:
                     if v in example:
                         all_values.add(example[v])
 
+            logger.info(f"    Values appearing in examples: {sorted(all_values)}")
+
             # For each value, check if count pattern exists
-            for target_value in all_values:
+            for target_value in sorted(all_values):
                 count_values = []
                 valid = True
 
@@ -1020,59 +1943,172 @@ class HCARFramework:
                 min_count = min(count_values)
                 max_count = max(count_values)
 
-                # Pattern 1: Count equals constant
-                if min_count == max_count and min_count > 0:
-                    constant = min_count
-                    try:
-                        if CPMPY_AVAILABLE:
-                            from cpmpy import Count
-                            constraint_vars = [variables[v] for v in var_names if v in variables]
-                            constraint_obj = (Count(constraint_vars, target_value) == constant)
-                        else:
-                            constraint_obj = None
+                logger.info(f"      Value {target_value}: counts = {count_values} (min={min_count}, max={max_count})")
 
-                        candidate = Constraint(
-                            id=f"count_eq_{group_name}_val{target_value}_cnt{constant}",
-                            constraint=constraint_obj,
-                            scope=var_names,
-                            constraint_type="Count",
-                            arity=len(var_names),
-                            level=0,
-                            confidence=0.5
-                        )
-                        candidates.add(candidate)
-                        logger.debug(f"  Found Count==: {candidate.id}")
-                    except Exception as e:
-                        logger.warning(f"Failed to create Count constraint: {e}")
+                # IMPROVED HEURISTIC: Default to <= (upper bound)
+                # Rationale: In scheduling/resource allocation, bounds are more common than exact constraints
 
-                # Pattern 2: Count bounded (count <= constant)
-                elif max_count > min_count and max_count > 0:
-                    # Heuristic: consider upper bound if it appears multiple times
-                    if count_values.count(max_count) >= 2:
-                        try:
-                            if CPMPY_AVAILABLE:
-                                from cpmpy import Count
-                                constraint_vars = [variables[v] for v in var_names if v in variables]
-                                constraint_obj = (Count(constraint_vars, target_value) <= max_count)
-                            else:
-                                constraint_obj = None
+                # Skip if count is always 0 (value doesn't appear significantly)
+                if max_count == 0:
+                    logger.info(f"        SKIPPED: Value never appears")
+                    continue
 
-                            candidate = Constraint(
-                                id=f"count_leq_{group_name}_val{target_value}_cnt{max_count}",
-                                constraint=constraint_obj,
-                                scope=var_names,
-                                constraint_type="Count",
-                                arity=len(var_names),
-                                level=0,
-                                confidence=0.3
-                            )
-                            candidates.add(candidate)
-                            logger.debug(f"  Found Count<=: {candidate.id}")
-                        except Exception as e:
-                            logger.warning(f"Failed to create Count<= constraint: {e}")
+                # Always generate <= constraint with max observed count
+                # This is safer than assuming == when all counts are equal
+                try:
+                    if CPMPY_AVAILABLE:
+                        from cpmpy import Count
+                        constraint_vars = [variables[v] for v in var_names if v in variables]
+                        constraint_obj = (Count(constraint_vars, target_value) <= max_count)
+                    else:
+                        constraint_obj = None
+
+                    constraint_type_str = "==" if min_count == max_count else "<="
+
+                    candidate = Constraint(
+                        id=f"count_leq_{group_name}_val{target_value}_cnt{max_count}",
+                        constraint=constraint_obj,
+                        scope=var_names,
+                        constraint_type="Count",
+                        arity=len(var_names),
+                        level=0,
+                        confidence=0.6 if min_count == max_count else 0.5  # Higher confidence if constant
+                    )
+                    candidates.add(candidate)
+
+                    if min_count == max_count:
+                        logger.info(f"        ACCEPTED: Count({group_name[:20]}, {target_value}) <= {max_count} (constant in examples)")
+                    else:
+                        logger.info(f"        ACCEPTED: Count({group_name[:20]}, {target_value}) <= {max_count} (varies {min_count}-{max_count})")
+
+                except Exception as e:
+                    logger.warning(f"        FAILED: Count constraint - {e}")
+
+        # Apply domain expert hints if enabled
+        if self.config.enable_hint_normalization and candidates:
+            candidates = self._apply_parameter_normalization(candidates, "Count", variables)
 
         return candidates
-    
+
+    def _apply_parameter_normalization(
+        self,
+        candidates: Set[Constraint],
+        constraint_type: str,
+        variables: Optional[Dict[str, Any]] = None
+    ) -> Set[Constraint]:
+        """
+        Apply parameter normalization to handle under-fitting from sparse examples.
+
+        Strategy: For Count constraints, normalize outlier bounds to match majority.
+        This handles cases where some values never reach their true capacity in examples.
+
+        Example:
+          Detected: Count(X, v1) <= 6, Count(X, v2) <= 6, Count(X, v3) <= 5, Count(X, v4) <= 6
+          Normalized: All use <= 6 (majority bound)
+        """
+        if constraint_type != "Count" or not candidates:
+            return candidates
+
+        logger.info("\n--- Applying Parameter Normalization ---")
+        logger.info("Strategy: Normalize Count constraint bounds using majority voting")
+
+        import re
+        from collections import Counter
+
+        # Group constraints by scope
+        scope_groups = {}
+        for c in candidates:
+            if c.constraint_type != "Count":
+                continue
+
+            # Use scope as grouping key
+            scope_key = tuple(sorted(c.scope))
+            if scope_key not in scope_groups:
+                scope_groups[scope_key] = []
+            scope_groups[scope_key].append(c)
+
+        normalized_candidates = set()
+
+        for scope_key, group in scope_groups.items():
+            if len(group) < 2:
+                # Single constraint, no normalization needed
+                normalized_candidates.update(group)
+                continue
+
+            # Extract bounds from all constraints in group
+            constraint_bounds = []
+            for c in group:
+                match = re.search(r'cnt(\d+)', c.id)
+                if match:
+                    bound = int(match.group(1))
+                    constraint_bounds.append((c, bound))
+
+            if not constraint_bounds:
+                normalized_candidates.update(group)
+                continue
+
+            bounds = [b for _, b in constraint_bounds]
+            bound_counts = Counter(bounds)
+
+            # Find majority bound
+            majority_bound, majority_count = bound_counts.most_common(1)[0]
+
+            # If no clear majority (< 60%), use max bound as safety
+            if majority_count < len(bounds) * 0.6:
+                normalized_bound = max(bounds)
+                reason = "max (no clear majority)"
+            else:
+                normalized_bound = majority_bound
+                reason = f"majority ({majority_count}/{len(bounds)})"
+
+            logger.info(f"\n  Group with {len(group)} Count constraints:")
+            logger.info(f"    Bounds detected: {bounds}")
+            logger.info(f"    Majority bound: {majority_bound} (appears {majority_count} times)")
+            logger.info(f"    Normalized bound: {normalized_bound} ({reason})")
+
+            # Recreate constraints with normalized bound
+            for c, old_bound in constraint_bounds:
+                if old_bound == normalized_bound:
+                    # No change needed
+                    normalized_candidates.add(c)
+                    logger.info(f"      {c.id}: UNCHANGED")
+                else:
+                    # Extract target value from constraint ID
+                    match = re.search(r'val(\d+)', c.id)
+                    target_value = int(match.group(1)) if match else None
+
+                    if target_value is None:
+                        normalized_candidates.add(c)
+                        logger.info(f"      {c.id}: FAILED to extract value")
+                        continue
+
+                    # Create normalized constraint
+                    if CPMPY_AVAILABLE and variables:
+                        from cpmpy import Count
+                        constraint_vars = [variables.get(v) for v in c.scope]
+                        constraint_vars = [v for v in constraint_vars if v is not None]
+                        if constraint_vars:
+                            constraint_obj = (Count(constraint_vars, target_value) <= normalized_bound)
+                        else:
+                            constraint_obj = None
+                    else:
+                        constraint_obj = None
+
+                    normalized_c = Constraint(
+                        id=c.id.replace(f"cnt{old_bound}", f"cnt{normalized_bound}"),
+                        constraint=constraint_obj,
+                        scope=c.scope,
+                        constraint_type=c.constraint_type,
+                        arity=c.arity,
+                        level=c.level,
+                        confidence=min(c.confidence * 1.15, 0.9)  # Boost confidence slightly
+                    )
+                    normalized_candidates.add(normalized_c)
+                    logger.info(f"      {c.id}: NORMALIZED from {old_bound} -> {normalized_bound}")
+
+        logger.info(f"\nNormalization complete: {len(normalized_candidates)} constraints")
+        return normalized_candidates
+
     def _generate_fixed_bias_simple(
         self,
         variables: Dict[str, Any],
@@ -1232,7 +2268,122 @@ class HCARFramework:
                         groups[block_key] = block_vars
         
         return groups
-    
+
+    def _inject_overfitted_constraints(
+        self,
+        positive_examples: List[Dict],
+        variables: Dict[str, Any],
+        domains: Dict[str, List]
+    ):
+        """
+        Inject deliberately overfitted global constraints for experimental validation.
+
+        These constraints:
+        1. Hold on all 5 positive examples (so they pass passive validation)
+        2. Are over-scoped (include too many variables)
+        3. Should be rejected during Phase 2 refinement
+        4. Test if intelligent subset exploration can correct them
+
+        This validates Hypothesis 1 from CLAUDE.md:
+        "Passive learning from sparse data (5 examples) produces over-fitted
+        global constraints that cause catastrophic accuracy loss"
+        """
+        if not CPMPY_AVAILABLE:
+            return
+
+        logger.info("EXPERIMENTAL: Injecting overfitted constraints for validation")
+        injected_count = 0
+
+        # SIMPLE STRATEGY: Merge two existing constraints of the same type
+        # This guarantees they hold on examples (both originals do) but creates an over-scoped constraint
+
+        # Strategy 1: Merge AllDifferent constraints
+        alldiff_candidates = [c for c in self.B_globals if c.constraint_type == "AllDifferent"]
+
+        if len(alldiff_candidates) >= 2:
+            # Take two different AllDifferent constraints and merge their scopes
+            c1, c2 = alldiff_candidates[0], alldiff_candidates[1]
+
+            if len(set(c1.scope) & set(c2.scope)) == 0:  # No overlap
+                merged_scope = c1.scope + c2.scope
+
+                # This merged constraint is likely overfitted (too many variables)
+                # but holds on examples since both components hold
+                try:
+                    from cpmpy import AllDifferent
+                    constraint_vars = [variables[v] for v in merged_scope if v in variables]
+                    constraint_obj = AllDifferent(constraint_vars)
+
+                    overfitted = Constraint(
+                        id=f"overfitted_merged_alldiff_{len(merged_scope)}vars",
+                        constraint=constraint_obj,
+                        scope=merged_scope,
+                        constraint_type="AllDifferent",
+                        arity=len(merged_scope),
+                        level=0,
+                        confidence=0.5
+                    )
+
+                    self.B_globals.add(overfitted)
+                    injected_count += 1
+                    logger.info(f"  → Injected overfitted AllDifferent by merging "
+                              f"{len(c1.scope)}+{len(c2.scope)} vars = {len(merged_scope)} total")
+                except Exception as e:
+                    logger.debug(f"Failed to inject merged AllDifferent: {e}")
+
+        # Strategy 2: For Sum constraints, add extra variables
+        sum_candidates = [c for c in self.B_globals if c.constraint_type == "Sum"]
+
+        for candidate in sum_candidates[:2]:  # Take first 2
+            scope = candidate.scope
+            if len(scope) >= 2:
+                var_list = list(variables.keys())
+                extra_vars = [v for v in var_list if v not in scope]
+
+                if extra_vars:
+                    # Find a variable that's always 0 in examples (won't change sum)
+                    always_zero = None
+                    for var in extra_vars[:5]:  # Check first 5
+                        values = [example.get(var, None) for example in positive_examples]
+                        if all(v == 0 for v in values if v is not None):
+                            always_zero = var
+                            break
+
+                    if always_zero:
+                        overfitted_scope = scope + [always_zero]
+
+                        # Check sum is consistent
+                        sum_values = []
+                        for example in positive_examples:
+                            values = [example.get(v, 0) for v in overfitted_scope if v in example]
+                            if len(values) == len(overfitted_scope):
+                                sum_values.append(sum(values))
+
+                        if sum_values and min(sum_values) == max(sum_values):
+                            constant = sum_values[0]
+                            try:
+                                constraint_vars = [variables[v] for v in overfitted_scope if v in variables]
+                                constraint_obj = (sum(constraint_vars) == constant)
+
+                                overfitted = Constraint(
+                                    id=f"overfitted_sum_{len(overfitted_scope)}vars_{constant}",
+                                    constraint=constraint_obj,
+                                    scope=overfitted_scope,
+                                    constraint_type="Sum",
+                                    arity=len(overfitted_scope),
+                                    level=0,
+                                    confidence=0.5
+                                )
+
+                                self.B_globals.add(overfitted)
+                                injected_count += 1
+                                logger.info(f"  → Injected overfitted Sum with {len(overfitted_scope)} vars "
+                                          f"(original: {len(scope)})")
+                            except Exception as e:
+                                logger.debug(f"Failed to inject overfitted Sum: {e}")
+
+        logger.info(f"EXPERIMENTAL: Injected {injected_count} overfitted constraints (should be rejected in Phase 2)")
+
     def _initialize_ml_priors(self):
         """Initialize ML-based prior probabilities for all candidates."""
         problem_context = {'num_variables': len(self.B_globals) + len(self.B_fixed)}
@@ -1353,30 +2504,26 @@ class HCARFramework:
                 response = oracle_func(query)
                 self.queries_phase2 += 1
                 candidate.budget_used += 1
-                
+
                 logger.info(f"  Query {self.queries_phase2}: Oracle says {response.value}")
-                
+
+                # UNIFIED PROBABILISTIC UPDATE: Both responses update confidence
+                # No more hard refutation - makes system robust to noisy oracles
+                candidate.confidence = BayesianUpdater.update_confidence(
+                    candidate.confidence,
+                    query,
+                    response,
+                    candidate,
+                    self.config.alpha
+                )
+
+                logger.info(f"  Updated P={candidate.confidence:.3f}")
+
+                # Store counterexample if this is negative evidence (for later repair)
                 if response == OracleResponse.VALID:
-                    # Hard refutation - constraint is wrong
-                    candidate.confidence = 0.0
-                    
-                    # PRINCIPLED PRUNING: Use new ground truth to prune fixed bias
-                    self.confirmed_solutions.append(query)
-                    self._prune_fixed_bias_with_solution(query)
-                    
-                    logger.info(f"  REFUTED: {candidate.id}")
-                    break
-                
-                else:  # INVALID
-                    # Positive evidence - update confidence
-                    candidate.confidence = BayesianUpdater.update_confidence(
-                        candidate.confidence,
-                        query,
-                        response,
-                        candidate,
-                        self.config.alpha
-                    )
-                    logger.info(f"  Updated P={candidate.confidence:.3f}")
+                    candidate.counterexample = query
+                    # NOTE: We do NOT prune B_fixed here anymore
+                    # Pruning will happen when constraint is accepted (P >= theta_max)
             
             # Process candidate based on final confidence
             if candidate.confidence >= self.config.theta_max:
@@ -1384,7 +2531,12 @@ class HCARFramework:
                 logger.info(f"✓ ACCEPTED: {candidate.id}")
                 self.C_validated_globals.append(candidate)
                 self.B_globals.remove(candidate)
-                
+
+                # NEW LOGIC: Prune B_fixed using decomposition of accepted global
+                # This is the correct trigger point for noisy oracle robustness
+                logger.info(f"  Pruning B_fixed using accepted global constraint...")
+                self._prune_fixed_bias_with_accepted_global(candidate)
+
                 # Redistribute unused budget
                 budget_pool += max(0, candidate.budget - candidate.budget_used)
             
@@ -1392,22 +2544,37 @@ class HCARFramework:
                 # Reject constraint and explore subsets
                 logger.info(f"✗ REJECTED: {candidate.id}")
                 self.B_globals.remove(candidate)
-                
+
                 if candidate.level < self.config.max_subset_depth:
-                    # Generate informed subsets
-                    new_candidates = self.subset_explorer.generate_informed_subsets(
-                        candidate,
-                        self.confirmed_solutions,
-                        self.C_validated_globals,
-                        self.config,
-                        self.variables  # Pass variables for constraint creation
-                    )
-                    
+                    # Choose repair mechanism based on configuration
+                    if self.config.use_counterexample_repair and hasattr(candidate, 'counterexample'):
+                        # Use counterexample-driven minimal repair (most advanced)
+                        logger.info("Using counterexample-driven minimal repair")
+                        new_candidates = CounterexampleRepair.repair_from_counterexample(
+                            candidate,
+                            candidate.counterexample,
+                            self.confirmed_solutions,
+                            self.C_validated_globals,
+                            self.config,
+                            self.variables,
+                            self.ml_prior
+                        )
+                    else:
+                        # Fallback to subset explorer (original approach)
+                        logger.info("Using culprit score-based subset exploration")
+                        new_candidates = self.subset_explorer.generate_informed_subsets(
+                            candidate,
+                            self.confirmed_solutions,
+                            self.C_validated_globals,
+                            self.config,
+                            self.variables
+                        )
+
                     for new_cand in new_candidates:
                         # Inherit budget from parent
                         new_cand.budget = max(5, candidate.budget // 2)
                         self.B_globals.add(new_cand)
-                        logger.info(f"  → Generated subset: {new_cand.id}")
+                        logger.info(f"  → Generated repair: {new_cand.id}")
         
         logger.info(f"\nPhase 2 complete: {len(self.C_validated_globals)} validated globals, "
                    f"{self.queries_phase2} queries used")
@@ -1466,6 +2633,65 @@ class HCARFramework:
 
         if to_remove:
             logger.info(f"  Pruned {len(to_remove)} fixed-arity constraints using confirmed solution")
+
+    def _prune_fixed_bias_with_accepted_global(self, accepted_constraint: Constraint):
+        """
+        Decomposition-based pruning: Remove B_fixed constraints that contradict accepted global.
+
+        NEW LOGIC for noisy oracle robustness:
+        When a global constraint is accepted (P >= theta_max), it becomes a "confirmed rule".
+        We decompose it and prune contradictory constraints from B_fixed.
+
+        Example: If AllDifferent({x1, x2, x3}) is accepted, then:
+        - Binary inequalities x1 != x2, x1 != x3, x2 != x3 are now ground truth
+        - Remove contradictory constraints: x1 == x2, x1 == x3, x2 == x3 from B_fixed
+
+        Args:
+            accepted_constraint: The global constraint that was just accepted
+        """
+        if not CPMPY_AVAILABLE or not hasattr(self, 'variables'):
+            return
+
+        to_remove = []
+
+        # Decompose the accepted global constraint
+        decomposed_constraints = []
+        c = accepted_constraint.constraint
+
+        if hasattr(c, 'name') and c.name == "alldifferent":
+            # Decompose AllDifferent into binary != constraints
+            c_decomposed_list = c.decompose()
+            if c_decomposed_list:
+                decomposed_constraints.extend(c_decomposed_list[0])
+                logger.info(f"  Decomposed {accepted_constraint.id} into {len(c_decomposed_list[0])} binary inequalities")
+        else:
+            # For other constraint types (Sum, Count), we can't easily decompose
+            # Just use the constraint itself
+            decomposed_constraints.append(c)
+            logger.info(f"  Using {accepted_constraint.id} directly for pruning (non-decomposable)")
+
+        # Now check each B_fixed constraint for contradiction
+        for b_constraint in self.B_fixed:
+            if b_constraint.constraint is not None:
+                try:
+                    # Create a model with the B_fixed constraint and all decomposed constraints
+                    test_model = Model()
+                    test_model += b_constraint.constraint
+                    test_model += decomposed_constraints
+
+                    # If UNSAT, they contradict -> remove B_fixed constraint
+                    if not test_model.solve():
+                        to_remove.append(b_constraint)
+                        logger.debug(f"    Removing {b_constraint.id} (contradicts accepted global)")
+
+                except Exception as e:
+                    logger.debug(f"Error checking contradiction for {b_constraint.id}: {e}")
+
+        for c in to_remove:
+            self.B_fixed.remove(c)
+
+        if to_remove:
+            logger.info(f"  Pruned {len(to_remove)} B_fixed constraints that contradict accepted global")
     
     def _phase3_active_learning(
         self,
@@ -1755,7 +2981,8 @@ class ExperimentRunner:
         variables: Dict[str, Any],
         domains: Dict[str, List],
         target_model: List,
-        num_runs: int = 1
+        num_runs: int = 1,
+        config: HCARConfig = None
     ) -> Dict[str, Any]:
         """
         Run a single experiment configuration.
@@ -1781,12 +3008,15 @@ class ExperimentRunner:
         
         for run in range(num_runs):
             logger.info(f"\n--- Run {run + 1}/{num_runs} ---")
-            
-            # Configure method
-            config = self._get_method_config(method_name)
+
+            # Configure method (use passed config or create one)
+            if config is None:
+                run_config = self._get_method_config(method_name)
+            else:
+                run_config = config
             
             # Run HCAR
-            hcar = HCARFramework(config, problem_name=benchmark_name)
+            hcar = HCARFramework(run_config, problem_name=benchmark_name)
             learned_model, metrics = hcar.run(
                 positive_examples,
                 oracle_func,
@@ -1819,25 +3049,26 @@ class ExperimentRunner:
     def _get_method_config(self, method_name: str) -> HCARConfig:
         """Get configuration for specific method variant."""
         config = HCARConfig()
-        
+
         if method_name == "HCAR-Advanced":
             # Full advanced method (default config)
+            # - Intelligent subset exploration with culprit scores
+            # - ML prior estimation
             pass
-        
+
         elif method_name == "HCAR-Heuristic":
-            # Disable intelligent subset exploration
-            # (would need to add a flag to use heuristic instead)
-            config.enable_ml_prior = False
-        
+            # Use positional heuristics for subset exploration (baseline)
+            config.use_intelligent_subsets = False
+
         elif method_name == "HCAR-NoRefine":
-            # Skip Phase 2 entirely
+            # Skip Phase 2 entirely (ablation study)
             config.total_budget = 0  # No queries for refinement
-        
+
         elif method_name == "MQuAcq-2":
             # Pure active learning baseline
             # (would need different implementation path)
             pass
-        
+
         return config
     
     def _evaluate_model(
@@ -1860,10 +3091,16 @@ class ExperimentRunner:
         # Generate sample solutions from both models
         learned_solutions = self._sample_solutions(learned_model, variables, domains, num_samples)
         target_solutions = self._sample_solutions(target_model, variables, domains, num_samples)
-        
-        if not learned_solutions or not target_solutions:
-            logger.warning("Could not generate solutions for evaluation")
+
+        if not target_solutions:
+            logger.error("Could not generate target solutions - target model may be UNSAT")
             return {'s_precision': 0.0, 's_recall': 0.0}
+
+        if not learned_solutions:
+            logger.warning("Could not generate learned solutions - learned model is UNSAT (over-constrained)")
+            # UNSAT model: rejects all solutions (S-Recall = 0%), but has no false positives (S-Precision = N/A)
+            # Convention: report S-Precision as 100% (vacuously true - no solutions to be invalid)
+            return {'s_precision': 100.0, 's_recall': 0.0}
         
         # Calculate metrics
         # S-Precision: fraction of learned solutions that are valid
@@ -1907,14 +3144,31 @@ class ExperimentRunner:
             # Generate diverse solutions
             for _ in range(num_samples):
                 if cpm_model.solve():
-                    solution = {name: var.value() for name, var in variables.items()}
+                    # Check if all variables have valid values
+                    solution = {}
+                    valid = True
+                    for name, var in variables.items():
+                        val = var.value()
+                        if val is None:
+                            logger.warning(f"Variable {name} has None value after solve()")
+                            valid = False
+                            break
+                        solution[name] = val
+
+                    if not valid:
+                        break
+
                     solutions.append(solution)
-                    
+
                     # Add blocking clause to get different solution
                     blocking = []
                     for var in variables.values():
-                        blocking.append(var != var.value())
-                    cpm_model += sum(blocking) > 0
+                        val = var.value()
+                        if val is not None:
+                            blocking.append(var != val)
+
+                    if blocking:
+                        cpm_model += sum(blocking) > 0
                 else:
                     break
         
@@ -2014,7 +3268,8 @@ def main():
         theta_min=0.15,
         theta_max=0.85,
         max_subset_depth=3,
-        enable_ml_prior=True
+        enable_ml_prior=True,
+        use_intelligent_subsets=True
     )
     
     # Initialize experiment runner

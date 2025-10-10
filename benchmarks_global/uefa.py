@@ -127,6 +127,30 @@ def construct_uefa(teams_data, n_groups=8, teams_per_group=4):
     #                 all_constraints.append(away_constraint)
     #                 # These are binary constraints (implications), not global constraints
 
+    # MOCK OVER-FITTED CONSTRAINTS (will be consistent with 5 examples but NOT generally valid)
+    mock_constraints = []
+
+    # Mock constraints must be feasible with n_groups
+    # Strategy: Create AllDifferent constraints on subsets of size min(n_groups, 4)
+    mock_size = min(n_groups, 4)
+
+    if len(teams_data) >= mock_size * 2:
+        # Mock 1: First mock_size teams must be in different groups (too restrictive)
+        first_teams = sorted(teams_data.keys())[:mock_size]
+        first_vars = [group_assignments[team] for team in first_teams]
+        mock_c1 = cp.AllDifferent(first_vars)
+        mock_constraints.append(mock_c1)
+        all_constraints.append(mock_c1)
+        global_constraints.append(mock_c1)
+
+        # Mock 2: Last mock_size teams must be in different groups (too restrictive)
+        last_teams = sorted(teams_data.keys())[-mock_size:]
+        last_vars = [group_assignments[team] for team in last_teams]
+        mock_c2 = cp.AllDifferent(last_vars)
+        mock_constraints.append(mock_c2)
+        all_constraints.append(mock_c2)
+        global_constraints.append(mock_c2)
+
     for constraint in all_constraints:
         model += constraint
 

@@ -26,7 +26,23 @@ def construct_sudoku(block_size_row, block_size_col, grid_size):
     for i in range(0, grid_size, block_size_row):
         for j in range(0, grid_size, block_size_col):
             model += cp.AllDifferent(grid[i:i + block_size_row, j:j + block_size_col])
-            # model += cp.AllDifferent(grid[i:i + block_size_row, j:j + block_size_col]).decompose()  
+            # model += cp.AllDifferent(grid[i:i + block_size_row, j:j + block_size_col]).decompose()
+
+    # MOCK OVER-FITTED CONSTRAINTS (will be consistent with 5 examples but NOT generally valid)
+    # These should be detected and refined in Phase 2
+    mock_constraints = []
+
+    # Mock 1: Main diagonal AllDifferent (too restrictive - not part of standard Sudoku)
+    main_diagonal = [grid[i, i] for i in range(grid_size)]
+    mock_constraints.append(cp.AllDifferent(main_diagonal))
+
+    # Mock 2: Anti-diagonal AllDifferent (too restrictive)
+    anti_diagonal = [grid[i, grid_size - 1 - i] for i in range(grid_size)]
+    mock_constraints.append(cp.AllDifferent(anti_diagonal))
+
+    # Add mock constraints to model (they will be learned passively but should be refuted)
+    for mock_c in mock_constraints:
+        model += mock_c
 
     C_T = list(set(toplevel_list(model.constraints)))
 

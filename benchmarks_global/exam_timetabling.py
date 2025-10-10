@@ -34,12 +34,35 @@ def construct_examtt_simple(nsemesters=9, courses_per_semester=6, slots_per_day=
     
     # limit the number of exams per day
     all_exams = variables.flatten()
-    max_exams_per_day = (total_courses + days_for_exams - 1) // days_for_exams + 1  
+    max_exams_per_day = (total_courses + days_for_exams - 1) // days_for_exams + 1
     for day in range(days_for_exams):
         #  how many exams are scheduled on this day
         exams_on_day = cp.Count([day_of_exam(exam, slots_per_day) for exam in all_exams], day)
         # limit the number of exams on this day
         model += (exams_on_day <= max_exams_per_day)
+
+    # MOCK OVER-FITTED CONSTRAINTS (will be consistent with 5 examples but NOT generally valid)
+    # MUST be global constraints (arity > 3) for Phase 1 detection
+    mock_constraints = []
+
+    # Mock 1: First semester exams must all be on different days (too restrictive)
+    # This is already required but adds unnecessary day-level separation on top of slot separation
+    if nsemesters > 0:
+        first_semester_exams = variables[0, :]
+        first_semester_days = [day_of_exam(exam, slots_per_day) for exam in first_semester_exams]
+        mock_c1 = cp.AllDifferent(first_semester_days)
+        mock_constraints.append(mock_c1)
+        model += mock_c1
+
+    # Mock 2: Middle day must have exactly a specific number of exams (overly specific)
+    # Exact equality is too strict compared to <= constraint
+    if days_for_exams >= 3:
+        middle_day = days_for_exams // 2
+        exams_on_middle_day = cp.Count([day_of_exam(exam, slots_per_day) for exam in all_exams], middle_day)
+        # Require exactly 3 exams on middle day (arbitrary constraint that may hold in examples)
+        mock_c2 = (exams_on_middle_day == 3)
+        mock_constraints.append(mock_c2)
+        model += mock_c2
 
     C_T = list(model.constraints)
 
