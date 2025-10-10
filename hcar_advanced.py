@@ -2116,62 +2116,167 @@ class HCARFramework:
         positive_examples: List[Dict]
     ) -> Set[Constraint]:
         """
-        Simple generation of fixed-arity bias.
-        
-        This is a basic implementation. For production use, integrate with
-        your existing bias generation methods.
+        Generate complete fixed-arity bias using CPMpy constraints.
+
+        This generates all binary constraints of all types (==, !=, <, >, <=, >=)
+        and prunes them according to positive examples E+ (CONSTRAINT 2).
+
+        Args:
+            variables: Dict mapping variable names to CPMpy variables
+            domains: Dict mapping variable names to domain tuples (lb, ub)
+            positive_examples: List of positive examples (trusted E+)
+
+        Returns:
+            Set of Constraint objects forming the initial fixed-arity bias B_fixed
         """
+        if not CPMPY_AVAILABLE:
+            logger.warning("CPMpy not available - cannot generate bias")
+            return set()
+
+        logger.info(f"  Generating complete binary constraint bias...")
+        logger.info(f"  Variables: {len(variables)}")
+        logger.info(f"  Positive examples for pruning: {len(positive_examples)}")
+
         candidates = set()
-        
-        # For a simple example, generate binary constraints (arity 2)
-        var_list = list(variables.keys())
-        
-        # Only generate a small subset for testing
-        max_pairs = min(20, len(var_list) * (len(var_list) - 1) // 2)
-        
-        pair_count = 0
-        for i, var1 in enumerate(var_list):
-            for var2 in var_list[i+1:]:
-                if pair_count >= max_pairs:
-                    break
-                
-                # Create inequality constraint (simple example)
-                try:
-                    if CPMPY_AVAILABLE:
-                        constraint_obj = (variables[var1] != variables[var2])
-                    else:
-                        constraint_obj = None
-                    
-                    candidate = Constraint(
-                        id=f"neq_{var1}_{var2}",
-                        constraint=constraint_obj,
-                        scope=[var1, var2],
-                        constraint_type="NotEqual",
-                        arity=2,
-                        level=0,
-                        confidence=0.5
-                    )
-                    
-                    # Check if violated by any positive example
-                    violated = False
-                    for example in positive_examples:
-                        if var1 in example and var2 in example:
-                            if example[var1] == example[var2]:
-                                violated = True
-                                break
-                    
-                    if not violated:
-                        candidates.add(candidate)
-                        pair_count += 1
-                
-                except Exception as e:
-                    logger.warning(f"Failed to create binary constraint: {e}")
-            
-            if pair_count >= max_pairs:
-                break
-        
-        logger.info(f"  Generated {len(candidates)} fixed-arity constraint candidates")
+        var_names = list(variables.keys())
+
+        # Define all binary constraint types
+        constraint_types = [
+            ('==', 'Equal'),
+            ('!=', 'NotEqual'),
+            ('<', 'LessThan'),
+            ('>', 'GreaterThan'),
+            ('<=', 'LessThanOrEqual'),
+            ('>=', 'GreaterThanOrEqual')
+        ]
+
+        # Statistics for reporting
+        stats = {
+            'generated': 0,
+            'pruned': 0,
+            'kept': 0
+        }
+
+        # Generate all pairs of variables
+        total_pairs = len(var_names) * (len(var_names) - 1) // 2
+        logger.info(f"  Generating constraints for {total_pairs} variable pairs...")
+
+        for i, var1_name in enumerate(var_names):
+            var1 = variables[var1_name]
+
+            for var2_name in var_names[i+1:]:
+                var2 = variables[var2_name]
+
+                # Generate all constraint types for this pair
+                for op, ctype_name in constraint_types:
+                    try:
+                        # Create CPMpy constraint
+                        if op == '==':
+                            cpm_constraint = (var1 == var2)
+                        elif op == '!=':
+                            cpm_constraint = (var1 != var2)
+                        elif op == '<':
+                            cpm_constraint = (var1 < var2)
+                        elif op == '>':
+                            cpm_constraint = (var1 > var2)
+                        elif op == '<=':
+                            cpm_constraint = (var1 <= var2)
+                        elif op == '>=':
+                            cpm_constraint = (var1 >= var2)
+                        else:
+                            continue
+
+                        stats['generated'] += 1
+
+                        # Create Constraint wrapper
+                        constraint_id = f"{ctype_name}_{var1_name}_{var2_name}"
+                        candidate = Constraint(
+                            id=constraint_id,
+                            constraint=cpm_constraint,
+                            scope=[var1_name, var2_name],
+                            constraint_type=ctype_name,
+                            arity=2,
+                            level=0,
+                            confidence=0.5
+                        )
+
+                        # CONSTRAINT 2: Prune using ONLY positive examples E+
+                        # Check if this constraint is violated by any positive example
+                        violated = self._is_violated_by_examples(
+                            candidate, positive_examples, variables
+                        )
+
+                        if violated:
+                            stats['pruned'] += 1
+                        else:
+                            candidates.add(candidate)
+                            stats['kept'] += 1
+
+                    except Exception as e:
+                        logger.warning(f"Failed to create {ctype_name} constraint for {var1_name}, {var2_name}: {e}")
+
+        # Report statistics
+        logger.info(f"  Bias generation complete:")
+        logger.info(f"    Total generated: {stats['generated']}")
+        logger.info(f"    Pruned by E+: {stats['pruned']}")
+        logger.info(f"    Kept in B_fixed: {stats['kept']}")
+        logger.info(f"  Final B_fixed size: {len(candidates)} constraints")
+
         return candidates
+
+    def _is_violated_by_examples(
+        self,
+        candidate: Constraint,
+        positive_examples: List[Dict],
+        variables: Dict[str, Any]
+    ) -> bool:
+        """
+        Check if a constraint is violated by any positive example.
+
+        This is the ONLY pruning mechanism allowed in Phase 1 (CONSTRAINT 2).
+
+        Args:
+            candidate: The constraint to check
+            positive_examples: Trusted positive examples E+
+            variables: Variable mapping
+
+        Returns:
+            True if violated by at least one example, False otherwise
+        """
+        if not CPMPY_AVAILABLE:
+            return False
+
+        try:
+            # Get the CPMpy constraint
+            cpm_constraint = candidate.constraint
+            scope = candidate.scope
+
+            # Check each positive example
+            for example in positive_examples:
+                # Check if all variables in scope are present in example
+                if not all(var_name in example for var_name in scope):
+                    continue
+
+                # Create a model with just this constraint and the example values
+                model = Model([cpm_constraint])
+
+                # Add constraints fixing variables to example values
+                for var_name in scope:
+                    var = variables[var_name]
+                    value = example[var_name]
+                    model += (var == value)
+
+                # If the model is UNSAT, the constraint is violated by this example
+                if not model.solve():
+                    return True  # Constraint violated - should be pruned
+
+            # Constraint holds on all positive examples
+            return False
+
+        except Exception as e:
+            logger.warning(f"Error checking constraint {candidate.id}: {e}")
+            # Conservative: keep constraint if we can't verify
+            return False
     
     def _group_variables_by_prefix(self, var_names: List[str]) -> Dict[str, List[str]]:
         """
