@@ -452,48 +452,18 @@ def cop_based_refinement(experiment_name, oracle, candidate_constraints, initial
         Y, Viol_e, status = generate_violation_query(CG, C_validated, probabilities, variables)
         
         if status == "UNSAT":
-            print(f"[UNSAT] Cannot generate violation query")
-            print(f"[CHECK] Testing remaining {len(CG)} constraints individually...")
+            print(f"[UNSAT] Cannot generate violation query for remaining {len(CG)} constraints")
+            print(f"[ACCEPT] All remaining constraints are consistent with validated set")
             
-            # Don't auto-accept! Test each constraint individually
-            constraints_to_remove = []
+            # Accept all remaining constraints
+            # Rationale: If COP cannot find any violation, it means all remaining constraints
+            # are either correct or implied by the validated constraints
             for c in CG:
-                # Try to generate a query violating ONLY this constraint
-                print(f"\n  Testing: {c}")
-                Y_test, Viol_test, status_test = generate_violation_query([c], C_validated, {c: probabilities[c]}, variables)
-                
-                if status_test == "UNSAT":
-                    # Cannot violate this constraint even alone - it's trivially satisfied
-                    # This means it's overfitted/too permissive - REJECT it
-                    print(f"    [REJECT] Cannot be violated (overfitted/permissive)")
-                    constraints_to_remove.append(c)
-                else:
-                    # Can violate it alone - show the query and ask oracle
-                    if 'sudoku' in experiment_name.lower() and len(variables) == 81:
-                        display_sudoku_grid(Y_test, title=f"  Individual Test Query for {c}")
-                    
-                    answer = oracle.answer_membership_query(Y_test)
-                    queries_used += 1
-                    
-                    if answer:  # Valid assignment violates this constraint
-                        print(f"    [REJECT] Violated by valid solution (P={probabilities[c]:.3f})")
-                        constraints_to_remove.append(c)
-                    else:  # Invalid - constraint is supported
-                        old_prob = probabilities[c]
-                        probabilities[c] = update_supporting_evidence(probabilities[c], alpha)
-                        print(f"    [SUPPORT] P={old_prob:.3f} -> {probabilities[c]:.3f}")
-                        
-                        if probabilities[c] >= theta_max:
-                            C_validated.append(c)
-                            print(f"    [ACCEPT] P >= {theta_max}")
+                C_validated.append(c)
+                print(f"  Accepted (UNSAT): {c} (P={probabilities[c]:.3f})")
             
-            # Remove rejected constraints
-            for c in constraints_to_remove:
-                if c in CG:
-                    CG.remove(c)
-            
-            # Continue with remaining constraints
-            continue
+            CG = []
+            break
         
         print(f"Generated query violating {len(Viol_e)} constraints")
         for c in Viol_e:
