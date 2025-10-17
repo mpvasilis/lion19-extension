@@ -127,7 +127,12 @@ def construct_uefa(teams_data, n_groups=8, teams_per_group=4):
     #                 all_constraints.append(away_constraint)
     #                 # These are binary constraints (implications), not global constraints
 
+    # Save TRUE global constraints for oracle (before adding mocks)
+    oracle_constraints = list(global_constraints)
+
     # MOCK OVER-FITTED CONSTRAINTS (will be consistent with 5 examples but NOT generally valid)
+    # NOTE: Mocks are added to all_constraints and global_constraints for example generation
+    # but NOT to oracle_constraints (oracle uses oracle_constraints, not global_constraints)
     mock_constraints = []
 
     # Mock constraints must be feasible with n_groups
@@ -175,7 +180,7 @@ def construct_uefa(teams_data, n_groups=8, teams_per_group=4):
     #         variables.append(match_variables[(r, g, 2)]['away'])
 
     instance = ProblemInstance(variables=cpm_array(variables), params=parameters, language=lang, name="uefa")
-    oracle = ConstraintOracle(global_constraints) 
+    oracle = ConstraintOracle(oracle_constraints)  # Use TRUE constraints, not mocks 
 
     return instance, oracle 
 

@@ -28,9 +28,13 @@ def construct_nurse_rostering(shifts_per_day=3, num_days=7, num_nurses=10, nurse
     for nurse in range(1, num_nurses + 1):
         model += cp.Count(roster_matrix, nurse) <= max_workdays
 
+    # Save TRUE constraints for oracle (before adding mocks)
+    C_T = list(model.constraints)
+
     # MOCK OVER-FITTED CONSTRAINTS (will be consistent with 5 examples but NOT generally valid)
     # These MUST be GLOBAL constraints (detectable by Phase 1 pattern detection)
     # Strategy: Add Count constraints with slightly wrong bounds (detectable patterns)
+    # NOTE: Mocks are added to model for example generation but NOT to oracle (C_T)
     mock_constraints = []
 
     # Mock 1: First nurse appears at most 5 times instead of 6
@@ -46,8 +50,6 @@ def construct_nurse_rostering(shifts_per_day=3, num_days=7, num_nurses=10, nurse
         mock_c2 = cp.Count(roster_matrix, num_nurses) <= 5
         mock_constraints.append(mock_c2)
         model += mock_c2
-
-    C_T = list(model.constraints)
 
     AV = absvar(2)
     lang = [

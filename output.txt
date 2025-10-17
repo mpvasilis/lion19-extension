@@ -1,0 +1,447 @@
+Δήμο παρακατω επισυν α
+
+------------------------------------------------------------
+Iteration 1
+------------------------------------------------------------
+Status: 0 validated, 31 candidates, 0 queries used
+
+[QUERY] Generating violation query...
+  Building COP model: 31 candidates, 0 validated, 81 variables
+  Solving COP (timeout: 30s)...
+  Solved in 0.33s - found violation query
+  Violating 30/31 constraints
+  Variables with values: 81/81
+Generated query violating 30 constraints
+  - alldifferent(grid[0,0],grid[0,1],grid[0,2],grid[0,3],grid[0,4],grid[0,5],grid[0,6],grid[0,7],grid[0,8]) (P=0.300)
+  - alldifferent(grid[1,0],grid[1,1],grid[1,2],grid[1,3],grid[1,4],grid[1,5],grid[1,6],grid[1,7],grid[1,8]) (P=0.300)
+  - alldifferent(grid[2,0],grid[2,1],grid[2,2],grid[2,3],grid[2,4],grid[2,5],grid[2,6],grid[2,7],grid[2,8]) (P=0.300)
+  - alldifferent(grid[3,0],grid[3,1],grid[3,2],grid[3,3],grid[3,4],grid[3,5],grid[3,6],grid[3,7],grid[3,8]) (P=0.300)
+  - alldifferent(grid[4,0],grid[4,1],grid[4,2],grid[4,3],grid[4,4],grid[4,5],grid[4,6],grid[4,7],grid[4,8]) (P=0.300)
+  - alldifferent(grid[5,0],grid[5,1],grid[5,2],grid[5,3],grid[5,4],grid[5,5],grid[5,6],grid[5,7],grid[5,8]) (P=0.300)
+  - alldifferent(grid[6,0],grid[6,1],grid[6,2],grid[6,3],grid[6,4],grid[6,5],grid[6,6],grid[6,7],grid[6,8]) (P=0.300)
+  - alldifferent(grid[7,0],grid[7,1],grid[7,2],grid[7,3],grid[7,4],grid[7,5],grid[7,6],grid[7,7],grid[7,8]) (P=0.300)
+  - alldifferent(grid[8,0],grid[8,1],grid[8,2],grid[8,3],grid[8,4],grid[8,5],grid[8,6],grid[8,7],grid[8,8]) (P=0.300)
+  - alldifferent(grid[0,0],grid[1,0],grid[2,0],grid[3,0],grid[4,0],grid[5,0],grid[6,0],grid[7,0],grid[8,0]) (P=0.300)
+  - alldifferent(grid[0,1],grid[1,1],grid[2,1],grid[3,1],grid[4,1],grid[5,1],grid[6,1],grid[7,1],grid[8,1]) (P=0.300)
+  - alldifferent(grid[0,2],grid[1,2],grid[2,2],grid[3,2],grid[4,2],grid[5,2],grid[6,2],grid[7,2],grid[8,2]) (P=0.300)
+  - alldifferent(grid[0,3],grid[1,3],grid[2,3],grid[3,3],grid[4,3],grid[5,3],grid[6,3],grid[7,3],grid[8,3]) (P=0.300)
+  - alldifferent(grid[0,4],grid[1,4],grid[2,4],grid[3,4],grid[4,4],grid[5,4],grid[6,4],grid[7,4],grid[8,4]) (P=0.300)
+  - alldifferent(grid[0,5],grid[1,5],grid[2,5],grid[3,5],grid[4,5],grid[5,5],grid[6,5],grid[7,5],grid[8,5]) (P=0.300)
+  - alldifferent(grid[0,6],grid[1,6],grid[2,6],grid[3,6],grid[4,6],grid[5,6],grid[6,6],grid[7,6],grid[8,6]) (P=0.300)
+  - alldifferent(grid[0,7],grid[1,7],grid[2,7],grid[3,7],grid[4,7],grid[5,7],grid[6,7],grid[7,7],grid[8,7]) (P=0.300)
+  - alldifferent(grid[0,8],grid[1,8],grid[2,8],grid[3,8],grid[4,8],grid[5,8],grid[6,8],grid[7,8],grid[8,8]) (P=0.300)
+  - alldifferent(grid[0,0],grid[0,1],grid[0,2],grid[1,0],grid[1,1],grid[1,2],grid[2,0],grid[2,1],grid[2,2]) (P=0.300)
+  - alldifferent(grid[0,3],grid[0,4],grid[0,5],grid[1,3],grid[1,4],grid[1,5],grid[2,3],grid[2,4],grid[2,5]) (P=0.300)
+  - alldifferent(grid[0,6],grid[0,7],grid[0,8],grid[1,6],grid[1,7],grid[1,8],grid[2,6],grid[2,7],grid[2,8]) (P=0.300)
+  - alldifferent(grid[3,0],grid[3,1],grid[3,2],grid[4,0],grid[4,1],grid[4,2],grid[5,0],grid[5,1],grid[5,2]) (P=0.300)
+  - alldifferent(grid[3,3],grid[3,4],grid[3,5],grid[4,3],grid[4,4],grid[4,5],grid[5,3],grid[5,4],grid[5,5]) (P=0.300)
+  - alldifferent(grid[3,6],grid[3,7],grid[3,8],grid[4,6],grid[4,7],grid[4,8],grid[5,6],grid[5,7],grid[5,8]) (P=0.300)
+  - alldifferent(grid[6,0],grid[6,1],grid[6,2],grid[7,0],grid[7,1],grid[7,2],grid[8,0],grid[8,1],grid[8,2]) (P=0.300)
+  - alldifferent(grid[6,3],grid[6,4],grid[6,5],grid[7,3],grid[7,4],grid[7,5],grid[8,3],grid[8,4],grid[8,5]) (P=0.300)
+  - alldifferent(grid[6,6],grid[6,7],grid[6,8],grid[7,6],grid[7,7],grid[7,8],grid[8,6],grid[8,7],grid[8,8]) (P=0.300)
+  - alldifferent(grid[3,1],grid[5,3],grid[2,8],grid[0,8]) (P=0.300)
+  - alldifferent(grid[8,2],grid[8,5],grid[3,2],grid[6,6],grid[0,8]) (P=0.300)
+  - alldifferent(grid[3,5],grid[4,4],grid[0,0],grid[3,0]) (P=0.300)
+
+Violation Query Assignment
+  -------------------------------------
+  | 1  1  1  | 1  1  1  | 1  1  1 |
+  | 1  1  1  | 1  1  1  | 1  1  1 |
+  | 1  1  1  | 1  1  1  | 1  1  1 |
+  -------------------------------------
+  | 1  1  1  | 1  1  1  | 1  1  1 |
+  | 1  1  1  | 1  3  1  | 2  1  5 |
+  | 1  1  1  | 4  1  1  | 1  1  1 |
+  -------------------------------------
+  | 1  1  1  | 1  1  1  | 1  1  1 |
+  | 1  1  4  | 1  1  1  | 1  1  1 |
+  | 1  1  2  | 1  5  1  | 1  1  1 |
+  -------------------------------------
+  Filled cells: 81/81
+
+[ORACLE] Asking oracle...
+[NO] Oracle: No (invalid assignment)
+[SUPPORT] Supporting 30 constraints
+  [UPDATE] alldifferent(grid[0,0],grid[0,1],grid[0,2],grid[0,3],grid[0,4],grid[0,5],grid[0,6],grid[0,7],grid[0,8]): P=0.300 -> 0.706
+  [UPDATE] alldifferent(grid[1,0],grid[1,1],grid[1,2],grid[1,3],grid[1,4],grid[1,5],grid[1,6],grid[1,7],grid[1,8]): P=0.300 -> 0.706
+  [UPDATE] alldifferent(grid[2,0],grid[2,1],grid[2,2],grid[2,3],grid[2,4],grid[2,5],grid[2,6],grid[2,7],grid[2,8]): P=0.300 -> 0.706
+  [UPDATE] alldifferent(grid[3,0],grid[3,1],grid[3,2],grid[3,3],grid[3,4],grid[3,5],grid[3,6],grid[3,7],grid[3,8]): P=0.300 -> 0.706
+  [UPDATE] alldifferent(grid[4,0],grid[4,1],grid[4,2],grid[4,3],grid[4,4],grid[4,5],grid[4,6],grid[4,7],grid[4,8]): P=0.300 -> 0.706
+  [UPDATE] alldifferent(grid[5,0],grid[5,1],grid[5,2],grid[5,3],grid[5,4],grid[5,5],grid[5,6],grid[5,7],grid[5,8]): P=0.300 -> 0.706
+  [UPDATE] alldifferent(grid[6,0],grid[6,1],grid[6,2],grid[6,3],grid[6,4],grid[6,5],grid[6,6],grid[6,7],grid[6,8]): P=0.300 -> 0.706
+  [UPDATE] alldifferent(grid[7,0],grid[7,1],grid[7,2],grid[7,3],grid[7,4],grid[7,5],grid[7,6],grid[7,7],grid[7,8]): P=0.300 -> 0.706
+  [UPDATE] alldifferent(grid[8,0],grid[8,1],grid[8,2],grid[8,3],grid[8,4],grid[8,5],grid[8,6],grid[8,7],grid[8,8]): P=0.300 -> 0.706
+  [UPDATE] alldifferent(grid[0,0],grid[1,0],grid[2,0],grid[3,0],grid[4,0],grid[5,0],grid[6,0],grid[7,0],grid[8,0]): P=0.300 -> 0.706
+  [UPDATE] alldifferent(grid[0,1],grid[1,1],grid[2,1],grid[3,1],grid[4,1],grid[5,1],grid[6,1],grid[7,1],grid[8,1]): P=0.300 -> 0.706
+  [UPDATE] alldifferent(grid[0,2],grid[1,2],grid[2,2],grid[3,2],grid[4,2],grid[5,2],grid[6,2],grid[7,2],grid[8,2]): P=0.300 -> 0.706
+  [UPDATE] alldifferent(grid[0,3],grid[1,3],grid[2,3],grid[3,3],grid[4,3],grid[5,3],grid[6,3],grid[7,3],grid[8,3]): P=0.300 -> 0.706
+  [UPDATE] alldifferent(grid[0,4],grid[1,4],grid[2,4],grid[3,4],grid[4,4],grid[5,4],grid[6,4],grid[7,4],grid[8,4]): P=0.300 -> 0.706
+  [UPDATE] alldifferent(grid[0,5],grid[1,5],grid[2,5],grid[3,5],grid[4,5],grid[5,5],grid[6,5],grid[7,5],grid[8,5]): P=0.300 -> 0.706
+  [UPDATE] alldifferent(grid[0,6],grid[1,6],grid[2,6],grid[3,6],grid[4,6],grid[5,6],grid[6,6],grid[7,6],grid[8,6]): P=0.300 -> 0.706
+  [UPDATE] alldifferent(grid[0,7],grid[1,7],grid[2,7],grid[3,7],grid[4,7],grid[5,7],grid[6,7],grid[7,7],grid[8,7]): P=0.300 -> 0.706
+  [UPDATE] alldifferent(grid[0,8],grid[1,8],grid[2,8],grid[3,8],grid[4,8],grid[5,8],grid[6,8],grid[7,8],grid[8,8]): P=0.300 -> 0.706
+  [UPDATE] alldifferent(grid[0,0],grid[0,1],grid[0,2],grid[1,0],grid[1,1],grid[1,2],grid[2,0],grid[2,1],grid[2,2]): P=0.300 -> 0.706
+  [UPDATE] alldifferent(grid[0,3],grid[0,4],grid[0,5],grid[1,3],grid[1,4],grid[1,5],grid[2,3],grid[2,4],grid[2,5]): P=0.300 -> 0.706
+  [UPDATE] alldifferent(grid[0,6],grid[0,7],grid[0,8],grid[1,6],grid[1,7],grid[1,8],grid[2,6],grid[2,7],grid[2,8]): P=0.300 -> 0.706
+  [UPDATE] alldifferent(grid[3,0],grid[3,1],grid[3,2],grid[4,0],grid[4,1],grid[4,2],grid[5,0],grid[5,1],grid[5,2]): P=0.300 -> 0.706
+  [UPDATE] alldifferent(grid[3,3],grid[3,4],grid[3,5],grid[4,3],grid[4,4],grid[4,5],grid[5,3],grid[5,4],grid[5,5]): P=0.300 -> 0.706
+  [UPDATE] alldifferent(grid[3,6],grid[3,7],grid[3,8],grid[4,6],grid[4,7],grid[4,8],grid[5,6],grid[5,7],grid[5,8]): P=0.300 -> 0.706
+  [UPDATE] alldifferent(grid[6,0],grid[6,1],grid[6,2],grid[7,0],grid[7,1],grid[7,2],grid[8,0],grid[8,1],grid[8,2]): P=0.300 -> 0.706
+  [UPDATE] alldifferent(grid[6,3],grid[6,4],grid[6,5],grid[7,3],grid[7,4],grid[7,5],grid[8,3],grid[8,4],grid[8,5]): P=0.300 -> 0.706
+  [UPDATE] alldifferent(grid[6,6],grid[6,7],grid[6,8],grid[7,6],grid[7,7],grid[7,8],grid[8,6],grid[8,7],grid[8,8]): P=0.300 -> 0.706
+  [UPDATE] alldifferent(grid[3,1],grid[5,3],grid[2,8],grid[0,8]): P=0.300 -> 0.706
+  [UPDATE] alldifferent(grid[8,2],grid[8,5],grid[3,2],grid[6,6],grid[0,8]): P=0.300 -> 0.706
+  [UPDATE] alldifferent(grid[3,5],grid[4,4],grid[0,0],grid[3,0]): P=0.300 -> 0.706
+Press Enter to continue...
+
+------------------------------------------------------------
+Iteration 2
+------------------------------------------------------------
+Status: 0 validated, 31 candidates, 1 queries used
+
+[QUERY] Generating violation query...
+  Building COP model: 31 candidates, 0 validated, 81 variables
+  Solving COP (timeout: 30s)...
+  Solved in 0.33s - found violation query
+  Violating 30/31 constraints
+  Variables with values: 81/81
+Generated query violating 30 constraints
+  - alldifferent(grid[0,0],grid[0,1],grid[0,2],grid[0,3],grid[0,4],grid[0,5],grid[0,6],grid[0,7],grid[0,8]) (P=0.706)
+  - alldifferent(grid[1,0],grid[1,1],grid[1,2],grid[1,3],grid[1,4],grid[1,5],grid[1,6],grid[1,7],grid[1,8]) (P=0.706)
+  - alldifferent(grid[2,0],grid[2,1],grid[2,2],grid[2,3],grid[2,4],grid[2,5],grid[2,6],grid[2,7],grid[2,8]) (P=0.706)
+  - alldifferent(grid[3,0],grid[3,1],grid[3,2],grid[3,3],grid[3,4],grid[3,5],grid[3,6],grid[3,7],grid[3,8]) (P=0.706)
+  - alldifferent(grid[4,0],grid[4,1],grid[4,2],grid[4,3],grid[4,4],grid[4,5],grid[4,6],grid[4,7],grid[4,8]) (P=0.706)
+  - alldifferent(grid[5,0],grid[5,1],grid[5,2],grid[5,3],grid[5,4],grid[5,5],grid[5,6],grid[5,7],grid[5,8]) (P=0.706)
+  - alldifferent(grid[6,0],grid[6,1],grid[6,2],grid[6,3],grid[6,4],grid[6,5],grid[6,6],grid[6,7],grid[6,8]) (P=0.706)
+  - alldifferent(grid[7,0],grid[7,1],grid[7,2],grid[7,3],grid[7,4],grid[7,5],grid[7,6],grid[7,7],grid[7,8]) (P=0.706)
+  - alldifferent(grid[8,0],grid[8,1],grid[8,2],grid[8,3],grid[8,4],grid[8,5],grid[8,6],grid[8,7],grid[8,8]) (P=0.706)
+  - alldifferent(grid[0,0],grid[1,0],grid[2,0],grid[3,0],grid[4,0],grid[5,0],grid[6,0],grid[7,0],grid[8,0]) (P=0.706)
+  - alldifferent(grid[0,1],grid[1,1],grid[2,1],grid[3,1],grid[4,1],grid[5,1],grid[6,1],grid[7,1],grid[8,1]) (P=0.706)
+  - alldifferent(grid[0,2],grid[1,2],grid[2,2],grid[3,2],grid[4,2],grid[5,2],grid[6,2],grid[7,2],grid[8,2]) (P=0.706)
+  - alldifferent(grid[0,3],grid[1,3],grid[2,3],grid[3,3],grid[4,3],grid[5,3],grid[6,3],grid[7,3],grid[8,3]) (P=0.706)
+  - alldifferent(grid[0,4],grid[1,4],grid[2,4],grid[3,4],grid[4,4],grid[5,4],grid[6,4],grid[7,4],grid[8,4]) (P=0.706)
+  - alldifferent(grid[0,5],grid[1,5],grid[2,5],grid[3,5],grid[4,5],grid[5,5],grid[6,5],grid[7,5],grid[8,5]) (P=0.706)
+  - alldifferent(grid[0,6],grid[1,6],grid[2,6],grid[3,6],grid[4,6],grid[5,6],grid[6,6],grid[7,6],grid[8,6]) (P=0.706)
+  - alldifferent(grid[0,7],grid[1,7],grid[2,7],grid[3,7],grid[4,7],grid[5,7],grid[6,7],grid[7,7],grid[8,7]) (P=0.706)
+  - alldifferent(grid[0,8],grid[1,8],grid[2,8],grid[3,8],grid[4,8],grid[5,8],grid[6,8],grid[7,8],grid[8,8]) (P=0.706)
+  - alldifferent(grid[0,0],grid[0,1],grid[0,2],grid[1,0],grid[1,1],grid[1,2],grid[2,0],grid[2,1],grid[2,2]) (P=0.706)
+  - alldifferent(grid[0,3],grid[0,4],grid[0,5],grid[1,3],grid[1,4],grid[1,5],grid[2,3],grid[2,4],grid[2,5]) (P=0.706)
+  - alldifferent(grid[0,6],grid[0,7],grid[0,8],grid[1,6],grid[1,7],grid[1,8],grid[2,6],grid[2,7],grid[2,8]) (P=0.706)
+  - alldifferent(grid[3,0],grid[3,1],grid[3,2],grid[4,0],grid[4,1],grid[4,2],grid[5,0],grid[5,1],grid[5,2]) (P=0.706)
+  - alldifferent(grid[3,3],grid[3,4],grid[3,5],grid[4,3],grid[4,4],grid[4,5],grid[5,3],grid[5,4],grid[5,5]) (P=0.706)
+  - alldifferent(grid[3,6],grid[3,7],grid[3,8],grid[4,6],grid[4,7],grid[4,8],grid[5,6],grid[5,7],grid[5,8]) (P=0.706)
+  - alldifferent(grid[6,0],grid[6,1],grid[6,2],grid[7,0],grid[7,1],grid[7,2],grid[8,0],grid[8,1],grid[8,2]) (P=0.706)
+  - alldifferent(grid[6,3],grid[6,4],grid[6,5],grid[7,3],grid[7,4],grid[7,5],grid[8,3],grid[8,4],grid[8,5]) (P=0.706)
+  - alldifferent(grid[6,6],grid[6,7],grid[6,8],grid[7,6],grid[7,7],grid[7,8],grid[8,6],grid[8,7],grid[8,8]) (P=0.706)
+  - alldifferent(grid[3,1],grid[5,3],grid[2,8],grid[0,8]) (P=0.706)
+  - alldifferent(grid[4,6],grid[7,7],grid[7,2]) (P=0.300)
+  - alldifferent(grid[3,5],grid[4,4],grid[0,0],grid[3,0]) (P=0.706)
+
+Violation Query Assignment
+  -------------------------------------
+  | 1  1  1  | 1  6  1  | 4  1  1 |
+  | 1  1  1  | 1  1  1  | 1  1  1 |
+  | 2  1  1  | 2  3  1  | 1  1  1 |
+  -------------------------------------
+  | 1  1  3  | 1  4  1  | 2  1  1 |
+  | 1  1  1  | 1  5  4  | 6  1  7 |
+  | 1  1  1  | 6  1  1  | 1  3  1 |
+  -------------------------------------
+  | 1  1  1  | 3  1  1  | 5  1  1 |
+  | 1  1  6  | 5  1  1  | 1  1  1 |
+  | 1  1  7  | 1  9  2  | 2  4  2 |
+  -------------------------------------
+  Filled cells: 81/81
+
+[ORACLE] Asking oracle...
+[NO] Oracle: No (invalid assignment)
+[SUPPORT] Supporting 30 constraints
+  [UPDATE] alldifferent(grid[0,0],grid[0,1],grid[0,2],grid[0,3],grid[0,4],grid[0,5],grid[0,6],grid[0,7],grid[0,8]): P=0.706 -> 0.877
+  [UPDATE] alldifferent(grid[1,0],grid[1,1],grid[1,2],grid[1,3],grid[1,4],grid[1,5],grid[1,6],grid[1,7],grid[1,8]): P=0.706 -> 0.877
+  [UPDATE] alldifferent(grid[2,0],grid[2,1],grid[2,2],grid[2,3],grid[2,4],grid[2,5],grid[2,6],grid[2,7],grid[2,8]): P=0.706 -> 0.877
+  [UPDATE] alldifferent(grid[3,0],grid[3,1],grid[3,2],grid[3,3],grid[3,4],grid[3,5],grid[3,6],grid[3,7],grid[3,8]): P=0.706 -> 0.877
+  [UPDATE] alldifferent(grid[4,0],grid[4,1],grid[4,2],grid[4,3],grid[4,4],grid[4,5],grid[4,6],grid[4,7],grid[4,8]): P=0.706 -> 0.877
+  [UPDATE] alldifferent(grid[5,0],grid[5,1],grid[5,2],grid[5,3],grid[5,4],grid[5,5],grid[5,6],grid[5,7],grid[5,8]): P=0.706 -> 0.877
+  [UPDATE] alldifferent(grid[6,0],grid[6,1],grid[6,2],grid[6,3],grid[6,4],grid[6,5],grid[6,6],grid[6,7],grid[6,8]): P=0.706 -> 0.877
+  [UPDATE] alldifferent(grid[7,0],grid[7,1],grid[7,2],grid[7,3],grid[7,4],grid[7,5],grid[7,6],grid[7,7],grid[7,8]): P=0.706 -> 0.877
+  [UPDATE] alldifferent(grid[8,0],grid[8,1],grid[8,2],grid[8,3],grid[8,4],grid[8,5],grid[8,6],grid[8,7],grid[8,8]): P=0.706 -> 0.877
+  [UPDATE] alldifferent(grid[0,0],grid[1,0],grid[2,0],grid[3,0],grid[4,0],grid[5,0],grid[6,0],grid[7,0],grid[8,0]): P=0.706 -> 0.877
+  [UPDATE] alldifferent(grid[0,1],grid[1,1],grid[2,1],grid[3,1],grid[4,1],grid[5,1],grid[6,1],grid[7,1],grid[8,1]): P=0.706 -> 0.877
+  [UPDATE] alldifferent(grid[0,2],grid[1,2],grid[2,2],grid[3,2],grid[4,2],grid[5,2],grid[6,2],grid[7,2],grid[8,2]): P=0.706 -> 0.877
+  [UPDATE] alldifferent(grid[0,3],grid[1,3],grid[2,3],grid[3,3],grid[4,3],grid[5,3],grid[6,3],grid[7,3],grid[8,3]): P=0.706 -> 0.877
+  [UPDATE] alldifferent(grid[0,4],grid[1,4],grid[2,4],grid[3,4],grid[4,4],grid[5,4],grid[6,4],grid[7,4],grid[8,4]): P=0.706 -> 0.877
+  [UPDATE] alldifferent(grid[0,5],grid[1,5],grid[2,5],grid[3,5],grid[4,5],grid[5,5],grid[6,5],grid[7,5],grid[8,5]): P=0.706 -> 0.877
+  [UPDATE] alldifferent(grid[0,6],grid[1,6],grid[2,6],grid[3,6],grid[4,6],grid[5,6],grid[6,6],grid[7,6],grid[8,6]): P=0.706 -> 0.877
+  [UPDATE] alldifferent(grid[0,7],grid[1,7],grid[2,7],grid[3,7],grid[4,7],grid[5,7],grid[6,7],grid[7,7],grid[8,7]): P=0.706 -> 0.877
+  [UPDATE] alldifferent(grid[0,8],grid[1,8],grid[2,8],grid[3,8],grid[4,8],grid[5,8],grid[6,8],grid[7,8],grid[8,8]): P=0.706 -> 0.877
+  [UPDATE] alldifferent(grid[0,0],grid[0,1],grid[0,2],grid[1,0],grid[1,1],grid[1,2],grid[2,0],grid[2,1],grid[2,2]): P=0.706 -> 0.877
+  [UPDATE] alldifferent(grid[0,3],grid[0,4],grid[0,5],grid[1,3],grid[1,4],grid[1,5],grid[2,3],grid[2,4],grid[2,5]): P=0.706 -> 0.877
+  [UPDATE] alldifferent(grid[0,6],grid[0,7],grid[0,8],grid[1,6],grid[1,7],grid[1,8],grid[2,6],grid[2,7],grid[2,8]): P=0.706 -> 0.877
+  [UPDATE] alldifferent(grid[3,0],grid[3,1],grid[3,2],grid[4,0],grid[4,1],grid[4,2],grid[5,0],grid[5,1],grid[5,2]): P=0.706 -> 0.877
+  [UPDATE] alldifferent(grid[3,3],grid[3,4],grid[3,5],grid[4,3],grid[4,4],grid[4,5],grid[5,3],grid[5,4],grid[5,5]): P=0.706 -> 0.877
+  [UPDATE] alldifferent(grid[3,6],grid[3,7],grid[3,8],grid[4,6],grid[4,7],grid[4,8],grid[5,6],grid[5,7],grid[5,8]): P=0.706 -> 0.877
+  [UPDATE] alldifferent(grid[6,0],grid[6,1],grid[6,2],grid[7,0],grid[7,1],grid[7,2],grid[8,0],grid[8,1],grid[8,2]): P=0.706 -> 0.877
+  [UPDATE] alldifferent(grid[6,3],grid[6,4],grid[6,5],grid[7,3],grid[7,4],grid[7,5],grid[8,3],grid[8,4],grid[8,5]): P=0.706 -> 0.877
+  [UPDATE] alldifferent(grid[6,6],grid[6,7],grid[6,8],grid[7,6],grid[7,7],grid[7,8],grid[8,6],grid[8,7],grid[8,8]): P=0.706 -> 0.877
+  [UPDATE] alldifferent(grid[3,1],grid[5,3],grid[2,8],grid[0,8]): P=0.706 -> 0.877
+  [UPDATE] alldifferent(grid[4,6],grid[7,7],grid[7,2]): P=0.300 -> 0.706
+  [UPDATE] alldifferent(grid[3,5],grid[4,4],grid[0,0],grid[3,0]): P=0.706 -> 0.877
+Press Enter to continue...
+
+------------------------------------------------------------
+Iteration 3
+------------------------------------------------------------
+Status: 0 validated, 31 candidates, 2 queries used
+
+[QUERY] Generating violation query...
+  Building COP model: 31 candidates, 0 validated, 81 variables
+  Solving COP (timeout: 30s)...
+  Solved in 0.37s - found violation query
+  Violating 30/31 constraints
+  Variables with values: 81/81
+Generated query violating 30 constraints
+  - alldifferent(grid[0,0],grid[0,1],grid[0,2],grid[0,3],grid[0,4],grid[0,5],grid[0,6],grid[0,7],grid[0,8]) (P=0.877)
+  - alldifferent(grid[1,0],grid[1,1],grid[1,2],grid[1,3],grid[1,4],grid[1,5],grid[1,6],grid[1,7],grid[1,8]) (P=0.877)
+  - alldifferent(grid[2,0],grid[2,1],grid[2,2],grid[2,3],grid[2,4],grid[2,5],grid[2,6],grid[2,7],grid[2,8]) (P=0.877)
+  - alldifferent(grid[3,0],grid[3,1],grid[3,2],grid[3,3],grid[3,4],grid[3,5],grid[3,6],grid[3,7],grid[3,8]) (P=0.877)
+  - alldifferent(grid[4,0],grid[4,1],grid[4,2],grid[4,3],grid[4,4],grid[4,5],grid[4,6],grid[4,7],grid[4,8]) (P=0.877)
+  - alldifferent(grid[5,0],grid[5,1],grid[5,2],grid[5,3],grid[5,4],grid[5,5],grid[5,6],grid[5,7],grid[5,8]) (P=0.877)
+  - alldifferent(grid[6,0],grid[6,1],grid[6,2],grid[6,3],grid[6,4],grid[6,5],grid[6,6],grid[6,7],grid[6,8]) (P=0.877)
+  - alldifferent(grid[7,0],grid[7,1],grid[7,2],grid[7,3],grid[7,4],grid[7,5],grid[7,6],grid[7,7],grid[7,8]) (P=0.877)
+  - alldifferent(grid[8,0],grid[8,1],grid[8,2],grid[8,3],grid[8,4],grid[8,5],grid[8,6],grid[8,7],grid[8,8]) (P=0.877)
+  - alldifferent(grid[0,0],grid[1,0],grid[2,0],grid[3,0],grid[4,0],grid[5,0],grid[6,0],grid[7,0],grid[8,0]) (P=0.877)
+  - alldifferent(grid[0,1],grid[1,1],grid[2,1],grid[3,1],grid[4,1],grid[5,1],grid[6,1],grid[7,1],grid[8,1]) (P=0.877)
+  - alldifferent(grid[0,2],grid[1,2],grid[2,2],grid[3,2],grid[4,2],grid[5,2],grid[6,2],grid[7,2],grid[8,2]) (P=0.877)
+  - alldifferent(grid[0,3],grid[1,3],grid[2,3],grid[3,3],grid[4,3],grid[5,3],grid[6,3],grid[7,3],grid[8,3]) (P=0.877)
+  - alldifferent(grid[0,4],grid[1,4],grid[2,4],grid[3,4],grid[4,4],grid[5,4],grid[6,4],grid[7,4],grid[8,4]) (P=0.877)
+  - alldifferent(grid[0,5],grid[1,5],grid[2,5],grid[3,5],grid[4,5],grid[5,5],grid[6,5],grid[7,5],grid[8,5]) (P=0.877)
+  - alldifferent(grid[0,6],grid[1,6],grid[2,6],grid[3,6],grid[4,6],grid[5,6],grid[6,6],grid[7,6],grid[8,6]) (P=0.877)
+  - alldifferent(grid[0,7],grid[1,7],grid[2,7],grid[3,7],grid[4,7],grid[5,7],grid[6,7],grid[7,7],grid[8,7]) (P=0.877)
+  - alldifferent(grid[0,8],grid[1,8],grid[2,8],grid[3,8],grid[4,8],grid[5,8],grid[6,8],grid[7,8],grid[8,8]) (P=0.877)
+  - alldifferent(grid[0,0],grid[0,1],grid[0,2],grid[1,0],grid[1,1],grid[1,2],grid[2,0],grid[2,1],grid[2,2]) (P=0.877)
+  - alldifferent(grid[0,3],grid[0,4],grid[0,5],grid[1,3],grid[1,4],grid[1,5],grid[2,3],grid[2,4],grid[2,5]) (P=0.877)
+  - alldifferent(grid[0,6],grid[0,7],grid[0,8],grid[1,6],grid[1,7],grid[1,8],grid[2,6],grid[2,7],grid[2,8]) (P=0.877)
+  - alldifferent(grid[3,0],grid[3,1],grid[3,2],grid[4,0],grid[4,1],grid[4,2],grid[5,0],grid[5,1],grid[5,2]) (P=0.877)
+  - alldifferent(grid[3,3],grid[3,4],grid[3,5],grid[4,3],grid[4,4],grid[4,5],grid[5,3],grid[5,4],grid[5,5]) (P=0.877)
+  - alldifferent(grid[3,6],grid[3,7],grid[3,8],grid[4,6],grid[4,7],grid[4,8],grid[5,6],grid[5,7],grid[5,8]) (P=0.877)
+  - alldifferent(grid[6,0],grid[6,1],grid[6,2],grid[7,0],grid[7,1],grid[7,2],grid[8,0],grid[8,1],grid[8,2]) (P=0.877)
+  - alldifferent(grid[6,3],grid[6,4],grid[6,5],grid[7,3],grid[7,4],grid[7,5],grid[8,3],grid[8,4],grid[8,5]) (P=0.877)
+  - alldifferent(grid[6,6],grid[6,7],grid[6,8],grid[7,6],grid[7,7],grid[7,8],grid[8,6],grid[8,7],grid[8,8]) (P=0.877)
+  - alldifferent(grid[3,1],grid[5,3],grid[2,8],grid[0,8]) (P=0.877)
+  - alldifferent(grid[8,2],grid[8,5],grid[3,2],grid[6,6],grid[0,8]) (P=0.706)
+  - alldifferent(grid[4,6],grid[7,7],grid[7,2]) (P=0.706)
+
+Violation Query Assignment
+  -------------------------------------
+  | 2  1  1  | 2  1  1  | 1  1  4 |
+  | 1  1  1  | 1  1  1  | 1  1  1 |
+  | 1  1  1  | 1  1  1  | 1  1  1 |
+  -------------------------------------
+  | 4  1  1  | 1  1  3  | 2  1  3 |
+  | 3  1  3  | 1  1  1  | 1  1  7 |
+  | 1  1  3  | 8  3  4  | 1  1  1 |
+  -------------------------------------
+  | 2  2  2  | 2  1  6  | 1  2  1 |
+  | 1  1  4  | 2  2  2  | 2  4  1 |
+  | 2  1  4  | 7  9  6  | 1  8  5 |
+  -------------------------------------
+  Filled cells: 81/81
+
+[ORACLE] Asking oracle...
+[NO] Oracle: No (invalid assignment)
+[SUPPORT] Supporting 30 constraints
+  [UPDATE] alldifferent(grid[0,0],grid[0,1],grid[0,2],grid[0,3],grid[0,4],grid[0,5],grid[0,6],grid[0,7],grid[0,8]): P=0.877 -> 0.948
+    [ACCEPT] Accepted (P >= 0.9)
+  [UPDATE] alldifferent(grid[1,0],grid[1,1],grid[1,2],grid[1,3],grid[1,4],grid[1,5],grid[1,6],grid[1,7],grid[1,8]): P=0.877 -> 0.948
+    [ACCEPT] Accepted (P >= 0.9)
+  [UPDATE] alldifferent(grid[2,0],grid[2,1],grid[2,2],grid[2,3],grid[2,4],grid[2,5],grid[2,6],grid[2,7],grid[2,8]): P=0.877 -> 0.948
+    [ACCEPT] Accepted (P >= 0.9)
+  [UPDATE] alldifferent(grid[3,0],grid[3,1],grid[3,2],grid[3,3],grid[3,4],grid[3,5],grid[3,6],grid[3,7],grid[3,8]): P=0.877 -> 0.948
+    [ACCEPT] Accepted (P >= 0.9)
+  [UPDATE] alldifferent(grid[4,0],grid[4,1],grid[4,2],grid[4,3],grid[4,4],grid[4,5],grid[4,6],grid[4,7],grid[4,8]): P=0.877 -> 0.948
+    [ACCEPT] Accepted (P >= 0.9)
+  [UPDATE] alldifferent(grid[5,0],grid[5,1],grid[5,2],grid[5,3],grid[5,4],grid[5,5],grid[5,6],grid[5,7],grid[5,8]): P=0.877 -> 0.948
+    [ACCEPT] Accepted (P >= 0.9)
+  [UPDATE] alldifferent(grid[6,0],grid[6,1],grid[6,2],grid[6,3],grid[6,4],grid[6,5],grid[6,6],grid[6,7],grid[6,8]): P=0.877 -> 0.948
+    [ACCEPT] Accepted (P >= 0.9)
+  [UPDATE] alldifferent(grid[7,0],grid[7,1],grid[7,2],grid[7,3],grid[7,4],grid[7,5],grid[7,6],grid[7,7],grid[7,8]): P=0.877 -> 0.948
+    [ACCEPT] Accepted (P >= 0.9)
+  [UPDATE] alldifferent(grid[8,0],grid[8,1],grid[8,2],grid[8,3],grid[8,4],grid[8,5],grid[8,6],grid[8,7],grid[8,8]): P=0.877 -> 0.948
+    [ACCEPT] Accepted (P >= 0.9)
+  [UPDATE] alldifferent(grid[0,0],grid[1,0],grid[2,0],grid[3,0],grid[4,0],grid[5,0],grid[6,0],grid[7,0],grid[8,0]): P=0.877 -> 0.948
+    [ACCEPT] Accepted (P >= 0.9)
+  [UPDATE] alldifferent(grid[0,1],grid[1,1],grid[2,1],grid[3,1],grid[4,1],grid[5,1],grid[6,1],grid[7,1],grid[8,1]): P=0.877 -> 0.948
+    [ACCEPT] Accepted (P >= 0.9)
+  [UPDATE] alldifferent(grid[0,2],grid[1,2],grid[2,2],grid[3,2],grid[4,2],grid[5,2],grid[6,2],grid[7,2],grid[8,2]): P=0.877 -> 0.948
+    [ACCEPT] Accepted (P >= 0.9)
+  [UPDATE] alldifferent(grid[0,3],grid[1,3],grid[2,3],grid[3,3],grid[4,3],grid[5,3],grid[6,3],grid[7,3],grid[8,3]): P=0.877 -> 0.948
+    [ACCEPT] Accepted (P >= 0.9)
+  [UPDATE] alldifferent(grid[0,4],grid[1,4],grid[2,4],grid[3,4],grid[4,4],grid[5,4],grid[6,4],grid[7,4],grid[8,4]): P=0.877 -> 0.948
+    [ACCEPT] Accepted (P >= 0.9)
+  [UPDATE] alldifferent(grid[0,5],grid[1,5],grid[2,5],grid[3,5],grid[4,5],grid[5,5],grid[6,5],grid[7,5],grid[8,5]): P=0.877 -> 0.948
+    [ACCEPT] Accepted (P >= 0.9)
+  [UPDATE] alldifferent(grid[0,6],grid[1,6],grid[2,6],grid[3,6],grid[4,6],grid[5,6],grid[6,6],grid[7,6],grid[8,6]): P=0.877 -> 0.948
+    [ACCEPT] Accepted (P >= 0.9)
+  [UPDATE] alldifferent(grid[0,7],grid[1,7],grid[2,7],grid[3,7],grid[4,7],grid[5,7],grid[6,7],grid[7,7],grid[8,7]): P=0.877 -> 0.948
+    [ACCEPT] Accepted (P >= 0.9)
+  [UPDATE] alldifferent(grid[0,8],grid[1,8],grid[2,8],grid[3,8],grid[4,8],grid[5,8],grid[6,8],grid[7,8],grid[8,8]): P=0.877 -> 0.948
+    [ACCEPT] Accepted (P >= 0.9)
+  [UPDATE] alldifferent(grid[0,0],grid[0,1],grid[0,2],grid[1,0],grid[1,1],grid[1,2],grid[2,0],grid[2,1],grid[2,2]): P=0.877 -> 0.948
+    [ACCEPT] Accepted (P >= 0.9)
+  [UPDATE] alldifferent(grid[0,3],grid[0,4],grid[0,5],grid[1,3],grid[1,4],grid[1,5],grid[2,3],grid[2,4],grid[2,5]): P=0.877 -> 0.948
+    [ACCEPT] Accepted (P >= 0.9)
+  [UPDATE] alldifferent(grid[0,6],grid[0,7],grid[0,8],grid[1,6],grid[1,7],grid[1,8],grid[2,6],grid[2,7],grid[2,8]): P=0.877 -> 0.948
+    [ACCEPT] Accepted (P >= 0.9)
+  [UPDATE] alldifferent(grid[3,0],grid[3,1],grid[3,2],grid[4,0],grid[4,1],grid[4,2],grid[5,0],grid[5,1],grid[5,2]): P=0.877 -> 0.948
+    [ACCEPT] Accepted (P >= 0.9)
+  [UPDATE] alldifferent(grid[3,3],grid[3,4],grid[3,5],grid[4,3],grid[4,4],grid[4,5],grid[5,3],grid[5,4],grid[5,5]): P=0.877 -> 0.948
+    [ACCEPT] Accepted (P >= 0.9)
+  [UPDATE] alldifferent(grid[3,6],grid[3,7],grid[3,8],grid[4,6],grid[4,7],grid[4,8],grid[5,6],grid[5,7],grid[5,8]): P=0.877 -> 0.948
+    [ACCEPT] Accepted (P >= 0.9)
+  [UPDATE] alldifferent(grid[6,0],grid[6,1],grid[6,2],grid[7,0],grid[7,1],grid[7,2],grid[8,0],grid[8,1],grid[8,2]): P=0.877 -> 0.948
+    [ACCEPT] Accepted (P >= 0.9)
+  [UPDATE] alldifferent(grid[6,3],grid[6,4],grid[6,5],grid[7,3],grid[7,4],grid[7,5],grid[8,3],grid[8,4],grid[8,5]): P=0.877 -> 0.948
+    [ACCEPT] Accepted (P >= 0.9)
+  [UPDATE] alldifferent(grid[6,6],grid[6,7],grid[6,8],grid[7,6],grid[7,7],grid[7,8],grid[8,6],grid[8,7],grid[8,8]): P=0.877 -> 0.948
+    [ACCEPT] Accepted (P >= 0.9)
+  [UPDATE] alldifferent(grid[3,1],grid[5,3],grid[2,8],grid[0,8]): P=0.877 -> 0.948
+    [ACCEPT] Accepted (P >= 0.9)
+  [UPDATE] alldifferent(grid[8,2],grid[8,5],grid[3,2],grid[6,6],grid[0,8]): P=0.706 -> 0.877
+  [UPDATE] alldifferent(grid[4,6],grid[7,7],grid[7,2]): P=0.706 -> 0.877
+Press Enter to continue...
+
+------------------------------------------------------------
+Iteration 4
+------------------------------------------------------------
+Status: 28 validated, 3 candidates, 3 queries used
+
+[QUERY] Generating violation query...
+  Building COP model: 3 candidates, 28 validated, 81 variables
+  Solving COP (timeout: 30s)...
+  Solved in 0.08s - found violation query
+  Violating 2/3 constraints
+  Variables with values: 81/81
+Generated query violating 2 constraints
+  - alldifferent(grid[8,2],grid[8,5],grid[3,2],grid[6,6],grid[0,8]) (P=0.877)
+  - alldifferent(grid[4,6],grid[7,7],grid[7,2]) (P=0.877)
+
+Violation Query Assignment
+  -------------------------------------
+  | 7  3  2  | 8  1  4  | 6  5  9 |
+  | 1  5  6  | 3  9  2  | 7  4  8 |
+  | 8  9  4  | 5  6  7  | 2  1  3 |
+  -------------------------------------
+  | 6  1  7  | 2  3  9  | 4  8  5 |
+  | 2  4  3  | 1  8  5  | 9  6  7 |
+  | 9  8  5  | 4  7  6  | 1  3  2 |
+  -------------------------------------
+  | 4  2  1  | 9  5  3  | 8  7  6 |
+  | 3  6  8  | 7  2  1  | 5  9  4 |
+  | 5  7  9  | 6  4  8  | 3  2  1 |
+  -------------------------------------
+  Filled cells: 81/81
+
+[ORACLE] Asking oracle...
+[NO] Oracle: No (invalid assignment)
+[SUPPORT] Supporting 2 constraints
+  [UPDATE] alldifferent(grid[8,2],grid[8,5],grid[3,2],grid[6,6],grid[0,8]): P=0.877 -> 0.948
+    [ACCEPT] Accepted (P >= 0.9)
+  [UPDATE] alldifferent(grid[4,6],grid[7,7],grid[7,2]): P=0.877 -> 0.948
+    [ACCEPT] Accepted (P >= 0.9)
+Press Enter to continue...
+
+------------------------------------------------------------
+Iteration 5
+------------------------------------------------------------
+Status: 30 validated, 1 candidates, 4 queries used
+
+[QUERY] Generating violation query...
+  Building COP model: 1 candidates, 30 validated, 81 variables
+  Solving COP (timeout: 30s)...
+  Solved in 0.06s - found violation query
+  Violating 1/1 constraints
+  Variables with values: 81/81
+Generated query violating 1 constraints
+  - alldifferent(grid[3,5],grid[4,4],grid[0,0],grid[3,0]) (P=0.877)
+
+Violation Query Assignment
+  -------------------------------------
+  | 6  1  9  | 8  7  5  | 3  4  2 |
+  | 3  4  5  | 2  1  9  | 8  7  6 |
+  | 8  2  7  | 3  6  4  | 1  5  9 |
+  -------------------------------------
+  | 2  8  4  | 6  5  1  | 9  3  7 |
+  | 7  3  6  | 9  2  8  | 4  1  5 |
+  | 9  5  1  | 4  3  7  | 2  6  8 |
+  -------------------------------------
+  | 1  6  2  | 7  9  3  | 5  8  4 |
+  | 5  7  8  | 1  4  2  | 6  9  3 |
+  | 4  9  3  | 5  8  6  | 7  2  1 |
+  -------------------------------------
+  Filled cells: 81/81
+
+[ORACLE] Asking oracle...
+[NO] Oracle: No (invalid assignment)
+[SUPPORT] Supporting 1 constraints
+  [UPDATE] alldifferent(grid[3,5],grid[4,4],grid[0,0],grid[3,0]): P=0.877 -> 0.948
+    [ACCEPT] Accepted (P >= 0.9)
+Press Enter to continue...
+
+------------------------------------------------------------
+Iteration 6
+------------------------------------------------------------
+[STOP] No more candidate constraints
+
+============================================================
+Refinement Complete
+============================================================
+Validated constraints: 31
+Rejected constraints: 0
+Total queries: 5
+Total time: 11.96s
+
+Validated constraints:
+  [OK] alldifferent(grid[0,0],grid[0,1],grid[0,2],grid[0,3],grid[0,4],grid[0,5],grid[0,6],grid[0,7],grid[0,8])
+  [OK] alldifferent(grid[1,0],grid[1,1],grid[1,2],grid[1,3],grid[1,4],grid[1,5],grid[1,6],grid[1,7],grid[1,8])
+  [OK] alldifferent(grid[2,0],grid[2,1],grid[2,2],grid[2,3],grid[2,4],grid[2,5],grid[2,6],grid[2,7],grid[2,8])
+  [OK] alldifferent(grid[3,0],grid[3,1],grid[3,2],grid[3,3],grid[3,4],grid[3,5],grid[3,6],grid[3,7],grid[3,8])
+  [OK] alldifferent(grid[4,0],grid[4,1],grid[4,2],grid[4,3],grid[4,4],grid[4,5],grid[4,6],grid[4,7],grid[4,8])
+  [OK] alldifferent(grid[5,0],grid[5,1],grid[5,2],grid[5,3],grid[5,4],grid[5,5],grid[5,6],grid[5,7],grid[5,8])
+  [OK] alldifferent(grid[6,0],grid[6,1],grid[6,2],grid[6,3],grid[6,4],grid[6,5],grid[6,6],grid[6,7],grid[6,8])
+  [OK] alldifferent(grid[7,0],grid[7,1],grid[7,2],grid[7,3],grid[7,4],grid[7,5],grid[7,6],grid[7,7],grid[7,8])
+  [OK] alldifferent(grid[8,0],grid[8,1],grid[8,2],grid[8,3],grid[8,4],grid[8,5],grid[8,6],grid[8,7],grid[8,8])
+  [OK] alldifferent(grid[0,0],grid[1,0],grid[2,0],grid[3,0],grid[4,0],grid[5,0],grid[6,0],grid[7,0],grid[8,0])
+  [OK] alldifferent(grid[0,1],grid[1,1],grid[2,1],grid[3,1],grid[4,1],grid[5,1],grid[6,1],grid[7,1],grid[8,1])
+  [OK] alldifferent(grid[0,2],grid[1,2],grid[2,2],grid[3,2],grid[4,2],grid[5,2],grid[6,2],grid[7,2],grid[8,2])
+  [OK] alldifferent(grid[0,3],grid[1,3],grid[2,3],grid[3,3],grid[4,3],grid[5,3],grid[6,3],grid[7,3],grid[8,3])
+  [OK] alldifferent(grid[0,4],grid[1,4],grid[2,4],grid[3,4],grid[4,4],grid[5,4],grid[6,4],grid[7,4],grid[8,4])
+  [OK] alldifferent(grid[0,5],grid[1,5],grid[2,5],grid[3,5],grid[4,5],grid[5,5],grid[6,5],grid[7,5],grid[8,5])
+  [OK] alldifferent(grid[0,6],grid[1,6],grid[2,6],grid[3,6],grid[4,6],grid[5,6],grid[6,6],grid[7,6],grid[8,6])
+  [OK] alldifferent(grid[0,7],grid[1,7],grid[2,7],grid[3,7],grid[4,7],grid[5,7],grid[6,7],grid[7,7],grid[8,7])
+  [OK] alldifferent(grid[0,8],grid[1,8],grid[2,8],grid[3,8],grid[4,8],grid[5,8],grid[6,8],grid[7,8],grid[8,8])
+  [OK] alldifferent(grid[0,0],grid[0,1],grid[0,2],grid[1,0],grid[1,1],grid[1,2],grid[2,0],grid[2,1],grid[2,2])
+  [OK] alldifferent(grid[0,3],grid[0,4],grid[0,5],grid[1,3],grid[1,4],grid[1,5],grid[2,3],grid[2,4],grid[2,5])
+  [OK] alldifferent(grid[0,6],grid[0,7],grid[0,8],grid[1,6],grid[1,7],grid[1,8],grid[2,6],grid[2,7],grid[2,8])
+  [OK] alldifferent(grid[3,0],grid[3,1],grid[3,2],grid[4,0],grid[4,1],grid[4,2],grid[5,0],grid[5,1],grid[5,2])
+  [OK] alldifferent(grid[3,3],grid[3,4],grid[3,5],grid[4,3],grid[4,4],grid[4,5],grid[5,3],grid[5,4],grid[5,5])
+  [OK] alldifferent(grid[3,6],grid[3,7],grid[3,8],grid[4,6],grid[4,7],grid[4,8],grid[5,6],grid[5,7],grid[5,8])
+  [OK] alldifferent(grid[6,0],grid[6,1],grid[6,2],grid[7,0],grid[7,1],grid[7,2],grid[8,0],grid[8,1],grid[8,2])
+  [OK] alldifferent(grid[6,3],grid[6,4],grid[6,5],grid[7,3],grid[7,4],grid[7,5],grid[8,3],grid[8,4],grid[8,5])
+  [OK] alldifferent(grid[6,6],grid[6,7],grid[6,8],grid[7,6],grid[7,7],grid[7,8],grid[8,6],grid[8,7],grid[8,8])
+  [OK] alldifferent(grid[3,1],grid[5,3],grid[2,8],grid[0,8])
+  [OK] alldifferent(grid[8,2],grid[8,5],grid[3,2],grid[6,6],grid[0,8])
+  [OK] alldifferent(grid[4,6],grid[7,7],grid[7,2])
+  [OK] alldifferent(grid[3,5],grid[4,4],grid[0,0],grid[3,0])
+
+
+Target AllDifferent constraints: 27
+Learned AllDifferent constraints: 31
+Correct: 27
+Missing: 0
+Spurious: 4
+
+[ERROR] Spurious constraints:
+  - alldifferent(grid[3,1],grid[5,3],grid[2,8],grid[0,8])
+  - alldifferent(grid[8,2],grid[8,5],grid[3,2],grid[6,6],grid[0,8])
+  - alldifferent(grid[4,6],grid[7,7],grid[7,2])
+  - alldifferent(grid[3,5],grid[4,4],grid[0,0],grid[3,0])

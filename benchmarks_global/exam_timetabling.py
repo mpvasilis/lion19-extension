@@ -41,8 +41,12 @@ def construct_examtt_simple(nsemesters=9, courses_per_semester=6, slots_per_day=
         # limit the number of exams on this day
         model += (exams_on_day <= max_exams_per_day)
 
+    # Save TRUE constraints for oracle (before adding mocks)
+    C_T = list(model.constraints)
+
     # MOCK OVER-FITTED CONSTRAINTS (will be consistent with 5 examples but NOT generally valid)
     # MUST be global constraints (arity > 3) for Phase 1 detection
+    # NOTE: Mocks are added to model for example generation but NOT to oracle (C_T)
     mock_constraints = []
 
     # Mock 1: First semester exams must all be on different days (too restrictive)
@@ -63,8 +67,6 @@ def construct_examtt_simple(nsemesters=9, courses_per_semester=6, slots_per_day=
         mock_c2 = (exams_on_middle_day == 3)
         mock_constraints.append(mock_c2)
         model += mock_c2
-
-    C_T = list(model.constraints)
 
     AV = absvar(2)  
 

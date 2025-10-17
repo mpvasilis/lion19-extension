@@ -58,6 +58,45 @@ APPROACH: Generate minimal relaxations of the rejected constraint that are consi
 
 ## The Three-Phase Methodology
 
+### High-Level Overview
+
+```
+Phase 1: Passive Learning
+  ├─ Input: E+ (positive examples)
+  ├─ Generate candidate AllDifferent constraints (patterns)
+  ├─ Generate candidate Sum/Count constraints (patterns)
+  ├─ Prune inconsistent AllDifferent constraints using E+
+  ├─ Generate complete fixed-arity bias (all binary constraints)
+  ├─ Prune inconsistent fixed-arity constraints using E+
+  └─ Output: CG (global candidates), B (pruned bias)
+
+Phase 2: Query-Driven Refinement with Disambiguation
+  ├─ ML Classifier: Assign P(c) to each c ∈ CG
+  ├─ COP Generation: Find violation assignment e violating multiple constraints
+  │   └─ Collect Viol(e) = constraints violated by e
+  ├─ Oracle Query: ASK(e) → Yes/No
+  ├─ If "No" (e invalid): All constraints in Viol(e) supported
+  │   ├─ Increase P(c) for all c ∈ Viol(e)
+  │   └─ Accept constraints with P(c) ≥ θ_max, prune B
+  ├─ If "Yes" (e valid): Disambiguation phase
+  │   ├─ For each c ∈ Viol(e):
+  │   │   ├─ Try isolation: Generate e_test violating ONLY c (within Viol(e))
+  │   │   ├─ If isolated successfully:
+  │   │   │   ├─ ASK(e_test)
+  │   │   │   │   ├─ "Yes" → c definitively FALSE (P(c) *= α)
+  │   │   │   │   └─ "No" → Ambiguous (prior-weighted update)
+  │   │   └─ Cannot isolate → Use prior P(c) for decision
+  │   │       └─ Prior-weighted confidence update
+  │   └─ Reject constraints with P(c) ≤ θ_min, attempt repair
+  └─ Output: C'G (refined globals), pruned B
+
+Phase 3: Active Learning (MQuAcq-2)
+  ├─ Decompose C'G to binary constraints
+  ├─ Initialize CL with decomposed constraints
+  ├─ Run MQuAcq-2 with pruned B
+  └─ Output: Final model C'G ∪ CL
+```
+
 ### Phase 1: Passive Candidate Generation
 
 **OBJECTIVE**: Extract initial constraint hypotheses from sparse examples while maintaining two independent biases.
@@ -76,58 +115,98 @@ APPROACH: Generate minimal relaxations of the rejected constraint that are consi
 *   `B_globals`: Over-fitted candidate global constraints.
 *   `B_fixed`: Pruned fixed-arity bias (refined ONLY with E+).
 
-### Phase 2: Query-Driven Interactive Refinement
+### Phase 2: Query-Driven Interactive Refinement with Disambiguation
 
-**OBJECTIVE**: Systematically validate or refute every global constraint candidate through a unified probabilistic framework, correcting over-fitting while being resilient to oracle noise.
+**OBJECTIVE**: Systematically validate or refute every global constraint candidate through disambiguation-based interactive refinement, efficiently identifying false constraints while being resilient to over-fitting.
 
-**... (Inputs section remains the same) ...**
+**INPUTS**:
+*   `B_globals` = Candidate global constraints from Phase 1
+*   `B_fixed` = Pruned fixed-arity bias from Phase 1
+*   `E+` = Initial positive examples (for consistency checking)
+*   Oracle `O`
+*   ML Classifier for P(c) estimation
+*   Budget `Q_max`
 
-**REFINEMENT LOOP** (Algorithm 1, lines 9-27):
+**REFINEMENT LOOP** (Algorithm 2):
 
-**WHILE** B_globals ≠ ∅ AND queries_used < Budget_total AND time < T_max:
+**WHILE** B_globals ≠ ∅ AND queries_used < Q_max AND time < T_max:
 
-1.  **SELECT**: Choose candidate `c` with highest uncertainty.
-2.  **QUERY GENERATION**: Generate query `Y` that violates `c`.
-3.  **ORACLE QUERY**: `R ← Ask(O, Y)`
-4.  **UNIFIED BELIEF UPDATE (CONSTRAINT 4)**:
+1.  **COP GENERATION**: Generate violation query `e` that violates at least one constraint in `B_globals`
+    -   Build constraint optimization problem (COP)
+    -   `e` must satisfy all validated constraints in `C'_G`
+    -   `e` must violate at least one constraint in `B_globals` (prioritize high uncertainty)
+    -   Collect `Viol(e)` = set of constraints violated by `e`
 
-    **If R = "Invalid"** (Supporting Evidence):
-    -   `P(c) ← P(c) + (1 - P(c)) * (1 - α)` (increase confidence).
+2.  **ORACLE QUERY**: `R ← Ask(O, e)`
 
-    **If R = "Valid"** (Refuting Evidence):
-    -   `P(c) ← P(c) * α` (drastically decrease confidence).
-    -   Store `Y` as the latest `Y_counterexample` for `c`.
+3.  **RESPONSE HANDLING**:
 
-5.  **DECISION** (After inner query loop for `c` completes):
-
-    **If P(c) ≥ θ_max**:
-    -   **1. Accept `c`**: Move `c` to `C'_G`.
-    -   **2. NEW: PRINCIPLED PRUNING (CONSTRAINT 2)**:
+    **If R = "No"** (e is invalid - Supporting Evidence):
+    -   All constraints in `Viol(e)` are SUPPORTED
+    -   For each `c ∈ Viol(e)`:
         ```python
-        # The accepted constraint c is now a confirmed rule.
-        # Use its implications to prune B_fixed.
-        
-        # Get the set of binary constraints implied by c's decomposition
-        # e.g., for AllDifferent({x1,x2}), this is { (x1, '!=', x2) }
-        implied_constraints = get_decomposition(c)
-        
-        constraints_to_remove = set()
-        for implied_c in implied_constraints:
-            # Find the direct contradiction (e.g., for '!=', find '==')
-            contradiction = get_contradiction(implied_c)
-            if contradiction in B_fixed:
-                constraints_to_remove.add(contradiction)
-        
-        # Atomically remove all contradictory constraints from B_fixed
-        B_fixed.difference_update(constraints_to_remove)
-        ```
-    -   **3. Redistribute Budget**: Redistribute `c`'s unused budget.
+        # Increase confidence
+        P(c) ← P(c) + (1 - P(c)) * (1 - α)
 
-    **If P(c) ≤ θ_min**:
-    -   Reject `c`.
-    -   **INTELLIGENT REPAIR (CONSTRAINT 5)** using `Y_counterexample`.
-    
-    **Otherwise**: `c` remains in `B_globals` for potential future queries.
+        # If P(c) ≥ θ_max:
+        #   - Accept c, move to C'_G
+        #   - Prune B_fixed using c's decomposition
+        ```
+
+    **If R = "Yes"** (e is valid - Refuting Evidence):
+    -   Some constraints in `Viol(e)` are FALSE
+    -   **Start DISAMBIGUATION**:
+        ```python
+        for c in Viol(e):
+            # Attempt Isolation
+            e_test = GenerateIsolationQuery(c, Viol(e))
+
+            if e_test exists:  # c can be isolated
+                R_test ← Ask(O, e_test)
+
+                if R_test == "Yes":
+                    # e_test is valid but violates only c
+                    # → c is DEFINITIVELY FALSE
+                    P(c) ← P(c) * α  # Drastically decrease
+
+                    if P(c) ≤ θ_min:
+                        Reject c
+                        Generate repair hypotheses (subset exploration)
+
+                else:  # R_test == "No"
+                    # Isolation query rejected - c is ambiguous
+                    # Use prior-weighted update
+                    update_factor = α + (1 - α) * P(c)
+                    P(c) ← P(c) * update_factor
+
+            else:  # Cannot isolate c
+                # c cannot be distinguished within Viol(e)
+                # Use ML prior P(c) for decision
+                # Apply prior-weighted confidence update
+                update_factor = α + (1 - α) * P(c)
+                P(c) ← P(c) * update_factor
+
+                if P(c) ≤ θ_min:
+                    Reject c (low prior suggests false)
+                    Generate repair hypotheses
+        ```
+
+4.  **PRUNING**: When constraint `c` is accepted (P(c) ≥ θ_max):
+    ```python
+    # Decompose c into binary constraints
+    implied_constraints = get_decomposition(c)
+
+    # Remove contradictory constraints from B_fixed
+    for implied_c in implied_constraints:
+        contradiction = get_contradiction(implied_c)
+        if contradiction in B_fixed:
+            B_fixed.remove(contradiction)
+    ```
+
+**OUTPUT**:
+*   `C'_G`: Validated global constraints
+*   `B_fixed`: Pruned fixed-arity bias
+*   `Q_2`: Query count for Phase 2
 
 #### Key Mechanisms:
 
@@ -138,11 +217,78 @@ def MLPrior(c):
     OBJECTIVE: Initialize confidence using structural features.
     MODEL: XGBoost trained on diverse benchmarks offline.
     OUTPUT: P(c) ∈ [0, 1] representing likelihood c is correct.
-    PURPOSE: Focus budget on structurally ambiguous constraints.
+    PURPOSE:
+    - Focus budget on structurally ambiguous constraints
+    - Guide disambiguation decisions when isolation is impossible
+    - Weight confidence updates based on structural plausibility
     """
 ```
 
-**B. Intelligent Model Repair via Counterexample Analysis**
+**B. Violation Query Generation**
+```python
+def GenerateViolationQuery(B_globals, C'_G):
+    """
+    OBJECTIVE: Generate a query that violates multiple candidate constraints.
+
+    STRATEGY:
+    1. Build COP with validated constraints C'_G (must satisfy)
+    2. Select top-k uncertain constraints from B_globals
+    3. Add disjunction: must violate at least one selected constraint
+       (c1.violated OR c2.violated OR ... OR ck.violated)
+    4. Solve to get assignment e
+    5. Check which constraints are actually violated by e
+
+    RETURNS: (e, Viol(e), status)
+
+    BENEFIT: Tests multiple constraints with a single query
+    """
+```
+
+**C. Constraint Isolation**
+```python
+def GenerateIsolationQuery(c_target, Viol_e, C'_G):
+    """
+    OBJECTIVE: Generate query that violates ONLY c_target (within Viol_e).
+
+    STRATEGY:
+    1. Build COP with validated constraints C'_G (must satisfy)
+    2. Add OTHER constraints from Viol_e EXCEPT c_target (must satisfy)
+    3. Add negation of c_target (must violate)
+    4. Solve to get e_test
+
+    RESULT:
+    - If SAT: e_test isolates c_target for disambiguation
+    - If UNSAT: c_target cannot be isolated (implied by other Viol_e constraints)
+
+    BENEFIT: Enables definitive identification of false constraints
+    """
+```
+
+**D. Disambiguation with Prior-Weighted Updates**
+```python
+def Disambiguate(Viol_e, oracle, P_priors):
+    """
+    OBJECTIVE: Identify which constraints in Viol_e are false.
+
+    STRATEGY:
+    1. For each c in Viol_e:
+       a. Attempt isolation
+       b. If isolated:
+          - ASK(e_test)
+          - "Yes" → Definitive FALSE: P(c) *= α
+          - "No" → Ambiguous: P(c) *= (α + (1-α)*P(c))
+       c. If cannot isolate:
+          - Use ML prior for decision
+          - P(c) *= (α + (1-α)*P(c))
+
+    2. Reject constraints with P(c) ≤ θ_min
+    3. Generate repair hypotheses for rejected constraints
+
+    BENEFIT: Combines definitive evidence with probabilistic reasoning
+    """
+```
+
+**E. Intelligent Model Repair via Counterexample Analysis**
 ```python
 def RepairConstraintFromCounterexample(c_rejected, Y_counterexample):
     """
@@ -163,23 +309,32 @@ def RepairConstraintFromCounterexample(c_rejected, Y_counterexample):
     """
 ```
 
-**C. Unified Probabilistic Confidence Update**
+**F. Confidence Update Formulas**
 ```python
-def UpdateConfidence(P_c, response, alpha):
+def UpdateConfidence(P_c, response, alpha, use_prior_weighting=False):
     """
-    OBJECTIVE: Update confidence based on oracle response using a unified model.
-    
-    RULE: Both responses are treated as probabilistic evidence.
-    
-    IF response == "Invalid": # Supporting Evidence
-        # Increase confidence, moving towards 1.0
-        P_new = P_c + (1 - P_c) * (1 - alpha)
-    ELSE: # Refuting Evidence ("Valid")
-        # Decrease confidence, moving towards 0.0
-        P_new = P_c * alpha
-    
-    RETURN P_new
-    ```
+    OBJECTIVE: Update confidence based on oracle response.
+
+    FORMULAS:
+
+    1. Supporting Evidence (response == "Invalid"):
+       P_new = P_c + (1 - P_c) * (1 - α)
+       # Increase confidence towards 1.0
+
+    2. Definitive Refutation (isolated "Yes" response):
+       P_new = P_c * α
+       # Drastically decrease towards 0.0
+
+    3. Ambiguous Refutation (cannot isolate, use prior):
+       update_factor = α + (1 - α) * P_c
+       P_new = P_c * update_factor
+       # Softer decrease, weighted by prior belief
+       # High prior (P_c ≈ 1) → smaller decrease
+       # Low prior (P_c ≈ 0) → larger decrease
+
+    RETURN P_new ∈ [0, 1]
+    """
+```
 
 ### Phase 3: Active Learning Completion
 

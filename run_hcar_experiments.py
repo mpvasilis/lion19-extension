@@ -108,28 +108,62 @@ class BenchmarkConfig:
             
             # Create oracle function compatible with HCAR
             def oracle_func(assignment: Dict) -> OracleResponse:
-                """Oracle function that checks if assignment is valid using PyConA oracle."""
+                """
+                Oracle function that checks if assignment is valid using a fresh CP model.
+
+                This creates a new CP model with:
+                1. All target constraints (ground truth)
+                2. Assignment constraints (fixing variables to assigned values)
+
+                Then checks if the model is satisfiable.
+                """
                 try:
-                    # Convert assignment dict to the format expected by ConstraintOracle
-                    # The oracle.ask_query method expects a list of variable values
-                    # in the order of the variables
-                    
-                    # Create assignment array matching variable order
-                    var_values = []
-                    for var in variables_list:
-                        var_name = var.name if hasattr(var, 'name') else str(var)
-                        if var_name in assignment:
-                            var_values.append(assignment[var_name])
-                        else:
-                            # Variable not in assignment, cannot validate
+                    from cpmpy import Model
+
+                    # Create a fresh model with target constraints
+                    # This ensures we're checking against the ground truth, not learned constraints
+                    oracle_model = Model(target_model)
+
+                    # Add assignment constraints (fix variables to their assigned values)
+                    for var_name, value in assignment.items():
+                        if var_name in variables:
+                            var = variables[var_name]
+                            oracle_model += (var == value)
+
+                    # Solve the model
+                    # If SAT: assignment is consistent with target constraints → VALID
+                    # If UNSAT: assignment violates at least one target constraint → INVALID
+                    is_sat = oracle_model.solve()
+
+                    if is_sat:
+                        # Double-check: verify the solution actually matches the assignment
+                        # (this should always be true if the solver is correct)
+                        all_match = True
+                        mismatches = []
+
+                        for var_name, expected_value in assignment.items():
+                            if var_name in variables:
+                                actual_value = variables[var_name].value()
+                                if actual_value != expected_value:
+                                    all_match = False
+                                    mismatches.append(f"{var_name}: expected={expected_value}, actual={actual_value}")
+
+                        if not all_match:
+                            # This should never happen - indicates a solver bug
+                            logger.error(f"ORACLE ERROR: Solution doesn't match assignment!")
+                            logger.error(f"  Mismatches (first 5): {mismatches[:5]}")
                             return OracleResponse.INVALID
-                    
-                    # Check if assignment satisfies all constraints
-                    is_valid = oracle.answer_membership_query(var_values)
-                    return OracleResponse.VALID if is_valid else OracleResponse.INVALID
-                    
+
+                        logger.debug(f"Oracle: Assignment is VALID (satisfies all target constraints)")
+                        return OracleResponse.VALID
+                    else:
+                        logger.debug(f"Oracle: Assignment is INVALID (violates target constraints)")
+                        return OracleResponse.INVALID
+
                 except Exception as e:
                     logger.error(f"Error in oracle query: {e}")
+                    import traceback
+                    logger.error(traceback.format_exc())
                     return OracleResponse.INVALID
             
             # Generate initial positive examples

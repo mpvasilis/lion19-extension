@@ -148,3 +148,6 @@ hcar_results/*.json
 hcar_results/*.csv
 hcar_results/*.txt
 *.log
+
+# HCAR cache directory
+.hcar_cache/
