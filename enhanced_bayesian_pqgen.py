@@ -45,7 +45,7 @@ def weighted_violation_objective(B, ca_env):
         for c in B[:5]:  # Show first 5
             p = ca_env.constraint_probs.get(c, 0.5)
             weight = 1.0 - p
-            print(f"  {c}: P={p:.3f} → weight={weight:.3f}")
+            print(f"  {c}: P={p:.3f} -> weight={weight:.3f}")
         if len(B) > 5:
             print(f"  ... and {len(B)-5} more constraints")
 

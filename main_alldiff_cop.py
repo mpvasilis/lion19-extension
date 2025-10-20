@@ -212,6 +212,12 @@ def generate_violation_query(CG, C_validated, probabilities, all_variables):
     for c in C_validated:
         model += c
     
+    # CRITICAL FIX: Ensure ALL variables are assigned by adding them to the model
+    # Without this, variables not in any constraint won't get values from the solver
+    # Add a trivial constraint for each variable to force assignment
+    for v in all_variables:
+        model += (v >= 1)  # Domain constraint (assuming variables are >= 1)
+    
     # Create violation indicator variables
     gamma = {str(c): cp.boolvar(name=f"gamma_{i}") for i, c in enumerate(CG)}
     
@@ -220,11 +226,11 @@ def generate_violation_query(CG, C_validated, probabilities, all_variables):
         c_str = str(c)
         model += (gamma[c_str] == ~c)
     
-    # At least one violation, but not all
+    # CRITICAL: Limit violations to make disambiguation tractable
+    # Violate 1-4 constraints (disambiguation becomes intractable with >5)
     gamma_list = list(gamma.values())
-    model += (cp.sum(gamma_list) >= 1)
-    if len(gamma_list) > 1:
-        model += (cp.sum(gamma_list) < len(gamma_list))
+    model += (cp.sum(gamma_list) >= 1)  # At least one
+    model += (cp.sum(gamma_list) <= 4)  # At most 4 for tractable disambiguation
     
     # Objective: Minimize total violations, preferring low P(c) as tie-breaker
     # Primary: minimize count of violations (more informative queries)
@@ -236,7 +242,7 @@ def generate_violation_query(CG, C_validated, probabilities, all_variables):
     ])
     
     # Combined objective with NEGATIVE tie-breaker:
-    # - Minimizing count: fewer violations preferred
+    # - Minimizing count: fewer violations preferred (strongly weighted)
     # - Minus weighted_preference: among same count, prefers HIGH (1-P(c)), i.e., LOW P(c)
     # Use small epsilon (0.01) so it only affects tie-breaking
     epsilon = 0.01
@@ -245,6 +251,7 @@ def generate_violation_query(CG, C_validated, probabilities, all_variables):
     # Minimize: fewer violations first, then prefer low-P(c) constraints
     # Example: 1 violation @ P=0.3 → 1 - 0.01·0.7 = 0.993 (selected!)
     #          1 violation @ P=0.8 → 1 - 0.01·0.2 = 0.998 (not selected)
+    #          31 violations → objective = 31 - ... = ~31 (NEVER selected with max=4 constraint)
     model.minimize(objective)
     
     # Solve with timeout (30 seconds per query)
@@ -256,28 +263,116 @@ def generate_violation_query(CG, C_validated, probabilities, all_variables):
     if result:
         print(f"  Solved in {solve_time:.2f}s - found violation query")
         
-        # IMPORTANT: Only variables that appear in constraints have values!
-        # Get variables from the constraints (these have values set by solver)
-        from cpmpy.transformations.get_variables import get_variables
-        Y = list(get_variables(CG + C_validated))
+        # Now all_variables should have values (we added domain constraints)
+        Y = all_variables
         
-        # If no constraints yet, use all variables
-        if not Y:
-            Y = all_variables
-        
-        # Verify values are set and use get_kappa
-        Viol_e = get_kappa(CG, Y)
-        
-        print(f"  Violating {len(Viol_e)}/{len(CG)} constraints")
-        
-        # Debug: Check if values are actually set
+        # Verify values are set
         values_set = sum(1 for v in Y if v.value() is not None)
         print(f"  Variables with values: {values_set}/{len(Y)}")
+        
+        if values_set < len(Y):
+            print(f"  ERROR: Not all variables assigned! Cannot generate valid query.")
+            return None, [], "UNSAT"
+        
+        # Get violated constraints
+        Viol_e = get_kappa(CG, Y)
+        print(f"  Violating {len(Viol_e)}/{len(CG)} constraints")
         
         return Y, Viol_e, "SAT"
     else:
         print(f"  UNSAT after {solve_time:.2f}s - cannot find violation query")
         return None, [], "UNSAT"
+
+
+def test_constraints_individually(candidates, oracle, probabilities, all_variables,
+                                  alpha, theta_max, theta_min, max_queries_per_constraint=10):
+    """
+    Test each candidate constraint individually in a CLEAN environment (no assumptions).
+    
+    Used when UNSAT occurs - we cannot generate violation queries within C_validated,
+    so we test each candidate directly against the oracle without assuming C_validated is correct.
+    
+    Strategy:
+    - For each c_target in candidates:
+        - Create ProblemInstance with bias=[c_target], init_cl=[] (empty!)
+        - Run BayesianQuAcq.learn() which will:
+            * Generate queries that test c_target against ground truth
+            * Not be biased by potentially incorrect validated constraints
+        - Update probabilities based on testing results
+    
+    Args:
+        candidates: List of constraints to test
+        oracle: Oracle for answering queries
+        probabilities: Current probability dictionary
+        all_variables: All variables in problem
+        alpha: Learning rate
+        theta_max: Accept threshold
+        theta_min: Reject threshold
+        max_queries_per_constraint: Budget per constraint
+        
+    Returns:
+        Tuple (updated_probabilities, constraints_to_remove)
+    """
+    from cpmpy.transformations.get_variables import get_variables
+    from cpmpy import cpm_array
+    from pycona.problem_instance import ProblemInstance
+    from bayesian_ca_env import BayesianActiveCAEnv
+    from enhanced_bayesian_pqgen import EnhancedBayesianPQGen
+    
+    updated_probs = probabilities.copy()
+    to_remove = []
+    
+    for c_target in candidates:
+        print(f"\n  Testing constraint independently: {c_target}")
+        print(f"  Current P(c) = {probabilities[c_target]:.3f}")
+        
+        # CRITICAL FIX: Use ALL variables (not just constraint variables)
+        # Otherwise testing becomes meaningless (e.g., "can 9 values be all different?" - trivially yes!)
+        # We need to test within the full problem context
+        
+        # Create instance for CLEAN testing (no init_cl - no candidate assumptions)
+        instance = ProblemInstance(
+            variables=all_variables,  # ALL 81 Sudoku variables!
+            init_cl=[],  # No assumptions about other constraints
+            bias=[c_target],
+            name="clean_testing"
+        )
+        
+        # Create Bayesian environment
+        env = BayesianActiveCAEnv(
+            qgen=EnhancedBayesianPQGen(),
+            theta_max=theta_max,
+            theta_min=theta_min,
+            prior=probabilities[c_target],
+            alpha=alpha
+        )
+        
+        env.constraint_probs = {c_target: probabilities[c_target]}
+        env.max_queries = max_queries_per_constraint
+        
+        # Run BayesianQuAcq - test against ground truth
+        ca_system = BayesianQuAcq(ca_env=env)
+        learned_instance = ca_system.learn(instance, oracle=oracle, verbose=2)
+        
+        # Check result
+        if c_target in learned_instance.cl:
+            # Constraint accepted - oracle confirmed it's correct
+            updated_probs[c_target] = env.constraint_probs.get(c_target, probabilities[c_target])
+            print(f"  Result: ACCEPTED (P={updated_probs[c_target]:.3f})")
+        
+        elif c_target not in learned_instance.bias:
+            # Constraint removed from bias - definitively false
+            updated_probs[c_target] = env.constraint_probs.get(c_target, probabilities[c_target] * alpha)
+            print(f"  Result: REJECTED (P={updated_probs[c_target]:.3f})")
+            
+            if updated_probs[c_target] <= theta_min:
+                to_remove.append(c_target)
+        else:
+            # Constraint still in bias - uncertain
+            updated_probs[c_target] = env.constraint_probs.get(c_target, probabilities[c_target])
+            print(f"  Result: UNCERTAIN (P={updated_probs[c_target]:.3f})")
+    
+    return updated_probs, to_remove
 
 
 def disambiguate_violated_constraints(Viol_e, C_validated, oracle, probabilities, all_variables, 
@@ -315,11 +410,9 @@ def disambiguate_violated_constraints(Viol_e, C_validated, oracle, probabilities
         print(f"\n  Disambiguating constraint: {c_target}")
         print(f"  Current P(c) = {probabilities[c_target]:.3f}")
         
-        # Build init_cl: validated + other violated constraints (not c_target)
+        # Build init_cl: ONLY validated constraints (not other Viol_e constraints!)
+        # We're testing c_target, so we shouldn't assume other violated constraints are true
         init_cl = list(C_validated)
-        for c in Viol_e:
-            if c != c_target:
-                init_cl.append(c)
         
         # Get all variables
         all_vars = get_variables([c_target] + init_cl)
@@ -453,17 +546,32 @@ def cop_based_refinement(experiment_name, oracle, candidate_constraints, initial
         
         if status == "UNSAT":
             print(f"[UNSAT] Cannot generate violation query for remaining {len(CG)} constraints")
-            print(f"[ACCEPT] All remaining constraints are consistent with validated set")
+            print(f"[DECISION] Accepting remaining constraints as likely correct or implied")
             
-            # Accept all remaining constraints
-            # Rationale: If COP cannot find any violation, it means all remaining constraints
-            # are either correct or implied by the validated constraints
-            for c in CG:
-                C_validated.append(c)
-                print(f"  Accepted (UNSAT): {c} (P={probabilities[c]:.3f})")
+            # When UNSAT occurs with validated constraints in place, it means:
+            # Cannot find assignment that satisfies C_validated AND violates any candidate
+            # 
+            # For interdependent constraints (like Sudoku), this typically means:
+            # - Remaining candidates are correct and implied by validated constraints
+            # - OR they are mutually exclusive with validated constraints
+            # 
+            # Since we've been conservative (theta_max=0.9) and validated constraints
+            # have high confidence, we accept remaining candidates with sufficient probability
             
-            CG = []
-            break
+            for c in list(CG):
+                if probabilities[c] >= 0.7:  # Accept if reasonably confident
+                    C_validated.append(c)
+                    print(f"  [ACCEPT] {c} (P={probabilities[c]:.3f})")
+                else:
+                    print(f"  [UNCERTAIN] {c} (P={probabilities[c]:.3f}) - keeping in candidates")
+            
+            CG = [c for c in CG if probabilities[c] < 0.7]
+            
+            if not CG:
+                break
+            else:
+                print(f"[CONTINUE] {len(CG)} uncertain constraints remaining")
+                # Try one more iteration
         
         print(f"Generated query violating {len(Viol_e)} constraints")
         for c in Viol_e:
@@ -482,10 +590,12 @@ def cop_based_refinement(experiment_name, oracle, candidate_constraints, initial
             print(f"[YES] Oracle: Yes (valid assignment)")
             print(f"[DISAMBIG] {len(Viol_e)} constraints violated by valid solution - entering disambiguation")
             
-            # Disambiguation phase
+            # Disambiguation phase - test each violated constraint individually
+            # Try to isolate which constraint(s) in Viol_e are actually false
             probabilities, to_remove = disambiguate_violated_constraints(
                 Viol_e, C_validated, oracle, probabilities, variables, 
-                alpha, theta_max, theta_min
+                alpha, theta_max, theta_min,
+                max_queries_per_constraint=10  # Budget per constraint for isolation testing
             )
             
             # Update query count (disambiguation uses additional queries)
@@ -508,6 +618,10 @@ def cop_based_refinement(experiment_name, oracle, candidate_constraints, initial
                 print(f"  [UPDATE] {c}: P={old_prob:.3f} -> {probabilities[c]:.3f}")
                 
                 # Accept if P(c) >= theta_max
+                # Note: For interdependent constraints like Sudoku, we rely on:
+                # 1. Multiple supporting queries before reaching threshold
+                # 2. Disambiguation when oracle says "Yes" to catch spurious constraints
+                # 3. Conservative theta_max (0.9) to reduce false positives
                 if probabilities[c] >= theta_max:
                     C_validated.append(c)
                     CG.remove(c)
