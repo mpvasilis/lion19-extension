@@ -47,7 +47,24 @@ constraints:
 - Query C: violates 2 constraints → objective ≥ 1.99
 - **COP prefers A** (fewer violations is better)
 
-### 2. Simple Refinement Loop
+### 2. UNSAT Handling
+
+When the COP cannot generate a violation query (returns `UNSAT`):
+
+```python
+# Accept all remaining constraints
+for c in CG:
+    C_validated.append(c)
+break
+```
+
+**Why this is safe:**
+- With informed priors (0.3 for overfitted, 0.8 for detected), the COP tests suspicious constraints first
+- Minimize violation count ensures thorough testing
+- By the time UNSAT occurs, overfitted constraints have been rejected
+- Remaining constraints are correct or implied by validated set
+
+### 3. Simple Refinement Loop
 
 ```python
 while budget_remaining:

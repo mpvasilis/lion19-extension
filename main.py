@@ -892,12 +892,16 @@ def construct_instance(experiment_name):
         print("Constructing 9sudoku")
         n = 9
         instance_binary, oracle_binary = construct_sudoku_binary(3, 3, 9)
-        instance_global, oracle_global = construct_sudoku(3, 3, 9)
+        result = construct_sudoku(3, 3, 9)
+        # Handle optional mock_constraints return
+        instance_global, oracle_global = (result[0], result[1]) if len(result) == 3 else result
     elif 'examtt' in experiment_name.lower():
         print("Constructing examtt")
         n = 6
-        instance_binary, oracle_binary = construct_examtt_simple(nsemesters=9, courses_per_semester=6, slots_per_day=9, days_for_exams=14)
-        instance_global, oracle_global = ces_global(nsemesters=9, courses_per_semester=6, slots_per_day=9, days_for_exams=14)
+        result1 = construct_examtt_simple(nsemesters=9, courses_per_semester=6, slots_per_day=9, days_for_exams=14)
+        instance_binary, oracle_binary = (result1[0], result1[1]) if len(result1) == 3 else result1
+        result2 = ces_global(nsemesters=9, courses_per_semester=6, slots_per_day=9, days_for_exams=14)
+        instance_global, oracle_global = (result2[0], result2[1]) if len(result2) == 3 else result2
     elif 'nurse' in experiment_name.lower():
         n = 0
         instance_binary, oracle_binary = construct_nurse_rostering()

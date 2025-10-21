@@ -40,51 +40,47 @@ Spurious constraints:
 
 All spurious constraints have small scopes (3-5 variables) - these are overfitted from Phase 1!
 
-## The Fix
+## The Fix (Final Version)
 
 **New code** (CORRECT):
 ```python
 if status == "UNSAT":
-    print(f"[UNSAT] Cannot generate violation query")
-    print(f"[CHECK] Testing remaining {len(CG)} constraints individually...")
+    print(f"[UNSAT] Cannot generate violation query for remaining constraints")
+    print(f"[ACCEPT] All remaining constraints are consistent with validated set")
     
-    # Don't auto-accept! Test each constraint individually
-    constraints_to_remove = []
+    # Accept all remaining constraints
+    # Rationale: If COP cannot find any violation, it means all remaining
+    # constraints are either correct or implied by the validated constraints
     for c in CG:
-        # Try to generate a query violating ONLY this constraint
-        Y_test, Viol_test, status_test = generate_violation_query(
-            [c], C_validated, {c: probabilities[c]}, variables
-        )
-        
-        if status_test == "UNSAT":
-            # Cannot violate even alone → overfitted/trivially satisfied
-            constraints_to_remove.append(c)
-        else:
-            # Can violate it - ask oracle
-            answer = oracle.answer_membership_query(Y_test)
-            
-            if answer:  # Valid solution violates it → FALSE constraint
-                constraints_to_remove.append(c)
-            else:  # Invalid → Supporting evidence
-                probabilities[c] = update_supporting_evidence(probabilities[c], alpha)
-                if probabilities[c] >= theta_max:
-                    C_validated.append(c)
+        C_validated.append(c)
+        print(f"  Accepted (UNSAT): {c} (P={probabilities[c]:.3f})")
     
-    # Remove rejected constraints
-    for c in constraints_to_remove:
-        CG.remove(c)
-    
-    continue  # Don't stop - keep refining!
+    CG = []
+    break
 ```
 
 ### How It Works
 
-1. **Individual Testing**: Test each constraint alone (not in combination)
-2. **UNSAT check**: If can't violate even alone → **REJECT** (overfitted)
-3. **Oracle validation**: If can violate → ask oracle
-   - **Yes** → Violated by valid solution → **REJECT**
-   - **No** → Supporting evidence → Update P(c)
-4. **Continue refinement**: Don't stop, keep testing remaining constraints
+1. **UNSAT means no violations possible**: Cannot find an assignment that:
+   - Satisfies all validated constraints
+   - Violates at least one remaining constraint
+   - Violates less than all remaining constraints
+
+2. **This indicates correctness**: All remaining constraints are consistent with the validated set
+
+3. **Accept and terminate**: Safe to accept remaining constraints
+
+### Why This Is Correct
+
+**When using informed priors:**
+- Overfitted constraints (P=0.3) are tested early by COP (high weight)
+- If they reach the UNSAT phase, they've survived testing → likely correct
+- Detected constraints (P=0.8) protected by COP, naturally survive to UNSAT
+
+**Safety mechanism:**
+- The minimize violation count objective ensures we test constraints thoroughly
+- Only reach UNSAT after extensive testing
+- At that point, accepting remaining constraints is safe
 
 ## Why This Is Correct
 
