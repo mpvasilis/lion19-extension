@@ -1,5 +1,7 @@
 from .uefa import construct_uefa
 from .vm_allocation import construct_vm_allocation
 from .exam_timetabling import construct_examtt_simple
+from .exam_timetabling_variants import construct_examtt_variant1, construct_examtt_variant2
 from .nurse_rostering import construct_nurse_rostering
 from .sudoku import construct_sudoku
+from .sudoku_greater_than import construct_sudoku_greater_than

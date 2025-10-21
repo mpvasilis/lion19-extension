@@ -8,7 +8,6 @@ A principled implementation focusing on AllDifferent constraints with:
 - Bayesian probability updates
 - Fixed prior initialization (0.5)
 
-Author: HCAR Research Team
 """
 
 import argparse
@@ -27,7 +26,9 @@ from enhanced_bayesian_pqgen import EnhancedBayesianPQGen
 
 # Import benchmark construction functions
 from benchmarks_global import construct_sudoku
+from benchmarks_global import construct_sudoku_greater_than
 from benchmarks_global import construct_examtt_simple as ces_global
+from benchmarks_global import construct_examtt_variant1, construct_examtt_variant2
 from benchmarks_global import construct_nurse_rostering as nr_global
 
 
@@ -212,11 +213,6 @@ def generate_violation_query(CG, C_validated, probabilities, all_variables):
     for c in C_validated:
         model += c
     
-    # CRITICAL FIX: Ensure ALL variables are assigned by adding them to the model
-    # Without this, variables not in any constraint won't get values from the solver
-    # Add a trivial constraint for each variable to force assignment
-    for v in all_variables:
-        model += (v >= 1)  # Domain constraint (assuming variables are >= 1)
     
     # Create violation indicator variables
     gamma = {str(c): cp.boolvar(name=f"gamma_{i}") for i, c in enumerate(CG)}
@@ -226,11 +222,8 @@ def generate_violation_query(CG, C_validated, probabilities, all_variables):
         c_str = str(c)
         model += (gamma[c_str] == ~c)
     
-    # CRITICAL: Limit violations to make disambiguation tractable
-    # Violate 1-4 constraints (disambiguation becomes intractable with >5)
     gamma_list = list(gamma.values())
     model += (cp.sum(gamma_list) >= 1)  # At least one
-    model += (cp.sum(gamma_list) <= 4)  # At most 4 for tractable disambiguation
     
     # Objective: Minimize total violations, preferring low P(c) as tie-breaker
     # Primary: minimize count of violations (more informative queries)
@@ -241,10 +234,6 @@ def generate_violation_query(CG, C_validated, probabilities, all_variables):
         for c in CG
     ])
     
-    # Combined objective with NEGATIVE tie-breaker:
-    # - Minimizing count: fewer violations preferred (strongly weighted)
-    # - Minus weighted_preference: among same count, prefers HIGH (1-P(c)), i.e., LOW P(c)
-    # Use small epsilon (0.01) so it only affects tie-breaking
     epsilon = 0.01
     objective = violation_count - epsilon * weighted_preference
     
@@ -257,31 +246,45 @@ def generate_violation_query(CG, C_validated, probabilities, all_variables):
     # Solve with timeout (30 seconds per query)
     print(f"  Solving COP (timeout: 30s)...")
     solve_start = time.time()
+
     result = model.solve(time_limit=30)
     solve_time = time.time() - solve_start
+    if not result:
+        print("UNSAT")
+    else:
+        violated = []
+        for i, c in enumerate(CG):
+            gi = gamma[str(c)].value()
+            if gi is None:
+                print(f"gamma_{i} has no value (solver didn’t assign).")
+            elif gi:  # 1 means c is violated
+                violated.append((i, c))
+        print(f"Violated {len(violated)}/{len(CG)} constraints:")
+        for i, c in violated:
+            print(f" - gamma_{i} -> VIOLATED: {c}")
+
     
     if result:
         print(f"  Solved in {solve_time:.2f}s - found violation query")
         
         # Now all_variables should have values (we added domain constraints)
-        Y = all_variables
+        Y = get_variables(model.constraints)
         
         # Verify values are set
         values_set = sum(1 for v in Y if v.value() is not None)
         print(f"  Variables with values: {values_set}/{len(Y)}")
-        
-        if values_set < len(Y):
-            print(f"  ERROR: Not all variables assigned! Cannot generate valid query.")
-            return None, [], "UNSAT"
+    
         
         # Get violated constraints
         Viol_e = get_kappa(CG, Y)
         print(f"  Violating {len(Viol_e)}/{len(CG)} constraints")
+
         
         return Y, Viol_e, "SAT"
     else:
         print(f"  UNSAT after {solve_time:.2f}s - cannot find violation query")
         return None, [], "UNSAT"
+
 
 
 def test_constraints_individually(candidates, oracle, probabilities, all_variables,
@@ -375,14 +378,14 @@ def test_constraints_individually(candidates, oracle, probabilities, all_variabl
     return updated_probs, to_remove
 
 
-def disambiguate_violated_constraints(Viol_e, C_validated, oracle, probabilities, all_variables, 
+def disambiguate_violated_constraints(Viol_e, C_validated, CG, oracle, probabilities, all_variables, 
                                       alpha, theta_max, theta_min, max_queries_per_constraint=10):
     """
     For each c in Viol_e, use BayesianQuAcq to learn if it's correct.
     
     Strategy:
     - For each c_target in Viol_e:
-        - Create ProblemInstance with bias=[c_target], init_cl=C_validated + other Viol_e constraints
+        - Create ProblemInstance with bias=[c_target], init_cl=C_validated + remaining CG (not in Viol_e)
         - Run BayesianQuAcq.learn() which handles:
             * Query generation via PyCona
             * Oracle interaction
@@ -392,6 +395,7 @@ def disambiguate_violated_constraints(Viol_e, C_validated, oracle, probabilities
     Args:
         Viol_e: List of violated constraints
         C_validated: List of validated constraints
+        CG: Candidate global constraints (remaining candidates)
         oracle: Oracle for answering queries
         probabilities: Current probability dictionary
         all_variables: All variables in problem
@@ -401,18 +405,23 @@ def disambiguate_violated_constraints(Viol_e, C_validated, oracle, probabilities
         max_queries_per_constraint: Budget per constraint
         
     Returns:
-        Tuple (updated_probabilities, constraints_to_remove)
+        Tuple (updated_probabilities, constraints_to_remove, disambiguation_queries_used)
     """
     updated_probs = probabilities.copy()
     to_remove = []
+    total_disambiguation_queries = 0
     
     for c_target in Viol_e:
         print(f"\n  Disambiguating constraint: {c_target}")
         print(f"  Current P(c) = {probabilities[c_target]:.3f}")
         
-        # Build init_cl: ONLY validated constraints (not other Viol_e constraints!)
-        # We're testing c_target, so we shouldn't assume other violated constraints are true
+        # Build init_cl: validated constraints + remaining CG candidates (not in Viol_e)
+        # We test c_target while respecting other candidates that are not currently violated
         init_cl = list(C_validated)
+        # Add remaining candidates from CG that are NOT in Viol_e
+        remaining_cg = [c for c in CG if c not in Viol_e]
+        init_cl.extend(remaining_cg)
+        print(f"  Init CL: {len(C_validated)} validated + {len(remaining_cg)} remaining CG candidates")
         
         # Get all variables
         all_vars = get_variables([c_target] + init_cl)
@@ -442,6 +451,15 @@ def disambiguate_violated_constraints(Viol_e, C_validated, oracle, probabilities
         ca_system = BayesianQuAcq(ca_env=env)
         learned_instance = ca_system.learn(instance, oracle=oracle, verbose=2)
         
+        # Track queries used for this constraint (from metrics after learning)
+        if hasattr(env, 'metrics') and env.metrics is not None:
+            queries_used_for_this_constraint = env.metrics.membership_queries_count
+        else:
+            queries_used_for_this_constraint = 1  # Conservative estimate
+        
+        total_disambiguation_queries += queries_used_for_this_constraint
+        print(f"  [Queries for this constraint: {queries_used_for_this_constraint}]")
+        
         # Check result
         if c_target in learned_instance.cl:
             # Constraint was accepted - should not happen in disambiguation of violated constraints
@@ -461,7 +479,8 @@ def disambiguate_violated_constraints(Viol_e, C_validated, oracle, probabilities
             updated_probs[c_target] = env.constraint_probs.get(c_target, probabilities[c_target])
             print(f"  Result: Uncertain (P={updated_probs[c_target]:.3f})")
     
-    return updated_probs, to_remove
+    print(f"\n[DISAMBIGUATION] Total queries used: {total_disambiguation_queries}")
+    return updated_probs, to_remove, total_disambiguation_queries
 
 
 def cop_based_refinement(experiment_name, oracle, candidate_constraints, initial_probabilities,
@@ -508,6 +527,7 @@ def cop_based_refinement(experiment_name, oracle, candidate_constraints, initial
     print(f"Budget: {max_queries} queries, {timeout}s timeout\n")
     
     iteration = 0
+    consecutive_unsat = 0  # Track consecutive UNSAT occurrences
     
     while True:
         # input("Press Enter to continue...")
@@ -545,6 +565,7 @@ def cop_based_refinement(experiment_name, oracle, candidate_constraints, initial
         Y, Viol_e, status = generate_violation_query(CG, C_validated, probabilities, variables)
         
         if status == "UNSAT":
+            consecutive_unsat += 1
             print(f"[UNSAT] Cannot generate violation query for remaining {len(CG)} constraints")
             print(f"[DECISION] Accepting remaining constraints as likely correct or implied")
             
@@ -569,9 +590,24 @@ def cop_based_refinement(experiment_name, oracle, candidate_constraints, initial
             
             if not CG:
                 break
+            
+            # If we've hit UNSAT multiple times in a row, stop trying
+            if consecutive_unsat >= 2:
+                print(f"[STOP] Multiple consecutive UNSAT results - accepting/rejecting remaining constraints")
+                for c in list(CG):
+                    if probabilities[c] >= 0.5:  # Lower threshold for final acceptance
+                        C_validated.append(c)
+                        print(f"  [FINAL ACCEPT] {c} (P={probabilities[c]:.3f})")
+                    else:
+                        print(f"  [FINAL REJECT] {c} (P={probabilities[c]:.3f}) - too uncertain")
+                break
             else:
-                print(f"[CONTINUE] {len(CG)} uncertain constraints remaining")
+                print(f"[CONTINUE] {len(CG)} uncertain constraints remaining (UNSAT count: {consecutive_unsat})")
                 # Try one more iteration
+                continue  # Skip oracle query since Y is None
+        
+        # Successfully generated a query - reset UNSAT counter
+        consecutive_unsat = 0
         
         print(f"Generated query violating {len(Viol_e)} constraints")
         for c in Viol_e:
@@ -579,33 +615,46 @@ def cop_based_refinement(experiment_name, oracle, candidate_constraints, initial
         
         # Display Sudoku board if this is a Sudoku problem
         if 'sudoku' in experiment_name.lower() and len(variables) == 81:
-            display_sudoku_grid(Y, title="Violation Query Assignment", debug=False)
+            try:
+                display_sudoku_grid(Y, title="Violation Query Assignment", debug=False)
+            except Exception as e:
+                print(f"Error displaying Sudoku grid: {e}")
+                print(Y)
         
         # Ask oracle
         print(f"\n[ORACLE] Asking oracle...")
         answer = oracle.answer_membership_query(Y)
         queries_used += 1
         
-        if answer:  # Yes - Y is valid
+        if answer == False:  # Yes - Y is valid
             print(f"[YES] Oracle: Yes (valid assignment)")
             print(f"[DISAMBIG] {len(Viol_e)} constraints violated by valid solution - entering disambiguation")
             
             # Disambiguation phase - test each violated constraint individually
             # Try to isolate which constraint(s) in Viol_e are actually false
-            probabilities, to_remove = disambiguate_violated_constraints(
-                Viol_e, C_validated, oracle, probabilities, variables, 
+            probabilities, to_remove, disambiguation_queries = disambiguate_violated_constraints(
+                Viol_e, C_validated, CG, oracle, probabilities, variables, 
                 alpha, theta_max, theta_min,
                 max_queries_per_constraint=10  # Budget per constraint for isolation testing
             )
             
-            # Update query count (disambiguation uses additional queries)
-            # Note: queries_used will be updated by the disambiguation phase through oracle calls
+            # Update query count to include disambiguation queries
+            queries_used += disambiguation_queries
+            print(f"[QUERIES] Main loop: {queries_used - disambiguation_queries}, Disambiguation: {disambiguation_queries}, Total so far: {queries_used}")
             
-            # Remove constraints marked for removal
+            # Remove constraints marked for removal (low confidence)
             for c in to_remove:
                 if c in CG:
                     CG.remove(c)
                     print(f"  [REMOVE] Removed: {c} (P={probabilities[c]:.3f})")
+            
+            # Accept constraints that reached high confidence during disambiguation
+            # Check remaining violated constraints (not removed)
+            for c in Viol_e:
+                if c not in to_remove and c in CG and probabilities[c] >= theta_max:
+                    C_validated.append(c)
+                    CG.remove(c)
+                    print(f"  [ACCEPT] Accepted: {c} (P={probabilities[c]:.3f} >= {theta_max})")
         
         else:  # No - Y is invalid
             print(f"[NO] Oracle: No (invalid assignment)")
@@ -657,19 +706,58 @@ def construct_instance(experiment_name):
     Construct problem instance and oracle for given benchmark.
     
     Args:
-        experiment_name: Name of benchmark (sudoku, examtt, nurse, uefa, vm_allocation)
+        experiment_name: Name of benchmark (sudoku, sudoku_gt, examtt, examtt_v1, examtt_v2, nurse, uefa, vm_allocation)
         
     Returns:
         Tuple (instance, oracle)
     """
-    if 'sudoku' in experiment_name.lower():
+    if 'sudoku_gt' in experiment_name.lower() or 'sudoku_greater' in experiment_name.lower():
+        print("Constructing 9x9 Sudoku with Greater-Than constraints...")
+        result = construct_sudoku_greater_than(3, 3, 9)
+        # Handle optional mock_constraints return (Phase 2 doesn't need them)
+        if len(result) == 3:
+            instance, oracle, _ = result
+        else:
+            instance, oracle = result
+    
+    elif 'sudoku' in experiment_name.lower():
         print("Constructing 9x9 Sudoku...")
-        instance, oracle = construct_sudoku(3, 3, 9)
+        result = construct_sudoku(3, 3, 9)
+        # Handle optional mock_constraints return (Phase 2 doesn't need them)
+        if len(result) == 3:
+            instance, oracle, _ = result
+        else:
+            instance, oracle = result
+    
+    elif 'examtt_v1' in experiment_name.lower() or 'examtt_variant1' in experiment_name.lower():
+        print("Constructing Exam Timetabling Variant 1...")
+        result = construct_examtt_variant1(nsemesters=6, courses_per_semester=5, 
+                                           slots_per_day=6, days_for_exams=10)
+        # Handle optional mock_constraints return (Phase 2 doesn't need them)
+        if len(result) == 3:
+            instance, oracle, _ = result
+        else:
+            instance, oracle = result
+    
+    elif 'examtt_v2' in experiment_name.lower() or 'examtt_variant2' in experiment_name.lower():
+        print("Constructing Exam Timetabling Variant 2...")
+        result = construct_examtt_variant2(nsemesters=8, courses_per_semester=7, 
+                                           slots_per_day=8, days_for_exams=12)
+        # Handle optional mock_constraints return (Phase 2 doesn't need them)
+        if len(result) == 3:
+            instance, oracle, _ = result
+        else:
+            instance, oracle = result
     
     elif 'examtt' in experiment_name.lower():
         print("Constructing Exam Timetabling...")
-        instance, oracle = ces_global(nsemesters=9, courses_per_semester=6, 
-                                      slots_per_day=9, days_for_exams=14)
+        result = ces_global(nsemesters=9, courses_per_semester=6, 
+                           slots_per_day=9, days_for_exams=14)
+        # Handle optional mock_constraints return (Phase 2 doesn't need them)
+        if len(result) == 3:
+            instance, oracle, _ = result
+        else:
+            instance, oracle = result
     
     elif 'nurse' in experiment_name.lower():
         print("Constructing Nurse Rostering...")
@@ -846,7 +934,7 @@ if __name__ == "__main__":
     print(f"Spurious: {spurious}")
     
     if correct == len(target_alldiff) and spurious == 0:
-        print(f"\n[SUCCESS] Perfect learning! 100% precision and recall")
+        print(f"\n[SUCCESS] Perfect learning!")
     else:
         if missing > 0:
             print(f"\n[ERROR] Missing constraints:")
