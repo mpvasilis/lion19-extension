@@ -49,24 +49,28 @@ def construct_examtt_simple(nsemesters=9, courses_per_semester=6, slots_per_day=
     # NOTE: Mocks are added to model for example generation but NOT to oracle (C_T)
     mock_constraints = []
 
-    # Mock 1: First semester exams must all be on different days (too restrictive)
-    # This is already required but adds unnecessary day-level separation on top of slot separation
-    if nsemesters > 0:
-        first_semester_exams = variables[0, :]
-        first_semester_days = [day_of_exam(exam, slots_per_day) for exam in first_semester_exams]
-        mock_c1 = cp.AllDifferent(first_semester_days)
-        mock_constraints.append(mock_c1)
-        model += mock_c1
+    # # Mock 1: First two semesters cannot share any days (overly restrictive)
+    # # TRUE constraint only requires exams WITHIN a semester on different days
+    # # This mock requires exams ACROSS first two semesters to use completely different days
+    # if nsemesters >= 2:
+    #     first_semester_exams = variables[0, :]
+    #     second_semester_exams = variables[1, :]
+    #     first_semester_days = [day_of_exam(exam, slots_per_day) for exam in first_semester_exams]
+    #     second_semester_days = [day_of_exam(exam, slots_per_day) for exam in second_semester_exams]
+    #     # Require all days across both semesters to be different (overly restrictive)
+    #     mock_c1 = cp.AllDifferent(first_semester_days + second_semester_days)
+    #     mock_constraints.append(mock_c1)
+    #     model += mock_c1
 
-    # Mock 2: Middle day must have exactly a specific number of exams (overly specific)
-    # Exact equality is too strict compared to <= constraint
-    if days_for_exams >= 3:
-        middle_day = days_for_exams // 2
-        exams_on_middle_day = cp.Count([day_of_exam(exam, slots_per_day) for exam in all_exams], middle_day)
-        # Require exactly 3 exams on middle day (arbitrary constraint that may hold in examples)
-        mock_c2 = (exams_on_middle_day == 3)
-        mock_constraints.append(mock_c2)
-        model += mock_c2
+    # # Mock 2: Middle day must have exactly a specific number of exams (overly specific)
+    # # Exact equality is too strict compared to <= constraint
+    # if days_for_exams >= 3:
+    #     middle_day = days_for_exams // 2
+    #     exams_on_middle_day = cp.Count([day_of_exam(exam, slots_per_day) for exam in all_exams], middle_day)
+    #     # Require exactly 3 exams on middle day (arbitrary constraint that may hold in examples)
+    #     mock_c2 = (exams_on_middle_day == 3)
+    #     mock_constraints.append(mock_c2)
+    #     model += mock_c2
 
     AV = absvar(2)  
 
@@ -92,8 +96,9 @@ def construct_examtt_simple(nsemesters=9, courses_per_semester=6, slots_per_day=
     )
 
     oracle = ConstraintOracle(C_T)
-
-    return instance, oracle
+    
+    # Return mock constraints so Phase 1 can use them as overfitted constraints
+    return instance, oracle, mock_constraints
 
 
 def generate_exam_timetabling_instance(instance_params=None):

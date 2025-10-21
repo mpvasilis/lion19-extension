@@ -11,6 +11,7 @@ A principled implementation focusing on AllDifferent constraints with:
 """
 
 import argparse
+import os
 import pickle
 import time
 import sys
@@ -860,6 +861,7 @@ if __name__ == "__main__":
     oracle.variables_list = cpm_array(instance.X)
     
     # Load constraints: either from Phase 1 pickle or extract from oracle
+    phase1_data = None  # Initialize to None
     if args.phase1_pickle:
         # Load from Phase 1 pickle
         phase1_data = load_phase1_data(args.phase1_pickle)
@@ -955,4 +957,38 @@ if __name__ == "__main__":
     print(f"Total time: {stats['time']:.2f}s")
     print(f"Queries per second: {stats['queries']/stats['time']:.2f}")
     print(f"{'='*60}\n")
+    
+    # Save Phase 2 outputs for Phase 3
+    phase2_output = {
+        'C_validated': C_validated,  # Validated global constraints
+        'C_validated_strs': [str(c) for c in C_validated],  # String representations
+        'probabilities': probabilities,  # Final probabilities
+        'experiment_name': args.experiment,
+        'phase2_stats': stats,
+        # Include Phase 1 inputs for Phase 3
+        'phase1_data': phase1_data if args.phase1_pickle else None,
+        'E_plus': phase1_data['E_plus'] if args.phase1_pickle and 'E_plus' in phase1_data else None,
+        'B_fixed': phase1_data['B_fixed'] if args.phase1_pickle and 'B_fixed' in phase1_data else None,
+        'all_variables': list(instance.X),
+        'metadata': {
+            'alpha': args.alpha,
+            'theta_max': args.theta_max,
+            'theta_min': args.theta_min,
+            'timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
+            'total_queries': stats['queries'],
+            'total_time': stats['time']
+        }
+    }
+    
+    # Save to pickle for Phase 3
+    phase2_output_dir = "phase2_output"
+    os.makedirs(phase2_output_dir, exist_ok=True)
+    phase2_pickle_path = os.path.join(phase2_output_dir, f"{args.experiment}_phase2.pkl")
+    
+    with open(phase2_pickle_path, 'wb') as f:
+        pickle.dump(phase2_output, f)
+    
+    print(f"\n[SAVED] Phase 2 outputs saved to: {phase2_pickle_path}")
+    print(f"  - Validated constraints: {len(C_validated)}")
+    print(f"  - Ready for Phase 3 (Active Learning with MQuAcq-2)")
 
