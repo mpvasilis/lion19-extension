@@ -44,26 +44,66 @@ def construct_instance(benchmark_name):
     """
     if 'sudoku_gt' in benchmark_name.lower() or 'sudoku_greater' in benchmark_name.lower():
         print("Constructing 9x9 Sudoku with Greater-Than constraints...")
-        instance, oracle = construct_sudoku_greater_than(3, 3, 9)
+        result = construct_sudoku_greater_than(3, 3, 9)
+        # Handle optional mock_constraints return
+        if len(result) == 3:
+            instance, oracle, mock_constraints = result
+            print(f"  Received {len(mock_constraints)} mock constraints from benchmark")
+            return instance, oracle, mock_constraints
+        else:
+            instance, oracle = result
+            return instance, oracle
     
     elif 'sudoku' in benchmark_name.lower():
         print("Constructing 9x9 Sudoku...")
-        instance, oracle = construct_sudoku(3, 3, 9)
+        result = construct_sudoku(3, 3, 9)
+        # Handle optional mock_constraints return
+        if len(result) == 3:
+            instance, oracle, mock_constraints = result
+            print(f"  Received {len(mock_constraints)} mock constraints from benchmark")
+            return instance, oracle, mock_constraints
+        else:
+            instance, oracle = result
+            return instance, oracle
     
     elif 'examtt_v1' in benchmark_name.lower() or 'examtt_variant1' in benchmark_name.lower():
         print("Constructing Exam Timetabling Variant 1...")
-        instance, oracle = construct_examtt_variant1(nsemesters=6, courses_per_semester=5, 
-                                                      slots_per_day=6, days_for_exams=10)
+        result = construct_examtt_variant1(nsemesters=6, courses_per_semester=5, 
+                                           slots_per_day=6, days_for_exams=10)
+        # Handle optional mock_constraints return
+        if len(result) == 3:
+            instance, oracle, mock_constraints = result
+            print(f"  Received {len(mock_constraints)} mock constraints from benchmark")
+            return instance, oracle, mock_constraints
+        else:
+            instance, oracle = result
+            return instance, oracle
     
     elif 'examtt_v2' in benchmark_name.lower() or 'examtt_variant2' in benchmark_name.lower():
         print("Constructing Exam Timetabling Variant 2...")
-        instance, oracle = construct_examtt_variant2(nsemesters=8, courses_per_semester=7, 
-                                                      slots_per_day=8, days_for_exams=12)
+        result = construct_examtt_variant2(nsemesters=8, courses_per_semester=7, 
+                                           slots_per_day=8, days_for_exams=12)
+        # Handle optional mock_constraints return
+        if len(result) == 3:
+            instance, oracle, mock_constraints = result
+            print(f"  Received {len(mock_constraints)} mock constraints from benchmark")
+            return instance, oracle, mock_constraints
+        else:
+            instance, oracle = result
+            return instance, oracle
     
     elif 'examtt' in benchmark_name.lower():
         print("Constructing Exam Timetabling...")
-        instance, oracle = ces_global(nsemesters=9, courses_per_semester=6, 
-                                      slots_per_day=9, days_for_exams=14)
+        result = ces_global(nsemesters=9, courses_per_semester=6, 
+                           slots_per_day=9, days_for_exams=14)
+        # Handle optional mock_constraints return
+        if len(result) == 3:
+            instance, oracle, mock_constraints = result
+            print(f"  Received {len(mock_constraints)} mock constraints from benchmark")
+            return instance, oracle, mock_constraints
+        else:
+            instance, oracle = result
+            return instance, oracle
     
     elif 'nurse' in benchmark_name.lower():
         print("Constructing Nurse Rostering...")
@@ -423,11 +463,13 @@ def generate_overfitted_alldifferent(variables, positive_examples, target_alldif
     
     # Convert target constraints to string representations for comparison
     target_strs = set()
+    target_sets = []  # Store as sets for subset checking
     for c in target_alldiffs:
         # Normalize by sorting variable names
         scope_vars = get_variables([c])
         var_names = tuple(sorted([v.name for v in scope_vars]))
         target_strs.add(var_names)
+        target_sets.append(set(var_names))
     
     overfitted = []
     var_list = list(variables)
@@ -442,10 +484,21 @@ def generate_overfitted_alldifferent(variables, positive_examples, target_alldif
         # Random subset of variables
         var_subset = random.sample(var_list, scope_size)
         
-        # Check if this subset is already in target
+        # Check if this subset is already in target (exact match)
         var_names = tuple(sorted([v.name for v in var_subset]))
         if var_names in target_strs:
             continue
+        
+        # Check if this subset is implied by any target constraint (subset check)
+        var_names_set = set(var_names)
+        is_subset_of_target = False
+        for target_set in target_sets:
+            if var_names_set.issubset(target_set):
+                is_subset_of_target = True
+                break
+        
+        if is_subset_of_target:
+            continue  # Skip subsets that would be implied
         
         # Check if it satisfies AllDifferent in all examples
         is_alldiff_pattern = True
@@ -597,7 +650,16 @@ def run_phase1(benchmark_name, output_dir='phase1_output', num_examples=5, num_o
     print(f"{'='*70}")
     
     # 1. Load benchmark
-    instance, oracle = construct_instance(benchmark_name)
+    result = construct_instance(benchmark_name)
+    
+    # Handle optional mock_constraints return
+    if len(result) == 3:
+        instance, oracle, mock_constraints_from_benchmark = result
+        print(f"Using {len(mock_constraints_from_benchmark)} mock constraints from benchmark")
+    else:
+        instance, oracle = result
+        mock_constraints_from_benchmark = None
+        print("No mock constraints provided, will generate random overfitted constraints")
     
     # Setup oracle
     oracle.variables_list = cpm_array(instance.X)
@@ -647,25 +709,52 @@ def run_phase1(benchmark_name, output_dir='phase1_output', num_examples=5, num_o
     all_target_constraints = detected_alldiffs + missing_targets
     print(f"\nComplete target coverage: {len(detected_alldiffs)} detected + {len(missing_targets)} appended = {len(all_target_constraints)} total target constraints")
     
-    # 6. Generate overfitted AllDifferent constraints
-    overfitted_alldiffs = generate_overfitted_alldifferent(
-        instance.X, positive_examples, all_target_constraints, count=num_overfitted
-    )
+    # 6. Get overfitted constraints (from benchmark or generate random)
+    if mock_constraints_from_benchmark is not None and len(mock_constraints_from_benchmark) > 0:
+        # Filter to ONLY keep AllDifferent constraints from benchmark
+        print(f"\n[MOCK] Received {len(mock_constraints_from_benchmark)} mock constraints from benchmark")
+        
+        alldiff_mocks = []
+        other_mocks = []
+        for c in mock_constraints_from_benchmark:
+            # Check if constraint is AllDifferent
+            if isinstance(c, AllDifferent) or (hasattr(c, 'name') and 'alldifferent' in str(c.name).lower()):
+                alldiff_mocks.append(c)
+            else:
+                other_mocks.append(c)
+        
+        if other_mocks:
+            print(f"       Filtering: Keeping {len(alldiff_mocks)} AllDifferent, discarding {len(other_mocks)} other types")
+            print(f"       Discarded types:")
+            for i, c in enumerate(other_mocks[:5], 1):  # Show first 5 as examples
+                print(f"         - {c}")
+            if len(other_mocks) > 5:
+                print(f"         ... and {len(other_mocks) - 5} more")
+        
+        overfitted_constraints = alldiff_mocks
+        print(f"\n[MOCK] Using {len(overfitted_constraints)} AllDifferent mock constraints from benchmark")
+        for i, c in enumerate(overfitted_constraints, 1):
+            print(f"       Mock {i}: {c}")
+    else:
+        # Fall back to random generation
+        overfitted_constraints = generate_overfitted_alldifferent(
+            instance.X, positive_examples, all_target_constraints, count=num_overfitted
+        )
     
     # 7. Combine: CG = all_targets + overfitted
-    CG = all_target_constraints + overfitted_alldiffs
-    print(f"\nFinal CG: {len(all_target_constraints)} target + {len(overfitted_alldiffs)} overfitted = {len(CG)} total")
+    CG = all_target_constraints + overfitted_constraints
+    print(f"\nFinal CG: {len(all_target_constraints)} target + {len(overfitted_constraints)} overfitted = {len(CG)} total")
     
     # 8. Create informed priors for each constraint
     # Target constraints (detected or appended) → 0.8 (high confidence, true constraints)
-    # Overfitted constraints (synthetic) → 0.3 (low confidence, should be rejected)
+    # Overfitted constraints (mocks or synthetic) → 0.3 (low confidence, should be rejected)
     initial_probabilities = {}
     for c in all_target_constraints:
         initial_probabilities[c] = 0.8  # High prior for target constraints
-    for c in overfitted_alldiffs:
+    for c in overfitted_constraints:
         initial_probabilities[c] = 0.3  # Low prior for overfitted constraints
     
-    print(f"Initial probabilities: {len(all_target_constraints)} @ 0.8 (target), {len(overfitted_alldiffs)} @ 0.3 (overfitted)")
+    print(f"Initial probabilities: {len(all_target_constraints)} @ 0.8 (target), {len(overfitted_constraints)} @ 0.3 (overfitted)")
     
     # 7. Generate complete binary bias
     language = ['==', '!=', '<', '>', '<=', '>=']
@@ -687,7 +776,8 @@ def run_phase1(benchmark_name, output_dir='phase1_output', num_examples=5, num_o
             'num_detected_alldiffs': len(detected_alldiffs),
             'num_appended_alldiffs': len(missing_targets),
             'num_target_alldiffs': len(all_target_constraints),
-            'num_overfitted_alldiffs': len(overfitted_alldiffs),
+            'num_overfitted_alldiffs': len(overfitted_constraints),
+            'use_mock_constraints': mock_constraints_from_benchmark is not None,
             'num_bias_initial': len(B_fixed),
             'num_bias_pruned': len(B_fixed_pruned),
             'target_alldiff_count': len(target_alldiffs),
@@ -712,7 +802,8 @@ def run_phase1(benchmark_name, output_dir='phase1_output', num_examples=5, num_o
     print(f"  Target AllDifferent: {len(target_alldiffs)}")
     print(f"    - Detected by pattern: {len(detected_alldiffs)}")
     print(f"    - Appended (missed): {len(missing_targets)}")
-    print(f"  Overfitted AllDifferent: {len(overfitted_alldiffs)}")
+    print(f"  Overfitted constraints: {len(overfitted_constraints)}")
+    print(f"    - Source: {'Mock from benchmark' if mock_constraints_from_benchmark else 'Random generation'}")
     print(f"  Total CG: {len(CG)} (TARGET COVERAGE: 100%)")
     print(f"  Binary bias (initial): {len(B_fixed)}")
     print(f"  Binary bias (pruned): {len(B_fixed_pruned)}")
@@ -745,8 +836,8 @@ if __name__ == "__main__":
     )
     
     if output_path:
-        print(f"✓ Phase 1 complete. Data saved to: {output_path}")
+        print(f"[OK] Phase 1 complete. Data saved to: {output_path}")
     else:
-        print(f"✗ Phase 1 failed!")
+        print(f"[ERROR] Phase 1 failed!")
         sys.exit(1)
 
