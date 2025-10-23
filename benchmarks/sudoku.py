@@ -15,15 +15,15 @@ def construct_sudoku_binary(block_size_row, block_size_col, grid_size):
 
     # Constraints on rows and columns
     for row in grid:
-        model += cp.AllDifferent(row).decompose()
+        model += cp.AllDifferent(row)
 
     for col in grid.T:
-        model += cp.AllDifferent(col).decompose()
+        model += cp.AllDifferent(col)
 
     # Constraints on blocks
     for i in range(0, grid_size, block_size_row):
         for j in range(0, grid_size, block_size_col):
-            model += cp.AllDifferent(grid[i:i + block_size_row, j:j + block_size_col]).decompose()  
+            model += cp.AllDifferent(grid[i:i + block_size_row, j:j + block_size_col]) 
 
     C_T = list(set(toplevel_list(model.constraints)))
 

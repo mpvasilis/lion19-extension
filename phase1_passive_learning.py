@@ -25,7 +25,8 @@ from cpmpy.expressions.globalconstraints import AllDifferent
 from cpmpy.transformations.get_variables import get_variables
 
 # Import benchmark construction functions
-from benchmarks_global import construct_sudoku
+from benchmarks_global import construct_sudoku, construct_jsudoku, construct_latin_square
+from benchmarks_global import construct_graph_coloring_register, construct_graph_coloring_scheduling
 from benchmarks_global import construct_sudoku_greater_than
 from benchmarks_global import construct_examtt_simple as ces_global
 from benchmarks_global import construct_examtt_variant1, construct_examtt_variant2
@@ -42,7 +43,55 @@ def construct_instance(benchmark_name):
     Returns:
         Tuple (instance, oracle)
     """
-    if 'sudoku_gt' in benchmark_name.lower() or 'sudoku_greater' in benchmark_name.lower():
+    if 'graph_coloring_register' in benchmark_name.lower() or 'register' in benchmark_name.lower():
+        print("Constructing Graph Coloring (Register Allocation)...")
+        result = construct_graph_coloring_register()
+        # Handle optional mock_constraints return
+        if len(result) == 3:
+            instance, oracle, mock_constraints = result
+            print(f"  Received {len(mock_constraints)} mock constraints from benchmark")
+            return instance, oracle, mock_constraints
+        else:
+            instance, oracle = result
+            return instance, oracle
+    
+    elif 'graph_coloring_scheduling' in benchmark_name.lower() or benchmark_name.lower() == 'scheduling':
+        print("Constructing Graph Coloring (Course Scheduling)...")
+        result = construct_graph_coloring_scheduling()
+        # Handle optional mock_constraints return
+        if len(result) == 3:
+            instance, oracle, mock_constraints = result
+            print(f"  Received {len(mock_constraints)} mock constraints from benchmark")
+            return instance, oracle, mock_constraints
+        else:
+            instance, oracle = result
+            return instance, oracle
+    
+    elif 'latin_square' in benchmark_name.lower() or 'latin' in benchmark_name.lower():
+        print("Constructing 9x9 Latin Square...")
+        result = construct_latin_square(n=9)
+        # Handle optional mock_constraints return
+        if len(result) == 3:
+            instance, oracle, mock_constraints = result
+            print(f"  Received {len(mock_constraints)} mock constraints from benchmark")
+            return instance, oracle, mock_constraints
+        else:
+            instance, oracle = result
+            return instance, oracle
+    
+    elif 'jsudoku' in benchmark_name.lower():
+        print("Constructing 9x9 JSudoku (Jigsaw Sudoku)...")
+        result = construct_jsudoku(grid_size=9)
+        # Handle optional mock_constraints return
+        if len(result) == 3:
+            instance, oracle, mock_constraints = result
+            print(f"  Received {len(mock_constraints)} mock constraints from benchmark")
+            return instance, oracle, mock_constraints
+        else:
+            instance, oracle = result
+            return instance, oracle
+    
+    elif 'sudoku_gt' in benchmark_name.lower() or 'sudoku_greater' in benchmark_name.lower():
         print("Constructing 9x9 Sudoku with Greater-Than constraints...")
         result = construct_sudoku_greater_than(3, 3, 9)
         # Handle optional mock_constraints return

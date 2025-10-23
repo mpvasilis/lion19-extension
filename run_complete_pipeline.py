@@ -39,9 +39,6 @@ def run_phase2(experiment, phase1_pickle):
         'python', 'main_alldiff_cop.py',
         '--experiment', experiment,
         '--phase1_pickle', phase1_pickle,
-        '--alpha', '0.42',
-        '--theta_max', '0.9',
-        '--theta_min', '0.1',
         '--max_queries', '500',
         '--timeout', '600'
     ]
@@ -55,8 +52,6 @@ def run_phase3(experiment, phase2_pickle):
         'python', 'run_phase3.py',
         '--experiment', experiment,
         '--phase2_pickle', phase2_pickle,
-        '--max_queries', '1000',
-        '--timeout', '600'
     ]
     
     return run_command(cmd, f"Phase 3: {experiment}")
@@ -73,6 +68,18 @@ def main():
         {
             'name': 'sudoku_gt',
             'phase1_pickle': 'phase1_output/sudoku_gt_phase1.pkl'
+        },
+        {
+            'name': 'jsudoku',
+            'phase1_pickle': 'phase1_output/jsudoku_phase1.pkl'
+        },
+        {
+            'name': 'latin_square',
+            'phase1_pickle': 'phase1_output/latin_square_phase1.pkl'
+        },
+        {
+            'name': 'graph_coloring_register',
+            'phase1_pickle': 'phase1_output/graph_coloring_register_phase1.pkl'
         },
         {
             'name': 'examtt_v1',

@@ -21,11 +21,145 @@ from cpmpy import *
 from cpmpy import cpm_array
 from cpmpy.transformations.get_variables import get_variables
 from pycona import MQuAcq2, ProblemInstance
+from pycona.ca_environment import ActiveCAEnv
+
+# Import resilient implementations
+from resilient_findc import ResilientFindC
+from resilient_mquacq2 import ResilientMQuAcq2
 
 # Import benchmark constructors
-from benchmarks_global import construct_sudoku
+from benchmarks_global import construct_sudoku, construct_jsudoku, construct_latin_square
+from benchmarks_global import construct_graph_coloring_register, construct_graph_coloring_scheduling
 from benchmarks_global import construct_examtt_simple as ces_global
-from benchmarks import construct_sudoku_binary, construct_examtt_simple
+from benchmarks import construct_sudoku_binary, construct_jsudoku_binary, construct_latin_square_binary
+from benchmarks import construct_graph_coloring_binary_register, construct_graph_coloring_binary_scheduling, construct_examtt_simple
+
+
+def compute_solution_metrics(learned_model, learned_constraints, target_constraints, variables, max_solutions=100, timeout_per_model=300):
+    """
+    Compute solution-space precision and recall.
+    
+    S-Precision = |Sol(Learned) ∩ Sol(Target)| / |Sol(Learned)|
+    S-Recall = |Sol(Learned) ∩ Sol(Target)| / |Sol(Target)|
+    
+    Args:
+        learned_constraints: List of learned constraints
+        target_constraints: List of target constraints
+        variables: List of problem variables
+        max_solutions: Maximum number of solutions to enumerate
+        timeout_per_model: Timeout in seconds for solving each model
+        
+    Returns:
+        dict with s_precision, s_recall, and statistics
+    """
+    print(f"\n{'='*60}")
+    print(f"Computing Solution-Space Metrics")
+    print(f"{'='*60}")
+    print(f"Max solutions to enumerate: {max_solutions}")
+    print(f"Timeout per model: {timeout_per_model}s")
+    
+    def enumerate_solutions(constraints, variables, max_sols, label):
+        print(f"\nEnumerating solutions for {label}...")
+        constraints  = [c for c in constraints if c is not c.is_bool()]
+               
+
+        solutions = set()
+        
+        start_time = time.time()
+        count = 0
+        incomplete = False
+        
+        try:
+            while count < max_sols:
+                model = Model(constraints)
+                if time.time() - start_time > timeout_per_model:
+                    print(f"  [TIMEOUT] Stopped after {count} solutions")
+                    incomplete = True
+                    break
+                
+                result = model.solve()
+                
+                if not result:
+                    print(f"  [COMPLETE] No more solutions after {count}")
+                    break
+                
+                sol_tuple = tuple(v.value() for v in variables)
+        
+                
+                solutions.add(sol_tuple)
+                count += 1
+                
+                if count % 100 == 0:
+                    print(f"  Found {count} solutions...")
+                
+                exclusion = []
+                for v in variables:
+                    exclusion.append(v != v.value())
+                model += any(exclusion)
+            
+            if count >= max_sols:
+                print(f"  [MAX REACHED] Stopped at {count} solutions")
+                incomplete = True
+            
+            if count > 0 and not incomplete:
+                print(f"  [COMPLETE] Enumerated all {count} solutions")
+            elif count == 0:
+                print(f"  [WARNING] No solutions found")
+                
+            return solutions, incomplete
+            
+        except Exception as e:
+            print(f"  [ERROR] Enumeration failed: {e}")
+            import traceback
+            traceback.print_exc()
+            return solutions, True
+    
+    # Enumerate solutions for both models
+    learned_sols, learned_incomplete = enumerate_solutions(
+        learned_constraints, variables, max_solutions, "Learned Model"
+    )
+    target_sols, target_incomplete = enumerate_solutions(
+        target_constraints, variables, max_solutions, "Target Model"
+    )
+    
+    # Compute intersection
+    intersection = learned_sols & target_sols
+    
+    print(f"\nSolution Space Statistics:")
+    print(f"  Learned solutions: {len(learned_sols)}")
+    print(f"  Target solutions: {len(target_sols)}")
+    print(f"  Intersection: {len(intersection)}")
+    
+    # Compute metrics
+    s_precision = len(intersection) / len(learned_sols) if len(learned_sols) > 0 else 0.0
+    s_recall = len(intersection) / len(target_sols) if len(target_sols) > 0 else 0.0
+    s_f1 = 2 * s_precision * s_recall / (s_precision + s_recall) if (s_precision + s_recall) > 0 else 0.0
+    
+    # Check for completeness
+    is_complete = not (learned_incomplete or target_incomplete)
+    
+    print(f"\nSolution-Space Metrics:")
+    print(f"  S-Precision: {s_precision:.2%}")
+    print(f"  S-Recall: {s_recall:.2%}")
+    print(f"  S-F1: {s_f1:.2%}")
+    
+    if not is_complete:
+        print(f"\n[WARNING] Solution enumeration incomplete (timeout or max reached)")
+        print(f"  Metrics are approximate based on sampled solutions")
+    else:
+        print(f"\n[COMPLETE] Full solution space enumerated")
+    
+    return {
+        's_precision': s_precision,
+        's_recall': s_recall,
+        's_f1': s_f1,
+        'learned_solutions': len(learned_sols),
+        'target_solutions': len(target_sols),
+        'intersection_solutions': len(intersection),
+        'is_complete': is_complete,
+        'learned_incomplete': learned_incomplete,
+        'target_incomplete': target_incomplete
+    }
 
 
 def load_phase2_data(pickle_path):
@@ -43,7 +177,29 @@ def load_phase2_data(pickle_path):
 
 def construct_instance(experiment_name):
     """Construct both global and binary instances."""
-    if 'sudoku' in experiment_name.lower():
+    if 'graph_coloring_register' in experiment_name.lower() or experiment_name.lower() == 'register':
+        print(f"Constructing Graph Coloring (Register Allocation) instances...")
+        instance_binary, oracle_binary = construct_graph_coloring_binary_register()
+        result = construct_graph_coloring_register()
+        instance_global, oracle_global = (result[0], result[1]) if len(result) == 3 else result
+    elif 'graph_coloring_scheduling' in experiment_name.lower() or experiment_name.lower() == 'scheduling':
+        print(f"Constructing Graph Coloring (Course Scheduling) instances...")
+        instance_binary, oracle_binary = construct_graph_coloring_binary_scheduling()
+        result = construct_graph_coloring_scheduling()
+        instance_global, oracle_global = (result[0], result[1]) if len(result) == 3 else result
+    elif 'latin_square' in experiment_name.lower() or 'latin' in experiment_name.lower():
+        print(f"Constructing Latin Square instances...")
+        n = 9
+        instance_binary, oracle_binary = construct_latin_square_binary(n=9)
+        result = construct_latin_square(n=9)
+        instance_global, oracle_global = (result[0], result[1]) if len(result) == 3 else result
+    elif 'jsudoku' in experiment_name.lower():
+        print(f"Constructing JSudoku instances...")
+        n = 9
+        instance_binary, oracle_binary = construct_jsudoku_binary(grid_size=9)
+        result = construct_jsudoku(grid_size=9)
+        instance_global, oracle_global = (result[0], result[1]) if len(result) == 3 else result
+    elif 'sudoku' in experiment_name.lower():
         print(f"Constructing Sudoku instances...")
         n = 9
         instance_binary, oracle_binary = construct_sudoku_binary(3, 3, 9)
@@ -67,7 +223,7 @@ def decompose_global_constraints(global_constraints):
     Decompose global constraints (AllDifferent, Sum, Count) into binary constraints.
     
     Returns:
-        list: Binary constraints that form CL_init
+        list: Binary constraints that form CL_init (with duplicates removed)
     """
     binary_constraints = []
     
@@ -87,7 +243,25 @@ def decompose_global_constraints(global_constraints):
             # Other constraints (if any)
             binary_constraints.append(c)
     
-    return binary_constraints
+    # Remove duplicate constraints (overlapping decompositions)
+    # Use string representation for deduplication
+    unique_constraints = []
+    seen_strs = set()
+    duplicates_removed = 0
+    
+    for c in binary_constraints:
+        c_str = str(c)
+        if c_str not in seen_strs:
+            seen_strs.add(c_str)
+            unique_constraints.append(c)
+        else:
+            duplicates_removed += 1
+    
+    if duplicates_removed > 0:
+        print(f"  Removed {duplicates_removed} duplicate constraints from CL_init")
+        print(f"  Final CL_init size: {len(unique_constraints)} unique constraints")
+    
+    return unique_constraints
 
 
 def prune_bias_with_globals(bias_fixed, global_constraints):
@@ -167,7 +341,7 @@ def run_phase3(experiment_name, phase2_pickle_path, max_queries=1000, timeout=60
         sys.exit(1)
     
     B_fixed = phase1_data.get('B_fixed', [])
-    E_plus = phase1_data.get('E_plus', [])
+    E_plus = phase1_data.get('E+', [])  # Phase 1 uses 'E+' as key, not 'E_plus'
     
     print(f"\nPhase 1 inputs:")
     print(f"  - B_fixed (fixed-arity bias): {len(B_fixed)} constraints")
@@ -225,24 +399,72 @@ def run_phase3(experiment_name, phase2_pickle_path, max_queries=1000, timeout=60
     print(f"  Initial CL: {len(mquacq_instance.cl)}")
     print(f"  Bias: {len(mquacq_instance.bias)}")
     
-    # Run MQuAcq-2
-    ca_system = MQuAcq2()
+    print(f"\n[INFO] Using MQuAcq-2 to handle imperfect bias")
+    resilient_findc = ResilientFindC()
+    custom_env = ActiveCAEnv(findc=resilient_findc)
+    ca_system = ResilientMQuAcq2(ca_env=custom_env)
     
     phase3_start = time.time()
     try:
-        learned_instance = ca_system.learn(mquacq_instance, oracle=oracle_binary, verbose=3)
+        learned_instance = ca_system.learn(
+            mquacq_instance, 
+            oracle=oracle_binary, 
+            verbose=3
+        )
     except Exception as e:
         print(f"\n[ERROR] MQuAcq-2 failed: {e}")
         import traceback
         traceback.print_exc()
+        
+        # Try to get resilience report if available
+        findc_report = resilient_findc.get_resilience_report()
+        mquacq_report = ca_system.get_resilience_report()
+        
+        print(f"\n[RESILIENCE REPORT]")
+        print(f"  FindC collapse warnings: {findc_report['collapse_warnings']}")
+        print(f"  FindC unresolved scopes: {findc_report['unresolved_scopes']}")
+        print(f"  MQuAcq2 skipped scopes: {mquacq_report['skipped_scopes_count']}")
+        
+        if findc_report['unresolved_details']:
+            print(f"  Unresolved scope details:")
+            for detail in findc_report['unresolved_details']:
+                print(f"    - Scope: {detail['scope']}, Target: {detail['target']}")
+        
         sys.exit(1)
     phase3_time = time.time() - phase3_start
     
-    # Get final model
-    final_model = learned_instance.get_cpmpy_model()
-    final_constraints = final_model.constraints
+    learned_constraints_from_mquacq = ca_system.env.instance.cl
+    
+    final_constraints_raw = learned_instance.cl
+    
+    learned_constraints_filtered = learned_constraints_from_mquacq
+    
+    final_constraints = final_constraints_raw
+    
+    num_filtered_mquacq = len(learned_constraints_from_mquacq) - len(learned_constraints_filtered)
+    num_filtered_final = len(final_constraints_raw) - len(final_constraints)
+    
+    if num_filtered_mquacq > 0:
+        print(f"\n[WARNING] Filtered {num_filtered_mquacq} invalid constraints from MQuAcq2 learned model")
+    if num_filtered_final > 0:
+        print(f"\n[WARNING] Filtered {num_filtered_final} invalid constraints from final model")
+    
+    print(f"\nLearned model info:")
+    print(f"  MQuAcq2 CL size: {len(learned_constraints_filtered)} constraints")
+    print(f"  Final model size: {len(final_constraints)} constraints")
     
     phase3_queries = ca_system.env.metrics.total_queries
+    
+    # Get resilience reports from both FindC and MQuAcq2
+    findc_resilience = resilient_findc.get_resilience_report()
+    mquacq_resilience = ca_system.get_resilience_report()
+    
+    # Combine reports
+    resilience_report = {
+        'findc': findc_resilience,
+        'mquacq2': mquacq_resilience,
+        'total_issues': findc_resilience['collapse_warnings'] + mquacq_resilience['skipped_scopes_count']
+    }
     
     print(f"\n{'='*60}")
     print(f"Phase 3 Results")
@@ -250,6 +472,17 @@ def run_phase3(experiment_name, phase2_pickle_path, max_queries=1000, timeout=60
     print(f"MQuAcq-2 queries: {phase3_queries}")
     print(f"MQuAcq-2 time: {phase3_time:.2f}s")
     print(f"Final model constraints: {len(final_constraints)}")
+    
+    if resilience_report and resilience_report['total_issues'] > 0:
+        print(f"\nResilience Report:")
+        print(f"  FindC collapse warnings: {resilience_report['findc']['collapse_warnings']}")
+        print(f"  MQuAcq2 skipped scopes: {resilience_report['mquacq2']['skipped_scopes_count']}")
+        print(f"  Total issues handled: {resilience_report['total_issues']}")
+        
+        if resilience_report['findc'].get('unresolved_details'):
+            print(f"  Unresolved scope details (first 5):")
+            for detail in resilience_report['findc']['unresolved_details'][:5]:
+                print(f"    - {detail['scope']}: target = {detail['target']}")
     
     # Combine all phases
     phase2_queries = phase2_data['phase2_stats']['queries']
@@ -298,10 +531,21 @@ def run_phase3(experiment_name, phase2_pickle_path, max_queries=1000, timeout=60
     recall = correct / len(oracle_binary.constraints) if len(oracle_binary.constraints) > 0 else 0
     f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0
     
-    print(f"\nMetrics:")
+    print(f"\nConstraint-Level Metrics:")
     print(f"  Precision: {precision:.2%}")
     print(f"  Recall: {recall:.2%}")
     print(f"  F1-Score: {f1:.2%}")
+    
+    # Compute solution-space metrics (sampling-based approach)
+    # Use learned constraints from MQuAcq2 (ca_system.env.instance.cl)
+    solution_metrics = compute_solution_metrics(
+        learned_model = ca_system.env.instance.cl,
+        learned_constraints=learned_constraints_filtered,
+        target_constraints=oracle_binary.constraints,
+        variables=instance_binary.X,
+        max_solutions=100,  # Sample 100 solutions for comparison
+        timeout_per_model=300
+    )
     
     # Save results
     results = {
@@ -324,22 +568,47 @@ def run_phase3(experiment_name, phase2_pickle_path, max_queries=1000, timeout=60
             'time': phase3_time,
             'initial_cl': len(CL_init),
             'pruned_bias': len(B_pruned),
-            'final_model_size': len(final_constraints)
+            'final_model_size': len(final_constraints),
+            'resilience': resilience_report
         },
         'total': {
             'queries': total_queries,
             'time': total_time
         },
         'evaluation': {
-            'target_size': len(oracle_binary.constraints),
-            'learned_size': len(final_constraints),
-            'correct': correct,
-            'missing': missing,
-            'spurious': spurious,
-            'precision': precision,
-            'recall': recall,
-            'f1': f1
+            'constraint_level': {
+                'target_size': len(oracle_binary.constraints),
+                'learned_size': len(final_constraints),
+                'correct': correct,
+                'missing': missing,
+                'spurious': spurious,
+                'precision': precision,
+                'recall': recall,
+                'f1': f1
+            },
+            'solution_level': solution_metrics
         }
+    }
+    
+    # Save complete learned model to pickle file
+    print(f"\n{'='*60}")
+    print(f"Saving Final Learned Model")
+    print(f"{'='*60}")
+    
+    final_model_data = {
+        'experiment': experiment_name,
+        'timestamp': datetime.now().isoformat(),
+        'phase1_data': phase1_data,  # Include Phase 1 data
+        'C_validated': C_validated,  # Validated global constraints from Phase 2
+        'final_constraints': final_constraints,  # Complete learned model
+        'variables': instance_binary.X,  # Problem variables
+        'phase_stats': {
+            'phase1': results['phase1'],
+            'phase2': results['phase2'],
+            'phase3': results['phase3'],
+            'total': results['total']
+        },
+        'evaluation': results['evaluation']
     }
     
     # Save to JSON
@@ -350,7 +619,18 @@ def run_phase3(experiment_name, phase2_pickle_path, max_queries=1000, timeout=60
     with open(results_path, 'w') as f:
         json.dump(results, f, indent=2)
     
-    print(f"\n[SAVED] Results saved to: {results_path}")
+    print(f"[SAVED] Results (JSON): {results_path}")
+    
+    # Save complete model to pickle
+    pickle_path = os.path.join(output_dir, f"{experiment_name}_final_model.pkl")
+    with open(pickle_path, 'wb') as f:
+        pickle.dump(final_model_data, f)
+    
+    print(f"[SAVED] Final Model (PKL): {pickle_path}")
+    print(f"  - Phase 1 data: {len(E_plus)} examples, {len(B_fixed)} bias constraints")
+    print(f"  - Phase 2 validated globals: {len(C_validated)} constraints")
+    print(f"  - Phase 3 final model: {len(final_constraints)} constraints")
+    print(f"  - Solution metrics: S-Prec={solution_metrics['s_precision']:.2%}, S-Rec={solution_metrics['s_recall']:.2%}")
     
     return results
 
@@ -359,8 +639,8 @@ if __name__ == "__main__":
     import argparse
     
     parser = argparse.ArgumentParser(description='Run Phase 3: Active Learning with MQuAcq-2')
-    parser.add_argument('--experiment', type=str, required=True, help='Experiment name')
-    parser.add_argument('--phase2_pickle', type=str, required=True, help='Path to Phase 2 pickle file')
+    parser.add_argument('--experiment', type=str, default="sudoku", help='Experiment name')
+    parser.add_argument('--phase2_pickle', type=str, default="phase2_output/sudoku_phase2.pkl", help='Path to Phase 2 pickle file')
     parser.add_argument('--max_queries', type=int, default=1000, help='Maximum queries for MQuAcq-2')
     parser.add_argument('--timeout', type=int, default=600, help='Timeout in seconds')
     

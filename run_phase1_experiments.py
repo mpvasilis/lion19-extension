@@ -32,6 +32,24 @@ def main():
             'num_overfitted': 6  # More mocks for this variant
         },
         {
+            'name': 'jsudoku',
+            'description': 'Jigsaw Sudoku (9x9 with irregular regions)',
+            'num_examples': 5,
+            'num_overfitted': 4  # Similar to regular sudoku
+        },
+        {
+            'name': 'latin_square',
+            'description': 'Latin Square (9x9 - rows and columns only)',
+            'num_examples': 5,
+            'num_overfitted': 3  # Simpler than Sudoku
+        },
+        {
+            'name': 'graph_coloring_register',
+            'description': 'Graph Coloring - Register Allocation (realistic compiler problem)',
+            'num_examples': 5,
+            'num_overfitted': 3  # Realistic CP problem
+        },
+        {
             'name': 'examtt_v1',
             'description': 'Exam Timetabling Variant 1 (Small)',
             'num_examples': 5,

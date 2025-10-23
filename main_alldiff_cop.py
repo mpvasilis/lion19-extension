@@ -26,7 +26,8 @@ from bayesian_ca_env import BayesianActiveCAEnv
 from enhanced_bayesian_pqgen import EnhancedBayesianPQGen
 
 # Import benchmark construction functions
-from benchmarks_global import construct_sudoku
+from benchmarks_global import construct_sudoku, construct_jsudoku, construct_latin_square
+from benchmarks_global import construct_graph_coloring_register, construct_graph_coloring_scheduling
 from benchmarks_global import construct_sudoku_greater_than
 from benchmarks_global import construct_examtt_simple as ces_global
 from benchmarks_global import construct_examtt_variant1, construct_examtt_variant2
@@ -712,7 +713,43 @@ def construct_instance(experiment_name):
     Returns:
         Tuple (instance, oracle)
     """
-    if 'sudoku_gt' in experiment_name.lower() or 'sudoku_greater' in experiment_name.lower():
+    if 'graph_coloring_register' in experiment_name.lower() or experiment_name.lower() == 'register':
+        print("Constructing Graph Coloring (Register Allocation)...")
+        result = construct_graph_coloring_register()
+        # Handle optional mock_constraints return (Phase 2 doesn't need them)
+        if len(result) == 3:
+            instance, oracle, _ = result
+        else:
+            instance, oracle = result
+    
+    elif 'graph_coloring_scheduling' in experiment_name.lower() or experiment_name.lower() == 'scheduling':
+        print("Constructing Graph Coloring (Course Scheduling)...")
+        result = construct_graph_coloring_scheduling()
+        # Handle optional mock_constraints return (Phase 2 doesn't need them)
+        if len(result) == 3:
+            instance, oracle, _ = result
+        else:
+            instance, oracle = result
+    
+    elif 'latin_square' in experiment_name.lower() or 'latin' in experiment_name.lower():
+        print("Constructing 9x9 Latin Square...")
+        result = construct_latin_square(n=9)
+        # Handle optional mock_constraints return (Phase 2 doesn't need them)
+        if len(result) == 3:
+            instance, oracle, _ = result
+        else:
+            instance, oracle = result
+    
+    elif 'jsudoku' in experiment_name.lower():
+        print("Constructing 9x9 JSudoku (Jigsaw Sudoku)...")
+        result = construct_jsudoku(grid_size=9)
+        # Handle optional mock_constraints return (Phase 2 doesn't need them)
+        if len(result) == 3:
+            instance, oracle, _ = result
+        else:
+            instance, oracle = result
+    
+    elif 'sudoku_gt' in experiment_name.lower() or 'sudoku_greater' in experiment_name.lower():
         print("Constructing 9x9 Sudoku with Greater-Than constraints...")
         result = construct_sudoku_greater_than(3, 3, 9)
         # Handle optional mock_constraints return (Phase 2 doesn't need them)
