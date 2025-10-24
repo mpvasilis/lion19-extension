@@ -298,7 +298,8 @@ def main():
         'latin_square',
         'graph_coloring_register',
         'examtt_v1',
-        'examtt_v2'
+        'examtt_v2',
+        'nurse'
     ]
     
     # Generate table
