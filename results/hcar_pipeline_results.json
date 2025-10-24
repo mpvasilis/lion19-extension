@@ -66,6 +66,28 @@
     "_s_recall":0.0
   },
   {
+    "Prob.":"Graph Coloring",
+    "Sols":5,
+    "StartC":10,
+    "InvC":2,
+    "CT":5,
+    "Bias":140,
+    "ViolQ":35,
+    "MQuQ":67,
+    "TQ":102,
+    "ALQ":"N\/A",
+    "PAQ":"N\/A",
+    "VT(s)":7.25,
+    "MQuT(s)":4.34,
+    "TT(s)":11.59,
+    "ALT(s)":"N\/A",
+    "PAT(s)":"N\/A",
+    "_precision":36.14,
+    "_recall":100.0,
+    "_s_precision":0.0,
+    "_s_recall":0.0
+  },
+  {
     "Prob.":"ExamTT-V1",
     "Sols":5,
     "StartC":7,

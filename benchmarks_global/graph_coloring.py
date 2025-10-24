@@ -177,18 +177,26 @@ def construct_graph_coloring(graph_type="queen_5x5", num_colors=None):
     # but this isn't a real constraint of the problem
     # (Uncomment to test Phase 2 overfitting detection)
     
-    # if graph_type == "register" and num_nodes >= 8:
-    #     # Mock: Happens to be true in examples but not required
-    #     mock_c1 = cp.AllDifferent([nodes[0], nodes[3], nodes[6]])
-    #     mock_constraints.append(mock_c1)
-    #     model += mock_c1
+    if graph_type == "register" and num_nodes >= 8:
+        # Mock: Happens to be true in examples but not required
+        mock_c1 = cp.AllDifferent([nodes[0], nodes[3], nodes[6]])
+        mock_constraints.append(mock_c1)
+        # Mock: Another spurious pattern
+        mock_c2 = cp.AllDifferent([nodes[1], nodes[4], nodes[7]])
+        mock_constraints.append(mock_c2)
     
-    # if graph_type == "queen_5x5":
-    #     # Mock: Corner positions happen to differ in examples
-    #     n = 5
-    #     mock_c2 = cp.AllDifferent([nodes[0,0], nodes[0,n-1], nodes[n-1,0], nodes[n-1,n-1]])
-    #     mock_constraints.append(mock_c2)
-    #     model += mock_c2
+    if graph_type == "queen_5x5":
+        # Mock: Corner positions happen to differ in examples
+        n = 5
+        mock_c2 = cp.AllDifferent([nodes[0,0], nodes[0,n-1], nodes[n-1,0], nodes[n-1,n-1]])
+        mock_constraints.append(mock_c2)
+    
+    if graph_type == "scheduling":
+        # Mock: Some courses happen to differ in examples but not required
+        mock_c1 = cp.AllDifferent([courses[0], courses[5], courses[10]])
+        mock_constraints.append(mock_c1)
+        mock_c2 = cp.AllDifferent([courses[2], courses[7], courses[12]])
+        mock_constraints.append(mock_c2)
     
     # Create the language
     AV = absvar(2)

@@ -212,6 +212,14 @@ def construct_instance(experiment_name):
         instance_binary, oracle_binary = (result1[0], result1[1]) if len(result1) == 3 else result1
         result2 = ces_global(nsemesters=9, courses_per_semester=6, slots_per_day=9, days_for_exams=14)
         instance_global, oracle_global = (result2[0], result2[1]) if len(result2) == 3 else result2
+    elif 'nurse' in experiment_name.lower():
+        print(f"Constructing Nurse Rostering instances...")
+        from benchmarks import construct_nurse_rostering as construct_nurse_binary
+        from benchmarks_global import construct_nurse_rostering as construct_nurse_global
+        result1 = construct_nurse_binary()
+        instance_binary, oracle_binary = (result1[0], result1[1]) if len(result1) == 3 else result1
+        result2 = construct_nurse_global()
+        instance_global, oracle_global = (result2[0], result2[1]) if len(result2) == 3 else result2
     else:
         raise ValueError(f"Unknown experiment: {experiment_name}")
     

@@ -802,7 +802,11 @@ def construct_instance(experiment_name):
     
     elif 'nurse' in experiment_name.lower():
         print("Constructing Nurse Rostering...")
-        instance, oracle = nr_global()
+        result = nr_global()
+        if len(result) == 3:
+            instance, oracle, mock_constraints = result
+        else:
+            instance, oracle = result
     
     elif 'uefa' in experiment_name.lower():
         print("Constructing UEFA Champions League...")

@@ -147,7 +147,15 @@ def construct_instance(benchmark_name):
     
     elif 'nurse' in benchmark_name.lower():
         print("Constructing Nurse Rostering...")
-        instance, oracle = nr_global()
+        result = nr_global()
+        
+        if len(result) == 3:
+            instance, oracle, mock_constraints = result
+            print(f"  Received {len(mock_constraints)} mock constraints from benchmark")
+            return instance, oracle, mock_constraints
+        else:
+            instance, oracle = result
+            return instance, oracle
     
     elif 'uefa' in benchmark_name.lower():
         print("Constructing UEFA Champions League...")
@@ -822,7 +830,8 @@ if __name__ == "__main__":
         description='Phase 1: Passive Learning for HCAR'
     )
     parser.add_argument('--benchmark', type=str, required=True,
-                       choices=['sudoku', 'sudoku_gt', 'examtt', 'examtt_v1', 'examtt_v2', 'nurse', 'uefa'],
+                       choices=['sudoku', 'sudoku_gt', 'examtt', 'examtt_v1', 'examtt_v2', 'nurse', 'uefa', 
+                               'graph_coloring_register', 'graph_coloring_scheduling', 'latin_square', 'jsudoku'],
                        help='Benchmark name')
     parser.add_argument('--output_dir', type=str, default='phase1_output',
                        help='Output directory for pickle files')
