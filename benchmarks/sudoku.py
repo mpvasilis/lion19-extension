@@ -8,29 +8,24 @@ def construct_sudoku_binary(block_size_row, block_size_col, grid_size):
 
     parameters = {"block_size_row": block_size_row, "block_size_col": block_size_col, "grid_size": grid_size}
 
-    # Variables
     grid = cp.intvar(1, grid_size, shape=(grid_size, grid_size), name="grid")
 
     model = cp.Model()
 
-    # Constraints on rows and columns
     for row in grid:
         model += cp.AllDifferent(row)
 
     for col in grid.T:
         model += cp.AllDifferent(col)
 
-    # Constraints on blocks
     for i in range(0, grid_size, block_size_row):
         for j in range(0, grid_size, block_size_col):
             model += cp.AllDifferent(grid[i:i + block_size_row, j:j + block_size_col]) 
 
     C_T = list(set(toplevel_list(model.constraints)))
 
-    # Create the language:
-    AV = absvar(2)  # create abstract vars - as many as maximum arity
+    AV = absvar(2)  
 
-    # create abstract relations using the abstract vars
     lang = [AV[0] == AV[1], AV[0] != AV[1], AV[0] < AV[1], AV[0] > AV[1], AV[0] >= AV[1], AV[0] <= AV[1]]
 
     instance = ProblemInstance(variables=grid, params=parameters, language=lang, name="sudoku")

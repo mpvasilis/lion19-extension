@@ -5,18 +5,7 @@ from pycona import ProblemInstance, absvar
 
 
 def construct_graph_coloring_binary(graph_type="queen_5x5", num_colors=None):
-    """
-    Construct a Graph Coloring problem with binary constraints.
     
-    AllDifferent constraints are decomposed to binary != constraints.
-    
-    Args:
-        graph_type: Type of graph ("queen_5x5", "queen_6x6", "register", "scheduling")
-        num_colors: Number of colors available
-    
-    Returns:
-        (instance, oracle)
-    """
     
     if graph_type == "queen_5x5":
         n = 5
@@ -25,20 +14,17 @@ def construct_graph_coloring_binary(graph_type="queen_5x5", num_colors=None):
         
         nodes = cp.intvar(1, num_colors, shape=(n, n), name="color")
         model = cp.Model()
-        
-        # Decompose row constraints
+
         for row in nodes:
             for i in range(len(row)):
                 for j in range(i + 1, len(row)):
                     model += (row[i] != row[j])
-        
-        # Decompose column constraints
+
         for col in nodes.T:
             for i in range(len(col)):
                 for j in range(i + 1, len(col)):
                     model += (col[i] != col[j])
-        
-        # Decompose diagonal constraints
+
         for k in range(-(n-1), n):
             diag = [nodes[i, i-k] for i in range(n) if 0 <= i-k < n]
             if len(diag) > 1:
@@ -63,8 +49,7 @@ def construct_graph_coloring_binary(graph_type="queen_5x5", num_colors=None):
         
         nodes = cp.intvar(1, num_colors, shape=(n, n), name="color")
         model = cp.Model()
-        
-        # Same decomposition as 5x5
+
         for row in nodes:
             for i in range(len(row)):
                 for j in range(i + 1, len(row)):
@@ -96,8 +81,7 @@ def construct_graph_coloring_binary(graph_type="queen_5x5", num_colors=None):
         num_nodes = 12
         nodes = cp.intvar(1, num_colors, shape=num_nodes, name="register")
         model = cp.Model()
-        
-        # Decompose clique constraints
+
         cliques = [
             [0, 1, 2],
             [1, 2, 3, 4],
@@ -126,8 +110,7 @@ def construct_graph_coloring_binary(graph_type="queen_5x5", num_colors=None):
         num_courses = 15
         courses = cp.intvar(1, num_colors, shape=num_courses, name="timeslot")
         model = cp.Model()
-        
-        # Decompose conflict group constraints
+
         conflict_groups = [
             [0, 1, 2, 3],
             [2, 3, 4, 5],
@@ -166,16 +149,16 @@ def construct_graph_coloring_binary(graph_type="queen_5x5", num_colors=None):
 
 
 def construct_graph_coloring_binary_queen5():
-    """5x5 Queen graph with binary constraints."""
+    
     return construct_graph_coloring_binary("queen_5x5", num_colors=5)
 
 
 def construct_graph_coloring_binary_register():
-    """Register allocation with binary constraints."""
+    
     return construct_graph_coloring_binary("register", num_colors=4)
 
 
 def construct_graph_coloring_binary_scheduling():
-    """Course scheduling with binary constraints."""
+    
     return construct_graph_coloring_binary("scheduling", num_colors=5)
 

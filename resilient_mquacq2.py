@@ -1,10 +1,4 @@
-"""
-MQuAcq2 Implementation for HCAR Phase 3
 
-This module provides a custom MQuAcq2 implementation that handles None returns from 
-ResilientFindC gracefully, allowing MQuAcq-2 to continue learning even when
-some constraints cannot be found in the bias.
-"""
 
 import time
 import numpy as np
@@ -13,26 +7,14 @@ from pycona.utils import get_kappa
 
 
 class ResilientMQuAcq2(MQuAcq2):
-    """
-    A resilient version of MQuAcq2 that handles None returns from FindC.
     
-    Key differences from standard MQuAcq2:
-    1. Checks if FindC returns None before adding to CL
-    2. Skips scopes where no constraint could be found
-    3. Tracks skipped scopes for reporting
-    4. Continues learning despite missing constraints in bias
-    """
     
     def __init__(self, ca_env=None, **kwargs):
         super().__init__(ca_env, **kwargs)
-        self.skipped_scopes = []  # Track scopes we couldn't learn
+        self.skipped_scopes = []  
     
     def learn(self, instance, oracle=None, verbose=0, X=None, metrics=None):
-        """
-        Learn constraints using modified QuAcq with resilient FindC handling.
         
-        This overrides the standard MQuAcq2.learn() to handle None returns from FindC.
-        """
         from pycona import UserOracle
         
         if oracle is None:
@@ -44,8 +26,7 @@ class ResilientMQuAcq2(MQuAcq2):
             "When using .learn(), set parameter X must be a list of variables"
         
         self.env.init_state(instance, oracle, verbose, metrics)
-        
-        # Hash the variables
+
         self.hashX = [hash(x) for x in self.env.instance.X]
         self.cl_neighbours = np.zeros((len(self.env.instance.X), len(self.env.instance.X)), dtype=bool)
         
@@ -59,7 +40,7 @@ class ResilientMQuAcq2(MQuAcq2):
             self.env.metrics.increase_generation_time(gen_end - gen_start)
             
             if len(Y) == 0:
-                # Converged
+
                 self.env.metrics.finalize_statistics()
                 if self.env.verbose >= 1:
                     print(f"\nLearned {self.env.metrics.cl} constraints in "
@@ -84,29 +65,25 @@ class ResilientMQuAcq2(MQuAcq2):
                 self.env.metrics.increase_top_queries()
                 
                 if self.env.ask_membership_query(Y):
-                    # It is a solution, so all candidates violated must go
+
                     self.env.remove_from_bias(kappaB)
                     kappaB = set()
-                else:  # User says UNSAT
+                else:  
                     
                     scope = self.env.run_find_scope(Y)
                     c = self.env.run_findc(scope)
-                    
-                    # RESILIENT HANDLING: Check if FindC returned None
+
                     if c is None:
-                        # FindC couldn't find a constraint for this scope
+
                         scope_str = f"[{', '.join(str(v) for v in scope)}]"
                         self.skipped_scopes.append(scope_str)
-                        
-                        # if self.env.verbose >= 2:
-                        #     print(f"[RESILIENT] Skipping scope {scope_str} - no constraint found in bias")
-                        
-                        # Remove this scope from Y to avoid infinite loop
+
+
+
                         Y = [y for y in Y if y not in scope]
                         kappaB = get_kappa(self.env.instance.bias, Y)
                         continue
-                    
-                    # Standard MQuAcq2 logic: add constraint to CL
+
                     self.env.add_to_cl(c)
                     
                     NScopes = set()
@@ -121,11 +98,11 @@ class ResilientMQuAcq2(MQuAcq2):
     
     @property
     def perform_analyzeAndLearn(self):
-        """Getter for analyze and learn flag."""
+        
         return self._perform_analyzeAndLearn
     
     def get_resilience_report(self):
-        """Get report of resilience events."""
+        
         return {
             'skipped_scopes_count': len(self.skipped_scopes),
             'skipped_scopes': self.skipped_scopes

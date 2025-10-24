@@ -23,33 +23,27 @@ def construct_examtt_simple(nsemesters=9, courses_per_semester=6, slots_per_day=
     variables = cp.intvar(1, total_slots, shape=(nsemesters, courses_per_semester), name="var")
 
     model = cp.Model()
-    
-    # all exams must be scheduled in different timeslots
+
     model += cp.AllDifferent(variables)
 
-    # exams in the same semester must be on different days
     for semester_index, row in enumerate(variables):
         exam_days = [day_of_exam(course, slots_per_day) for course in row]
         model += cp.AllDifferent(exam_days)
-    
-    # limit the number of exams per day
+
     all_exams = variables.flatten()
     max_exams_per_day = (total_courses + days_for_exams - 1) // days_for_exams + 1
     for day in range(days_for_exams):
-        #  how many exams are scheduled on this day
+
         exams_on_day = cp.Count([day_of_exam(exam, slots_per_day) for exam in all_exams], day)
-        # limit the number of exams on this day
+
         model += (exams_on_day <= max_exams_per_day)
 
-    # Save TRUE constraints for oracle (before adding mocks)
     C_T = list(model.constraints)
 
-    # MOCK OVER-FITTED CONSTRAINTS (ALLDIFFERENT ONLY - Phase 1 filters others!)
-    # MUST be AllDifferent constraints - Phase 1 filters out all other types
-    # NOTE: Mocks are added to model for example generation but NOT to oracle (C_T)
+
+
     mock_constraints = []
 
-    # Mock 1: AllDifferent on first 4 semesters' days (cross-semester constraint)
     if nsemesters >= 4:
         first_four_sems = variables[:4, :].flatten()
         first_four_days = [day_of_exam(exam, slots_per_day) for exam in first_four_sems]
@@ -57,7 +51,6 @@ def construct_examtt_simple(nsemesters=9, courses_per_semester=6, slots_per_day=
         mock_constraints.append(mock_c1)
         model += mock_c1
 
-    # Mock 2: AllDifferent on time-of-day across first 5 semesters
     if nsemesters >= 5 and courses_per_semester >= 2:
         first_five = variables[:5, :].flatten()
         time_of_day = [exam % slots_per_day for exam in first_five]
@@ -65,21 +58,18 @@ def construct_examtt_simple(nsemesters=9, courses_per_semester=6, slots_per_day=
         mock_constraints.append(mock_c2)
         model += mock_c2
 
-    # Mock 3: AllDifferent on first 3 courses from all semesters (column pattern)
     if nsemesters >= 6 and courses_per_semester >= 3:
         first_three_cols = variables[:, :3].flatten()
         mock_c3 = cp.AllDifferent(first_three_cols[:min(18, len(first_three_cols))])
         mock_constraints.append(mock_c3)
         model += mock_c3
 
-    # Mock 4: AllDifferent on diagonal elements
     if nsemesters >= 6 and courses_per_semester >= 6:
         diagonal = [variables[i, i] for i in range(min(6, nsemesters, courses_per_semester))]
         mock_c4 = cp.AllDifferent(diagonal)
         mock_constraints.append(mock_c4)
         model += mock_c4
 
-    # Mock 5: AllDifferent on anti-diagonal elements
     if nsemesters >= 6 and courses_per_semester >= 6:
         anti_diag = [variables[i, courses_per_semester - 1 - i] 
                      for i in range(min(6, nsemesters, courses_per_semester))]
@@ -87,35 +77,30 @@ def construct_examtt_simple(nsemesters=9, courses_per_semester=6, slots_per_day=
         mock_constraints.append(mock_c5)
         model += mock_c5
 
-    # Mock 6: AllDifferent on even-indexed semesters, first 4 courses each
     if nsemesters >= 8 and courses_per_semester >= 4:
         even_subset = variables[::2, :4].flatten()
         mock_c6 = cp.AllDifferent(even_subset[:min(16, len(even_subset))])
         mock_constraints.append(mock_c6)
         model += mock_c6
 
-    # Mock 7: AllDifferent on odd-indexed semesters, last 4 courses each
     if nsemesters >= 7 and courses_per_semester >= 4:
         odd_subset = variables[1::2, -4:].flatten()
         mock_c7 = cp.AllDifferent(odd_subset[:min(16, len(odd_subset))])
         mock_constraints.append(mock_c7)
         model += mock_c7
 
-    # Mock 8: AllDifferent on first column (first course of each semester)
     if nsemesters >= 7 and courses_per_semester >= 1:
         first_col = [variables[sem, 0] for sem in range(min(7, nsemesters))]
         mock_c8 = cp.AllDifferent(first_col)
         mock_constraints.append(mock_c8)
         model += mock_c8
 
-    # Mock 9: AllDifferent on last column (last course of each semester)
     if nsemesters >= 6 and courses_per_semester >= 2:
         last_col = [variables[sem, -1] for sem in range(min(6, nsemesters))]
         mock_c9 = cp.AllDifferent(last_col)
         mock_constraints.append(mock_c9)
         model += mock_c9
 
-    # Mock 10: AllDifferent on middle courses
     if nsemesters >= 7 and courses_per_semester >= 3:
         mid_idx = courses_per_semester // 2
         middle_col = [variables[sem, mid_idx] for sem in range(min(7, nsemesters))]
@@ -123,14 +108,12 @@ def construct_examtt_simple(nsemesters=9, courses_per_semester=6, slots_per_day=
         mock_constraints.append(mock_c10)
         model += mock_c10
 
-    # Mock 11: AllDifferent on second column
     if nsemesters >= 6 and courses_per_semester >= 2:
         second_col = [variables[sem, 1] for sem in range(min(6, nsemesters))]
         mock_c11 = cp.AllDifferent(second_col)
         mock_constraints.append(mock_c11)
         model += mock_c11
 
-    # Mock 12: AllDifferent on every-other-semester, middle courses
     if nsemesters >= 8 and courses_per_semester >= 3:
         mid_idx = courses_per_semester // 2
         alternating = [variables[sem, mid_idx] for sem in range(0, min(8, nsemesters), 2)]
@@ -162,8 +145,7 @@ def construct_examtt_simple(nsemesters=9, courses_per_semester=6, slots_per_day=
     )
 
     oracle = ConstraintOracle(C_T)
-    
-    # Return mock constraints so Phase 1 can use them as overfitted constraints
+
     return instance, oracle, mock_constraints
 
 
@@ -203,8 +185,7 @@ class ExamTimetablingModel:
         for semester_index, row in enumerate(self.exam_slots):
             exam_days = [day_of_exam(course, self.slots_per_day) for course in row]
             self.model += cp.AllDifferent(exam_days)
-            
-        # Add Count constraint for limiting exams per day
+
         all_exams = self.exam_slots.flatten()
         total_courses = self.nsemesters * self.courses_per_semester
         max_exams_per_day = (total_courses + self.days_for_exams - 1) // self.days_for_exams + 1
@@ -238,8 +219,8 @@ class ExamTimetablingModel:
             for course_idx in range(self.courses_per_semester):
                 course_name = f"Course_{semester+1}_{course_idx+1}"
                 slot = self.exam_slots[semester, course_idx].value()
-                day = day_of_exam(slot, self.slots_per_day) + 1  # 1-indexed day
-                time_slot = (slot - 1) % self.slots_per_day + 1  # 1-indexed time slot
+                day = day_of_exam(slot, self.slots_per_day) + 1  
+                time_slot = (slot - 1) % self.slots_per_day + 1  
                 
                 solution["schedule"][semester_name].append({
                     "course": course_name,

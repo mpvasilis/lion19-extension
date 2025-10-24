@@ -1,14 +1,4 @@
-"""
-Run Phase 2 for multiple benchmark variants with comprehensive logging.
 
-This script runs Phase 2 COP-based refinement for all Phase 1 outputs:
-1. Regular Sudoku
-2. Greater-Than Sudoku
-3. Exam Timetabling Variant 1
-4. Exam Timetabling Variant 2
-
-All output is logged to files for later analysis.
-"""
 
 import os
 import sys
@@ -20,18 +10,7 @@ from pathlib import Path
 
 
 def run_phase2_for_benchmark(benchmark_name, phase1_pickle_path, output_dir, log_file):
-    """
-    Run Phase 2 for a single benchmark and log all output.
     
-    Args:
-        benchmark_name: Name of benchmark
-        phase1_pickle_path: Path to Phase 1 pickle file
-        output_dir: Directory for output files
-        log_file: Path to log file for this run
-        
-    Returns:
-        Dictionary with results
-    """
     print(f"\n{'='*80}")
     print(f"Running Phase 2 for: {benchmark_name}")
     print(f"{'='*80}")
@@ -39,8 +18,7 @@ def run_phase2_for_benchmark(benchmark_name, phase1_pickle_path, output_dir, log
     print(f"Log file: {log_file}")
     
     start_time = time.time()
-    
-    # Construct command
+
     cmd = [
         'python',
         'main_alldiff_cop.py',
@@ -49,11 +27,10 @@ def run_phase2_for_benchmark(benchmark_name, phase1_pickle_path, output_dir, log
     ]
     
     print(f"Command: {' '.join(cmd)}\n")
-    
-    # Run command and capture output
+
     try:
         with open(log_file, 'w', encoding='utf-8') as f:
-            # Write header
+
             f.write("="*80 + "\n")
             f.write(f"PHASE 2 EXPERIMENT LOG\n")
             f.write(f"Benchmark: {benchmark_name}\n")
@@ -61,8 +38,7 @@ def run_phase2_for_benchmark(benchmark_name, phase1_pickle_path, output_dir, log
             f.write(f"Started: {datetime.now().isoformat()}\n")
             f.write("="*80 + "\n\n")
             f.flush()
-            
-            # Run subprocess
+
             process = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
@@ -71,8 +47,7 @@ def run_phase2_for_benchmark(benchmark_name, phase1_pickle_path, output_dir, log
                 bufsize=1,
                 universal_newlines=True
             )
-            
-            # Stream output to both console and file
+
             output_lines = []
             for line in iter(process.stdout.readline, ''):
                 if line:
@@ -86,14 +61,12 @@ def run_phase2_for_benchmark(benchmark_name, phase1_pickle_path, output_dir, log
         
         end_time = time.time()
         duration = end_time - start_time
-        
-        # Parse output for key metrics
+
         results = parse_phase2_output(output_lines, benchmark_name)
         results['return_code'] = return_code
         results['duration'] = duration
         results['log_file'] = log_file
-        
-        # Append summary to log file
+
         with open(log_file, 'a', encoding='utf-8') as f:
             f.write("\n" + "="*80 + "\n")
             f.write("EXPERIMENT SUMMARY\n")
@@ -129,16 +102,7 @@ def run_phase2_for_benchmark(benchmark_name, phase1_pickle_path, output_dir, log
 
 
 def parse_phase2_output(output_lines, benchmark_name):
-    """
-    Parse Phase 2 output to extract key metrics.
     
-    Args:
-        output_lines: List of output lines
-        benchmark_name: Name of benchmark
-        
-    Returns:
-        Dictionary with parsed metrics
-    """
     results = {
         'benchmark': benchmark_name,
         'status': 'UNKNOWN',
@@ -154,8 +118,7 @@ def parse_phase2_output(output_lines, benchmark_name):
         'precision': None,
         'recall': None
     }
-    
-    # Parse output lines
+
     for line in output_lines:
         if 'Total queries:' in line:
             try:
@@ -214,8 +177,7 @@ def parse_phase2_output(output_lines, benchmark_name):
         
         elif '[SUCCESS] Perfect learning!' in line:
             results['status'] = 'SUCCESS'
-    
-    # Calculate precision and recall
+
     if results['learned_count'] is not None and results['learned_count'] > 0:
         if results['correct'] is not None:
             results['precision'] = results['correct'] / results['learned_count']
@@ -223,8 +185,7 @@ def parse_phase2_output(output_lines, benchmark_name):
     if results['target_count'] is not None and results['target_count'] > 0:
         if results['correct'] is not None:
             results['recall'] = results['correct'] / results['target_count']
-    
-    # Determine status if not already set
+
     if results['status'] == 'UNKNOWN':
         if results['correct'] == results['target_count'] and results['spurious'] == 0:
             results['status'] = 'SUCCESS'
@@ -237,17 +198,10 @@ def parse_phase2_output(output_lines, benchmark_name):
 
 
 def create_summary_report(all_results, output_dir):
-    """
-    Create a comprehensive summary report of all Phase 2 experiments.
     
-    Args:
-        all_results: List of result dictionaries
-        output_dir: Output directory for report
-    """
     summary_file = os.path.join(output_dir, 'phase2_summary.txt')
     json_file = os.path.join(output_dir, 'phase2_results.json')
-    
-    # Write text summary
+
     with open(summary_file, 'w', encoding='utf-8') as f:
         f.write("="*80 + "\n")
         f.write("PHASE 2 EXPERIMENTS - COMPREHENSIVE SUMMARY\n")
@@ -255,8 +209,7 @@ def create_summary_report(all_results, output_dir):
         f.write(f"Generated: {datetime.now().isoformat()}\n")
         f.write(f"Total benchmarks: {len(all_results)}\n")
         f.write("="*80 + "\n\n")
-        
-        # Overall statistics
+
         success_count = sum(1 for r in all_results if r['status'] == 'SUCCESS')
         completed_count = sum(1 for r in all_results if r['status'] in ['SUCCESS', 'COMPLETED'])
         failed_count = len(all_results) - completed_count
@@ -267,8 +220,7 @@ def create_summary_report(all_results, output_dir):
         f.write(f"Completed (Partial Learning): {completed_count - success_count}\n")
         f.write(f"Failed/Error: {failed_count}\n")
         f.write("\n")
-        
-        # Per-benchmark results
+
         f.write("PER-BENCHMARK RESULTS\n")
         f.write("-"*80 + "\n\n")
         
@@ -312,8 +264,7 @@ def create_summary_report(all_results, output_dir):
                 f.write(f"\n  Error: {result['error']}\n")
             
             f.write("\n" + "-"*80 + "\n\n")
-        
-        # Summary table
+
         f.write("SUMMARY TABLE\n")
         f.write("-"*80 + "\n")
         f.write(f"{'Benchmark':<20} {'Status':<12} {'Queries':<10} {'Time(s)':<10} {'Precision':<12} {'Recall':<10}\n")
@@ -328,8 +279,7 @@ def create_summary_report(all_results, output_dir):
             f.write(f"{result['benchmark']:<20} {result['status']:<12} {queries_str:<10} {time_str:<10} {prec_str:<12} {rec_str:<10}\n")
         
         f.write("="*80 + "\n")
-    
-    # Write JSON results
+
     with open(json_file, 'w', encoding='utf-8') as f:
         json.dump(all_results, f, indent=2)
     
@@ -340,7 +290,7 @@ def create_summary_report(all_results, output_dir):
 
 
 def main():
-    """Run Phase 2 for all benchmarks."""
+    
     
     benchmarks = [
         {
@@ -384,8 +334,7 @@ def main():
         print(f"BENCHMARK {i}/{len(benchmarks)}: {bench['name']}")
         print(f"Description: {bench['description']}")
         print(f"{'='*80}\n")
-        
-        # Check if Phase 1 pickle exists
+
         if not os.path.exists(bench['pickle']):
             print(f"[ERROR] Phase 1 pickle not found: {bench['pickle']}")
             all_results.append({
@@ -394,11 +343,9 @@ def main():
                 'error': f"Phase 1 pickle not found: {bench['pickle']}"
             })
             continue
-        
-        # Create log file path
+
         log_file = os.path.join(output_dir, f"{bench['name']}_phase2.log")
-        
-        # Run Phase 2
+
         result = run_phase2_for_benchmark(
             benchmark_name=bench['name'],
             phase1_pickle_path=bench['pickle'],
@@ -407,15 +354,13 @@ def main():
         )
         
         all_results.append(result)
-    
-    # Create summary report
+
     print("\n\n" + "="*80)
     print("CREATING SUMMARY REPORT")
     print("="*80)
     
     summary_file, json_file = create_summary_report(all_results, output_dir)
-    
-    # Print final summary to console
+
     print("\n" + "="*80)
     print("PHASE 2 BATCH RUNNER - FINAL SUMMARY")
     print("="*80)
@@ -441,8 +386,7 @@ def main():
     print(f"\nFull summary: {summary_file}")
     print(f"JSON results: {json_file}")
     print("="*80)
-    
-    # Return success if all completed
+
     if failed_count == 0:
         print("\nALL BENCHMARKS COMPLETED!")
         return 0

@@ -15,13 +15,12 @@ class BayesianActiveCAEnv(ActiveCAEnv):
         self.alpha = alpha
         self.constraint_probs = {}
         self.current_constraint = None
-        self.max_queries = None  # Will be set from main.py based on constraint budget
-        self.queries_executed = 0  # Count of queries executed in current learning session
+        self.max_queries = None  
+        self.queries_executed = 0  
         
     def init_state(self, instance, oracle, verbose, metrics=None):
         super().init_state(instance, oracle, verbose, metrics)
-        
-        # Reset query counter when starting new learning
+
         self.queries_executed = 0
         
         for c in self.instance.bias:
@@ -32,26 +31,24 @@ class BayesianActiveCAEnv(ActiveCAEnv):
         for c in constraints:
             if c not in self.constraint_probs:
                 self.constraint_probs[c] = self.prior
-                
-            # P(c ∈ Cₜ)
+
             p_c_in_Ct = self.constraint_probs[c]
             
             if is_positive_example:
-                # P(E | c ∈ Cₜ)
+
                 p_E_given_c_in_Ct     = 1 - self.alpha
-                # P(E | c ∉ Cₜ)
+
                 p_E_given_not_c_in_Ct = self.alpha
             else:
-                # P(E | c ∈ Cₜ)
+
                 p_E_given_c_in_Ct     = 1 - self.alpha
-                # P(E | c ∉ Cₜ)
+
                 p_E_given_not_c_in_Ct = self.alpha
-            
-            # P(c ∈ Cₜ ∧ E)
+
             p_c_in_Ct_and_E      = p_E_given_c_in_Ct * p_c_in_Ct
-            # P(E)
+
             p_E                  = p_c_in_Ct_and_E + p_E_given_not_c_in_Ct * (1 - p_c_in_Ct)
-            # P(c ∈ Cₜ | E)
+
             p_c_in_Ct_given_E    = p_c_in_Ct_and_E / p_E
             
             self.constraint_probs[c] = p_c_in_Ct_given_E
@@ -60,7 +57,7 @@ class BayesianActiveCAEnv(ActiveCAEnv):
                 print(f"Updated P({c} ∈ Cₜ | E): {p_c_in_Ct:.3f} -> {p_c_in_Ct_given_E:.3f}")
     
     def run_query_generation(self):
-        # Check if we've exceeded the max queries
+
         if self.max_queries is not None and self.queries_executed >= self.max_queries:
             if self.verbose >= 2:
                 print(f"Maximum queries ({self.max_queries}) reached, stopping query generation")
@@ -72,15 +69,14 @@ class BayesianActiveCAEnv(ActiveCAEnv):
             self.current_constraint = None
             
         result = super().run_query_generation()
-        
-        # Increment query counter if we got a result
+
         if result is not None:
             self.queries_executed += 1
             
         return result
     
     def check_budget_exceeded(self):
-        """Check if we've exceeded our query budget"""
+        
         if self.max_queries is not None and self.queries_executed >= self.max_queries:
             if self.verbose >= 2:
                 print(f"Budget exceeded: {self.queries_executed}/{self.max_queries} queries used")
@@ -94,19 +90,19 @@ class BayesianActiveCAEnv(ActiveCAEnv):
         constraints_to_remove = []
         
         for c in kappaB:
-            # Add to CL if probability exceeds threshold
+
             if self.constraint_probs[c] >= self.theta_max:
                 constraints_to_add.append(c)
                 if self.verbose >= 2:
                     print(f"Constraint {c} probability {self.constraint_probs[c]:.3f} exceeds threshold {self.theta_max}, adding to CL")
-            # Remove from bias if probability is below threshold
+
             elif self.constraint_probs[c] <= self.theta_min:
                 constraints_to_remove.append(c)
                 if self.verbose >= 2:
                     print(f"Constraint {c} probability {self.constraint_probs[c]:.3f} below threshold {self.theta_min}, removing from bias")
-            # Budget check - if we're out of budget, force a decision based on current probability
+
             elif self.check_budget_exceeded():
-                if self.constraint_probs[c] >= 0.5:  # Use 0.5 as cutoff when budget is exhausted
+                if self.constraint_probs[c] >= 0.5:  
                     constraints_to_add.append(c)
                     if self.verbose >= 2:
                         print(f"Budget exceeded with probability {self.constraint_probs[c]:.3f} > 0.5, adding to CL")

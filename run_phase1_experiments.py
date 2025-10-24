@@ -1,22 +1,11 @@
-"""
-Run Phase 1 for multiple benchmark variants.
 
-This script runs Phase 1 passive learning for:
-1. Regular Sudoku
-2. Greater-Than Sudoku (Futoshiki-style)
-3. Exam Timetabling Variant 1 (smaller, specific constraints)
-4. Exam Timetabling Variant 2 (larger, cross-semester patterns)
-
-Each benchmark includes mock overfitted constraints that are consistent with E+
-but not part of the true target model.
-"""
 
 import os
 import sys
 from phase1_passive_learning import run_phase1
 
 def main():
-    """Run Phase 1 for all requested benchmarks."""
+    
     
     benchmarks = [
         {
@@ -29,37 +18,37 @@ def main():
             'name': 'sudoku_gt',
             'description': 'Sudoku with Greater-Than Constraints',
             'num_examples': 5,
-            'num_overfitted': 18  # More mocks for this variant
+            'num_overfitted': 18  
         },
         {
             'name': 'jsudoku',
             'description': 'Jigsaw Sudoku (9x9 with irregular regions)',
             'num_examples': 5,
-            'num_overfitted': 20  # Similar to regular sudoku
+            'num_overfitted': 20  
         },
         {
             'name': 'latin_square',
             'description': 'Latin Square (9x9 - rows and columns only)',
             'num_examples': 5,
-            'num_overfitted': 10  # Simpler than Sudoku
+            'num_overfitted': 10  
         },
         {
             'name': 'graph_coloring_register',
             'description': 'Graph Coloring - Register Allocation (realistic compiler problem)',
             'num_examples': 5,
-            'num_overfitted': 10  # Realistic CP problem
+            'num_overfitted': 10  
         },
         {
             'name': 'examtt_v1',
             'description': 'Exam Timetabling Variant 1 (Small)',
             'num_examples': 5,
-            'num_overfitted': 10  # 5 different mock patterns
+            'num_overfitted': 10  
         },
         {
             'name': 'examtt_v2',
             'description': 'Exam Timetabling Variant 2 (Large)',
             'num_examples': 5,
-            'num_overfitted': 10  # 6 different mock patterns
+            'num_overfitted': 10  
         }
     ]
     
@@ -116,8 +105,7 @@ def main():
             print(f"  {str(e)}")
             import traceback
             traceback.print_exc()
-    
-    # Print final summary
+
     print("\n\n" + "="*80)
     print("PHASE 1 BATCH RUNNER - FINAL SUMMARY")
     print("="*80)
@@ -139,8 +127,7 @@ def main():
             print(f"      => {result['output']}")
     
     print("\n" + "="*80)
-    
-    # Check if all succeeded
+
     if success_count == len(benchmarks):
         print("\nALL BENCHMARKS COMPLETED SUCCESSFULLY!")
         return 0

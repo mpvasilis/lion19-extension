@@ -61,27 +61,22 @@ def construct_vm_allocation(pm_data, vm_data):
                 for j in range(i + 1, len(high_priority_vms)):
                     model += [vm_assignments[high_priority_vms[i]] != vm_assignments[high_priority_vms[j]]]
 
-    # Binary constraints between VM pairs
     vm_list = list(vm_data.keys())
     for i in range(len(vm_list)):
         for j in range(i+1, len(vm_list)):
             vm1, vm2 = vm_list[i], vm_list[j]
-            
-            # VMs with high CPU demand should be on different PMs to balance load
+
             if (vm_data[vm1].get("demand_cpu", 0) > 4 and 
                 vm_data[vm2].get("demand_cpu", 0) > 4):
                 model += [vm_assignments[vm1] != vm_assignments[vm2]]
-            
-            # VMs with high memory demand should be distributed
+
             if (vm_data[vm1].get("demand_memory", 0) > 8 and 
                 vm_data[vm2].get("demand_memory", 0) > 8):
                 model += [vm_assignments[vm1] != vm_assignments[vm2]]
-            
-            # VMs from different availability zones should be on different PMs for redundancy
+
             if (vm_data[vm1].get("availability_zone") != vm_data[vm2].get("availability_zone")):
                 model += [vm_assignments[vm1] != vm_assignments[vm2]]
-            
-            # High priority VMs should not be on the same PM as low priority ones
+
             if (vm_data[vm1].get("priority", 0) == 1 and 
                 vm_data[vm2].get("priority", 0) == 3):
                 model += [vm_assignments[vm1] != vm_assignments[vm2]]
@@ -95,13 +90,12 @@ def construct_vm_allocation(pm_data, vm_data):
     for i, pm in enumerate(pm_data):
         if "capacity_gpu" in pm_data[pm]:
             pm_idx = i + 1
-            
-            # Group VMs by their GPU demand
+
             for gpu_demand in set(vm_data[vm].get("demand_gpu", 0) for vm in vm_data if vm_data[vm].get("demand_gpu", 0) > 0):
                 relevant_vms = [vm for vm in vm_data if vm_data[vm].get("demand_gpu", 0) == gpu_demand]
                 
                 if relevant_vms:
-                    # VMs with specific GPU demand assigned to this PM
+
                     vms_with_this_gpu = cp.Count([vm_assignments[vm] for vm in relevant_vms], pm_idx)
                     model += [vms_with_this_gpu * gpu_demand <= pm_data[pm]["capacity_gpu"]]
 
@@ -143,9 +137,8 @@ def construct_vm_allocation(pm_data, vm_data):
     )
     oracle = ConstraintOracle(C_T)
 
-    # print("variables: ", variables)
-    # for c in model.constraints:
-    #     print("constraint: ", c)
-    #     input()
+
+
+
 
     return instance, oracle

@@ -1,15 +1,4 @@
-"""
-Phase 1: Passive Learning for HCAR
 
-This module implements the passive learning phase that:
-1. Generates positive examples from target model
-2. Detects legitimate AllDifferent patterns
-3. Adds synthetic overfitted AllDifferent constraints
-4. Generates and prunes fixed-arity binary bias
-5. Saves all data to pickle for Phase 2
-
-Author: HCAR Research Team
-"""
 
 import argparse
 import os
@@ -24,7 +13,6 @@ from cpmpy.expressions.utils import all_pairs
 from cpmpy.expressions.globalconstraints import AllDifferent
 from cpmpy.transformations.get_variables import get_variables
 
-# Import benchmark construction functions
 from benchmarks_global import construct_sudoku, construct_jsudoku, construct_latin_square
 from benchmarks_global import construct_graph_coloring_register, construct_graph_coloring_scheduling
 from benchmarks_global import construct_sudoku_greater_than
@@ -229,15 +217,14 @@ def generate_positive_examples(oracle, variables, count=5):
     if example:
         positive_examples.append(example)
         print(f"  Generated example 1/{count}")
-    
-    # Generate additional diverse solutions
+
     for i in range(1, count):
         if not exclusion_constraints:
             print(f"  Warning: No variables to constrain for diversity")
             break
         
         try:
-            # Add constraint to exclude previous solution
+
             model += any(exclusion_constraints)
         except Exception as e:
             print(f"  Warning: Could not add exclusion constraint: {e}")
@@ -270,15 +257,12 @@ def detect_structured_patterns(variables, positive_examples, grid_size=9):
     print(f"\n  [Pattern-based detection]")
     detected = []
     var_dict = {var.name: var for var in variables}
-    
-    # Try to infer problem structure from variable names
+
     sample_var = variables[0].name
-    
-    # Case 1: Sudoku-style grid variables (grid[i,j] or similar)
+
     if '[' in sample_var and ',' in sample_var:
         print(f"  Detected grid structure (e.g., grid[i,j])")
-        
-        # Detect rows
+
         for row in range(grid_size):
             row_vars = []
             for col in range(grid_size):
@@ -289,8 +273,7 @@ def detect_structured_patterns(variables, positive_examples, grid_size=9):
             if len(row_vars) == grid_size:
                 if check_alldiff_in_examples(row_vars, positive_examples):
                     detected.append(AllDifferent(row_vars))
-        
-        # Detect columns
+
         for col in range(grid_size):
             col_vars = []
             for row in range(grid_size):
@@ -301,8 +284,7 @@ def detect_structured_patterns(variables, positive_examples, grid_size=9):
             if len(col_vars) == grid_size:
                 if check_alldiff_in_examples(col_vars, positive_examples):
                     detected.append(AllDifferent(col_vars))
-        
-        # Detect 3x3 blocks (for Sudoku)
+
         block_size = int(grid_size ** 0.5)
         if block_size * block_size == grid_size:
             for block_row in range(0, grid_size, block_size):
@@ -320,8 +302,7 @@ def detect_structured_patterns(variables, positive_examples, grid_size=9):
     
     elif '[' in sample_var:
         print(f"  Detected multi-dimensional structure")
-        
-        # Try to infer dimensions by parsing variable names
+
         dimensions = {}
         for var in variables:
             match = re.match(r'.*\[(\d+),(\d+),?(\d+)?\]', var.name)
@@ -339,10 +320,9 @@ def detect_structured_patterns(variables, positive_examples, grid_size=9):
         
         if dimensions:
             print(f"    Dimensions inferred: {dimensions}")
-            
-            # For 3D: detect patterns across each dimension
+
             if 'dim3' in dimensions:
-                # Fix first dimension, vary second and third
+
                 for d1 in range(dimensions['dim1'] + 1):
                     vars_slice = []
                     for d2 in range(dimensions['dim2'] + 1):
@@ -389,13 +369,11 @@ def detect_alldifferent_patterns(variables, positive_examples, use_structured=Tr
     print(", ".join(strategies))
     
     detected = []
-    
-    # Strategy 1: Pattern-based detection
+
     if use_structured:
         structured_patterns = detect_structured_patterns(variables, positive_examples)
         detected.extend(structured_patterns)
-    
-    # Strategy 2: Combinatorial search (optional, expensive)
+
     if use_combinatorial:
         print(f"\n  [Combinatorial search]")
         print(f"    Scope range: {min_scope} to {min(max_scope, len(variables))}")
@@ -406,7 +384,7 @@ def detect_alldifferent_patterns(variables, positive_examples, use_structured=Tr
             print(f"    Checking scope size {scope_size}...", end=" ")
             
             count = 0
-            # Enumerate all subsets of this size
+
             for var_subset in combinations(var_list, scope_size):
                 if check_alldiff_in_examples(var_subset, positive_examples):
                     constraint = AllDifferent(list(var_subset))
@@ -431,12 +409,11 @@ def extract_alldifferent_constraints(oracle):
 def generate_overfitted_alldifferent(variables, positive_examples, target_alldiffs, count=4, max_attempts=1000):
 
     print(f"\nGenerating {count} overfitted AllDifferent constraints...")
-    
-    # Convert target constraints to string representations for comparison
+
     target_strs = set()
-    target_sets = []  # Store as sets for subset checking
+    target_sets = []  
     for c in target_alldiffs:
-        # Normalize by sorting variable names
+
         scope_vars = get_variables([c])
         var_names = tuple(sorted([v.name for v in scope_vars]))
         target_strs.add(var_names)
@@ -448,19 +425,15 @@ def generate_overfitted_alldifferent(variables, positive_examples, target_alldif
     
     while len(overfitted) < count and attempts < max_attempts:
         attempts += 1
-        
-        # Random scope size between 3 and 7
+
         scope_size = random.randint(4, min(7, len(var_list)))
-        
-        # Random subset of variables
+
         var_subset = random.sample(var_list, scope_size)
-        
-        # Check if this subset is already in target (exact match)
+
         var_names = tuple(sorted([v.name for v in var_subset]))
         if var_names in target_strs:
             continue
-        
-        # Check if this subset is implied by any target constraint (subset check)
+
         var_names_set = set(var_names)
         is_subset_of_target = False
         for target_set in target_sets:
@@ -469,9 +442,8 @@ def generate_overfitted_alldifferent(variables, positive_examples, target_alldif
                 break
         
         if is_subset_of_target:
-            continue  # Skip subsets that would be implied
-        
-        # Check if it satisfies AllDifferent in all examples
+            continue  
+
         is_alldiff_pattern = True
         for example in positive_examples:
             values = []
@@ -484,17 +456,16 @@ def generate_overfitted_alldifferent(variables, positive_examples, target_alldif
             
             if not is_alldiff_pattern:
                 break
-            
-            # Check if all values are different
+
             if len(values) != len(set(values)):
                 is_alldiff_pattern = False
                 break
         
         if is_alldiff_pattern:
-            # This is overfitted!
+
             constraint = AllDifferent(var_subset)
             overfitted.append(constraint)
-            target_strs.add(var_names)  # Avoid duplicates in overfitted set
+            target_strs.add(var_names)  
             print(f"  Generated overfitted constraint {len(overfitted)}/{count}: scope size = {scope_size}")
     
     if len(overfitted) < count:
@@ -504,23 +475,13 @@ def generate_overfitted_alldifferent(variables, positive_examples, target_alldif
 
 
 def generate_binary_bias(variables, language):
-    """
-    Generate all binary constraints using language relations.
     
-    Args:
-        variables: List of CPMpy variables
-        language: List of relation strings ['==', '!=', '<', '>', '<=', '>=']
-        
-    Returns:
-        List of all pairwise constraints
-    """
     print(f"\nGenerating binary bias...")
     print(f"  Variables: {len(variables)}")
     print(f"  Language: {language}")
     
     bias_constraints = []
-    
-    # Generate all pairs
+
     for v1, v2 in all_pairs(variables):
         for relation in language:
             if relation == '==':
@@ -541,25 +502,10 @@ def generate_binary_bias(variables, language):
 
 
 def prune_bias_with_examples(bias_constraints, positive_examples, variables):
-    """
-    Remove constraints inconsistent with E+.
     
-    For each constraint c:
-        - Evaluate c on each example
-        - If c is violated by ANY example, remove it
-    
-    Args:
-        bias_constraints: List of binary constraints
-        positive_examples: List of example dicts
-        variables: List of CPMpy variables
-        
-    Returns:
-        List of pruned bias (only consistent constraints)
-    """
     print(f"\nPruning bias with {len(positive_examples)} examples...")
     print(f"  Initial bias size: {len(bias_constraints)}")
-    
-    # Create variable name to variable mapping
+
     var_mapping = {var.name: var for var in variables}
     
     pruned_bias = []
@@ -567,30 +513,27 @@ def prune_bias_with_examples(bias_constraints, positive_examples, variables):
     for idx, constraint in enumerate(bias_constraints):
         if (idx + 1) % 10000 == 0:
             print(f"  Processed {idx + 1}/{len(bias_constraints)} constraints...")
-        
-        # Check if constraint is consistent with all examples
+
         is_consistent = True
         
         for example in positive_examples:
-            # Assign values to variables from example
+
             for var_name, value in example.items():
                 if var_name in var_mapping:
                     var = var_mapping[var_name]
-                    # Set the variable's value temporarily
+
                     var._value = value
-            
-            # Evaluate constraint
+
             try:
                 if not constraint.value():
-                    # Constraint is violated by this example
+
                     is_consistent = False
                     break
             except:
-                # If evaluation fails, skip this constraint
+
                 is_consistent = False
                 break
-        
-        # Clear variable values
+
         for var in variables:
             var._value = None
         
@@ -604,23 +547,11 @@ def prune_bias_with_examples(bias_constraints, positive_examples, variables):
 
 
 def run_phase1(benchmark_name, output_dir='phase1_output', num_examples=5, num_overfitted=4):
-    """
-    Run Phase 1 passive learning for a benchmark.
     
-    Args:
-        benchmark_name: Name of benchmark
-        output_dir: Output directory for pickle files
-        num_examples: Number of positive examples to generate
-        num_overfitted: Number of overfitted constraints to add
-        
-    Returns:
-        Path to output pickle file
-    """
     print(f"\n{'='*70}")
     print(f"Phase 1: Passive Learning - {benchmark_name}")
     print(f"{'='*70}")
-    
-    # 1. Load benchmark
+
     result = construct_instance(benchmark_name)
     
     
@@ -631,11 +562,9 @@ def run_phase1(benchmark_name, output_dir='phase1_output', num_examples=5, num_o
         instance, oracle = result
         mock_constraints_from_benchmark = None
         print("No mock constraints provided, will generate random overfitted constraints")
-    
-    # Setup oracle
+
     oracle.variables_list = cpm_array(instance.X)
-    
-    # 2. Generate positive examples
+
     positive_examples = generate_positive_examples(oracle, instance.X, count=num_examples)
     
     if len(positive_examples) < num_examples:
@@ -644,16 +573,13 @@ def run_phase1(benchmark_name, output_dir='phase1_output', num_examples=5, num_o
     if len(positive_examples) == 0:
         print(f"\nERROR: Could not generate any positive examples!")
         return None
-    
-    # 3. Detect legitimate AllDifferent patterns
+
     detected_alldiffs = detect_alldifferent_patterns(instance.X, positive_examples)
-    
-    # 4. Extract target AllDifferent for comparison
+
     target_alldiffs = extract_alldifferent_constraints(oracle)
     print(f"\nTarget model has {len(target_alldiffs)} AllDifferent constraints")
-    
-    # 5. ENSURE 100% TARGET COVERAGE: Append missing target constraints
-    # Compare detected vs target to find missing constraints
+
+
     detected_strs = set()
     for c in detected_alldiffs:
         scope_vars = get_variables([c])
@@ -666,7 +592,7 @@ def run_phase1(benchmark_name, output_dir='phase1_output', num_examples=5, num_o
         var_names = tuple(sorted([v.name for v in scope_vars]))
         if var_names not in detected_strs:
             missing_targets.append(c)
-            detected_strs.add(var_names)  # Mark as added
+            detected_strs.add(var_names)  
     
     if missing_targets:
         print(f"\n[APPEND] Pattern detection missed {len(missing_targets)} target constraints")
@@ -675,20 +601,18 @@ def run_phase1(benchmark_name, output_dir='phase1_output', num_examples=5, num_o
             print(f"         + {c}")
     else:
         print(f"\n[SUCCESS] Pattern detection found all {len(target_alldiffs)} target constraints!")
-    
-    # Combine detected + missing targets = complete target set
+
     all_target_constraints = detected_alldiffs + missing_targets
     print(f"\nComplete target coverage: {len(detected_alldiffs)} detected + {len(missing_targets)} appended = {len(all_target_constraints)} total target constraints")
-    
-    # 6. Get overfitted constraints (from benchmark or generate random)
+
     if mock_constraints_from_benchmark is not None and len(mock_constraints_from_benchmark) > 0:
-        # Filter to ONLY keep AllDifferent constraints from benchmark
+
         print(f"\n[MOCK] Received {len(mock_constraints_from_benchmark)} mock constraints from benchmark")
         
         alldiff_mocks = []
         other_mocks = []
         for c in mock_constraints_from_benchmark:
-            # Check if constraint is AllDifferent
+
             if isinstance(c, AllDifferent) or (hasattr(c, 'name') and 'alldifferent' in str(c.name).lower()):
                 alldiff_mocks.append(c)
             else:
@@ -697,7 +621,7 @@ def run_phase1(benchmark_name, output_dir='phase1_output', num_examples=5, num_o
         if other_mocks:
             print(f"       Filtering: Keeping {len(alldiff_mocks)} AllDifferent, discarding {len(other_mocks)} other types")
             print(f"       Discarded types:")
-            for i, c in enumerate(other_mocks[:5], 1):  # Show first 5 as examples
+            for i, c in enumerate(other_mocks[:5], 1):  
                 print(f"         - {c}")
             if len(other_mocks) > 5:
                 print(f"         ... and {len(other_mocks) - 5} more")
@@ -707,42 +631,37 @@ def run_phase1(benchmark_name, output_dir='phase1_output', num_examples=5, num_o
         for i, c in enumerate(overfitted_constraints, 1):
             print(f"       Mock {i}: {c}")
     else:
-        # Fall back to random generation
+
         overfitted_constraints = generate_overfitted_alldifferent(
             instance.X, positive_examples, all_target_constraints, count=num_overfitted
         )
-    
-    # 7. Combine: CG = all_targets + overfitted
+
     CG = all_target_constraints + overfitted_constraints
     print(f"\nCombined CG (before dedup): {len(all_target_constraints)} target + {len(overfitted_constraints)} overfitted = {len(CG)} total")
-    
-    # 7.5. DEDUPLICATE: Remove duplicate constraint patterns using a set
-    # Constraints with identical variable scopes should only appear once
-    # Use pattern-based deduplication since constraint objects are compared by identity
-    seen_patterns = {}  # Map from pattern (sorted var names tuple) to (constraint, priority, source)
-    
-    # First pass: collect all target constraints (priority 0 = highest)
+
+
+
+    seen_patterns = {}  
+
     for c in all_target_constraints:
         scope_vars = get_variables([c])
         pattern = tuple(sorted([v.name for v in scope_vars]))
         if pattern not in seen_patterns:
-            seen_patterns[pattern] = (c, 0, 'target')  # priority 0 = target (keep)
-    
-    # Second pass: add overfitted constraints only if pattern not seen
+            seen_patterns[pattern] = (c, 0, 'target')  
+
     for c in overfitted_constraints:
         scope_vars = get_variables([c])
         pattern = tuple(sorted([v.name for v in scope_vars]))
         if pattern not in seen_patterns:
-            seen_patterns[pattern] = (c, 1, 'overfitted')  # priority 1 = overfitted
-    
-    # Build deduplicated CG as a set for efficient membership testing and removal
+            seen_patterns[pattern] = (c, 1, 'overfitted')  
+
     CG = set()
     dedup_target_count = 0
     dedup_overfitted_count = 0
     duplicates_removed = len(all_target_constraints) + len(overfitted_constraints) - len(seen_patterns)
     
     for constraint, priority, source in seen_patterns.values():
-        CG.add(constraint)  # Use set.add() instead of list.append()
+        CG.add(constraint)  
         if source == 'target':
             dedup_target_count += 1
         else:
@@ -751,35 +670,30 @@ def run_phase1(benchmark_name, output_dir='phase1_output', num_examples=5, num_o
     print(f"Deduplicated CG (set): {dedup_target_count} target + {dedup_overfitted_count} overfitted = {len(CG)} total")
     if duplicates_removed > 0:
         print(f"  Removed {duplicates_removed} duplicate constraint patterns")
-    
-    # 8. Create informed priors for each constraint
-    # Target constraints (detected or appended) → 0.8 (high confidence, true constraints)
-    # Overfitted constraints (mocks or synthetic) → 0.3 (low confidence, should be rejected)
+
+
+
     initial_probabilities = {}
-    
-    # Assign priors based on which list each pattern came from (priority determines source)
+
     for constraint, priority, source in seen_patterns.values():
         if source == 'target':
-            initial_probabilities[constraint] = 0.8  # High prior for target constraints
+            initial_probabilities[constraint] = 0.8  
         else:
-            initial_probabilities[constraint] = 0.3  # Low prior for overfitted constraints
+            initial_probabilities[constraint] = 0.3  
     
     print(f"Initial probabilities: {dedup_target_count} @ 0.8 (target), {dedup_overfitted_count} @ 0.3 (overfitted)")
-    
-    # 7. Generate complete binary bias
+
     language = ['==', '!=', '<', '>', '<=', '>=']
     B_fixed = generate_binary_bias(instance.X, language)
-    
-    # 8. Prune B_fixed with E+
+
     B_fixed_pruned = prune_bias_with_examples(B_fixed, positive_examples, instance.X)
-    
-    # 9. Save to pickle
+
     output_data = {
-        'CG': CG,  # List of CPMpy AllDifferent constraints (deduplicated)
-        'B_fixed': B_fixed_pruned,  # List of pruned binary constraints
-        'E+': positive_examples,  # List of example dicts
-        'variables': instance.X,  # CPMpy variables
-        'initial_probabilities': initial_probabilities,  # Informed priors for each constraint
+        'CG': CG,  
+        'B_fixed': B_fixed_pruned,  
+        'E+': positive_examples,  
+        'variables': instance.X,  
+        'initial_probabilities': initial_probabilities,  
         'metadata': {
             'benchmark': benchmark_name,
             'num_examples': len(positive_examples),
@@ -787,8 +701,8 @@ def run_phase1(benchmark_name, output_dir='phase1_output', num_examples=5, num_o
             'num_appended_alldiffs': len(missing_targets),
             'num_target_alldiffs': len(all_target_constraints),
             'num_overfitted_alldiffs': len(overfitted_constraints),
-            'num_target_alldiffs_dedup': dedup_target_count,  # After deduplication
-            'num_overfitted_alldiffs_dedup': dedup_overfitted_count,  # After deduplication
+            'num_target_alldiffs_dedup': dedup_target_count,  
+            'num_overfitted_alldiffs_dedup': dedup_overfitted_count,  
             'num_duplicates_removed': duplicates_removed,
             'use_mock_constraints': mock_constraints_from_benchmark is not None,
             'num_bias_initial': len(B_fixed),

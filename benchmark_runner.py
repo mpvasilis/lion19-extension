@@ -1,8 +1,5 @@
-#!/usr/bin/env python3
-"""
-Benchmark Runner Script for Violation Learned Global Constraints
-Runs all available benchmarks systematically and collects results.
-"""
+
+
 
 import os
 import sys
@@ -13,7 +10,6 @@ import json
 from datetime import datetime
 from typing import List, Dict, Any
 
-# Available benchmarks
 BENCHMARKS = [
     "sudoku",
     "examtt", 
@@ -22,9 +18,8 @@ BENCHMARKS = [
     "vm_allocation"
 ]
 
-# Default configuration
 DEFAULT_CONFIG = {
-    "timeout": 600,  # 10 minutes
+    "timeout": 600,  
     "use_bayesian": True,
     "use_passive_constraints": False,
     "passive_solutions": None,
@@ -40,7 +35,7 @@ class BenchmarkRunner:
         self.benchmarks = BENCHMARKS
         
     def setup_logging(self):
-        """Setup logging for benchmark runs"""
+        
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         log_dir = "benchmark_logs"
         os.makedirs(log_dir, exist_ok=True)
@@ -49,7 +44,7 @@ class BenchmarkRunner:
         print(f"Logging to: {self.log_file}")
     
     def log_message(self, message: str):
-        """Log message to both console and file"""
+        
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         log_entry = f"[{timestamp}] {message}"
         
@@ -59,10 +54,9 @@ class BenchmarkRunner:
                 f.write(log_entry + "\n")
     
     def run_benchmark(self, benchmark_name: str) -> Dict[str, Any]:
-        """Run a single benchmark and return results"""
-        self.log_message(f"Starting benchmark: {benchmark_name}")
         
-        # Build command
+        self.log_message(f"Starting benchmark: {benchmark_name}")
+
         cmd = [
             sys.executable, "main.py",
             "--experiment", benchmark_name,
@@ -79,15 +73,14 @@ class BenchmarkRunner:
             cmd.extend(["--passive_output_dir", self.config["passive_output_dir"]])
         
         self.log_message(f"Command: {' '.join(cmd)}")
-        
-        # Run benchmark
+
         start_time = time.time()
         try:
             result = subprocess.run(
                 cmd,
                 capture_output=True,
                 text=True,
-                timeout=self.config["timeout"] + 60  # Add buffer for cleanup
+                timeout=self.config["timeout"] + 60  
             )
             
             end_time = time.time()
@@ -137,7 +130,7 @@ class BenchmarkRunner:
             }
     
     def run_all_benchmarks(self) -> List[Dict[str, Any]]:
-        """Run all benchmarks and return results"""
+        
         self.start_time = time.time()
         self.setup_logging()
         
@@ -152,8 +145,7 @@ class BenchmarkRunner:
             self.log_message(f"Progress: {i}/{len(self.benchmarks)} benchmarks")
             result = self.run_benchmark(benchmark)
             results.append(result)
-            
-            # Brief pause between benchmarks
+
             if i < len(self.benchmarks):
                 time.sleep(2)
         
@@ -161,7 +153,7 @@ class BenchmarkRunner:
         return results
     
     def generate_summary_report(self) -> str:
-        """Generate a summary report of all benchmark results"""
+        
         if not self.results:
             return "No benchmark results available"
         
@@ -191,8 +183,7 @@ class BenchmarkRunner:
                 reason = result['stderr'] if result['stderr'] else f"Return code: {result['return_code']}"
                 report.append(f"  - {result['benchmark']}: {reason}")
             report.append("")
-        
-        # Individual benchmark details
+
         report.append("DETAILED RESULTS:")
         for result in self.results:
             status = "✅" if result["success"] else "❌"
@@ -206,11 +197,10 @@ class BenchmarkRunner:
         return "\n".join(report)
     
     def save_results(self, output_dir: str = "benchmark_results"):
-        """Save detailed results to files"""
+        
         os.makedirs(output_dir, exist_ok=True)
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        
-        # Save detailed JSON results
+
         json_file = os.path.join(output_dir, f"benchmark_results_{timestamp}.json")
         with open(json_file, "w") as f:
             json.dump({
@@ -223,13 +213,11 @@ class BenchmarkRunner:
                     "total_execution_time": time.time() - self.start_time if self.start_time else 0
                 }
             }, f, indent=2)
-        
-        # Save summary report
+
         summary_file = os.path.join(output_dir, f"benchmark_summary_{timestamp}.txt")
         with open(summary_file, "w") as f:
             f.write(self.generate_summary_report())
-        
-        # Save CSV summary
+
         csv_file = os.path.join(output_dir, f"benchmark_summary_{timestamp}.csv")
         with open(csv_file, "w", newline="") as f:
             writer = csv.writer(f)
@@ -250,7 +238,7 @@ class BenchmarkRunner:
 
 
 def main():
-    """Main function to run benchmarks"""
+    
     import argparse
     
     parser = argparse.ArgumentParser(description="Run all benchmarks systematically")
@@ -263,11 +251,9 @@ def main():
     parser.add_argument("--output_dir", type=str, default="benchmark_results", help="Output directory for results")
     
     args = parser.parse_args()
-    
-    # Override benchmarks if specified
+
     benchmarks_to_run = args.benchmarks if args.benchmarks else BENCHMARKS
-    
-    # Build configuration
+
     config = {
         "timeout": args.timeout,
         "use_bayesian": args.use_bayesian,
@@ -275,20 +261,16 @@ def main():
         "passive_solutions": args.passive_solutions,
         "passive_output_dir": args.passive_output_dir
     }
-    
-    # Run benchmarks
+
     runner = BenchmarkRunner(config)
     runner.benchmarks = benchmarks_to_run
     results = runner.run_all_benchmarks()
-    
-    # Generate and display summary
+
     summary = runner.generate_summary_report()
     print("\n" + summary)
-    
-    # Save results
+
     runner.save_results(args.output_dir)
-    
-    # Exit with appropriate code
+
     failed_count = len([r for r in results if not r["success"]])
     sys.exit(failed_count)
 

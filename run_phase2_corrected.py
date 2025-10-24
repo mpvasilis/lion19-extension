@@ -1,7 +1,4 @@
-"""
-Run Phase 2 for all benchmarks with CORRECTED query counting.
-Runs each benchmark sequentially and saves results to JSON.
-"""
+
 
 import os
 import sys
@@ -10,7 +7,7 @@ import subprocess
 from datetime import datetime
 
 def run_single_benchmark(name, pickle_path):
-    """Run Phase 2 for a single benchmark and extract results."""
+    
     print(f"\n{'='*80}")
     print(f"Running {name}...")
     print(f"{'='*80}\n")
@@ -28,8 +25,7 @@ def run_single_benchmark(name, pickle_path):
     
     result = subprocess.run(cmd, capture_output=True, text=True)
     output = result.stdout + result.stderr
-    
-    # Parse output
+
     queries = None
     time_taken = None
     target = None
@@ -106,8 +102,7 @@ def main():
         result = run_single_benchmark(name, pickle_path)
         results.append(result)
         print(f"\n[DONE] {name}: {result['queries']} queries, {result['recall']:.1%} recall")
-    
-    # Save results
+
     output = {
         'experiment_date': datetime.now().isoformat(),
         'description': 'Phase 2 with CORRECTED query counting (includes disambiguation)',

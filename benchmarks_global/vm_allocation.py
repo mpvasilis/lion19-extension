@@ -70,19 +70,17 @@ def construct_vm_allocation(pm_data, vm_data):
     for i, pm in enumerate(pm_data):
         if "capacity_gpu" in pm_data[pm]:
             pm_idx = i + 1
-            
-            # Group VMs by their GPU demand
+
             for gpu_demand in set(vm_data[vm].get("demand_gpu", 0) for vm in vm_data if vm_data[vm].get("demand_gpu", 0) > 0):
                 relevant_vms = [vm for vm in vm_data if vm_data[vm].get("demand_gpu", 0) == gpu_demand]
                 
                 if relevant_vms:
-                    # VMs with specific GPU demand assigned to this PM
+
                     vms_with_this_gpu = cp.Count([vm_assignments[vm] for vm in relevant_vms], pm_idx)
                     model += [vms_with_this_gpu * gpu_demand <= pm_data[pm]["capacity_gpu"]]
 
-    # MOCK OVER-FITTED CONSTRAINTS (will be consistent with 5 examples but NOT generally valid)
-    # NOTE: Commented out for now as they cause UNSAT - need simpler mocks
-    # mock_constraints = []
+
+
 
     C_T = list(model.constraints)
 
@@ -105,16 +103,13 @@ def construct_vm_allocation(pm_data, vm_data):
 
     variables = []
 
-    # Add VM assignment variables
     for vm in sorted(vm_data.keys()):
         variables.append(vm_assignments[vm])
 
-    # Add resource utilization variables
     for resource in sorted(resource_types):
         for pm in sorted(pm_data.keys()):
             variables.append(utilization[resource][pm])
 
-    # Add GPU-related variables (if any)
     for vm in sorted(gpu_assignments.keys()):
         variables.append(gpu_assignments[vm])
 
@@ -129,9 +124,8 @@ def construct_vm_allocation(pm_data, vm_data):
     )
     oracle = ConstraintOracle(C_T)
 
-    # print("variables: ", variables)
-    # for c in model.constraints:
-    #     print("constraint: ", c)
-    #     input()
+
+
+
 
     return instance, oracle

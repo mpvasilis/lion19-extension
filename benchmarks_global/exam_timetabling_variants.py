@@ -8,10 +8,7 @@ def day_of_exam(course, slots_per_day):
 
 
 def construct_examtt_variant1(nsemesters=6, courses_per_semester=5, slots_per_day=6, days_for_exams=10):
-    """
-    Exam Timetabling Variant 1: Smaller instance with specific mock constraints.
-    Focus: More aggressive day-level constraints and specific slot patterns.
-    """
+    
     total_courses = nsemesters * courses_per_semester
     total_slots = slots_per_day * days_for_exams
 
@@ -26,35 +23,29 @@ def construct_examtt_variant1(nsemesters=6, courses_per_semester=5, slots_per_da
     variables = cp.intvar(1, total_slots, shape=(nsemesters, courses_per_semester), name="var")
 
     model = cp.Model()
-    
-    # TRUE CONSTRAINTS (part of target model)
-    # All exams must be scheduled in different timeslots
+
+
     model += cp.AllDifferent(variables)
 
-    # Exams in the same semester must be on different days
     for semester_index, row in enumerate(variables):
         exam_days = [day_of_exam(course, slots_per_day) for course in row]
         model += cp.AllDifferent(exam_days)
-    
-    # Limit the number of exams per day
+
     all_exams = variables.flatten()
     max_exams_per_day = (total_courses + days_for_exams - 1) // days_for_exams + 1
     for day in range(days_for_exams):
         exams_on_day = cp.Count([day_of_exam(exam, slots_per_day) for exam in all_exams], day)
         model += (exams_on_day <= max_exams_per_day)
 
-    # Save TRUE constraints for oracle
     C_T = list(model.constraints)
 
-    # MOCK OVER-FITTED CONSTRAINTS (ALLDIFFERENT ONLY - Phase 1 filters others!)
-    # These are designed to be consistent with 5 examples but NOT generally valid
-    # Phase 1 only accepts AllDifferent constraints as overfitted mocks
-    # CRITICAL: Must be CLEARLY spurious and NOT accidentally implied
+
+
+
     mock_constraints = []
 
-    # Mock 1: AllDifferent on first 3 courses from semesters 0,2,4 (non-contiguous)
-    # Forces specific courses across non-adjacent semesters to be globally unique
-    # More refutable than full semester days which might be too aggressive
+
+
     if nsemesters >= 5 and courses_per_semester >= 3:
         non_adj_vars = []
         for sem in [0, 2, 4]:
@@ -66,8 +57,7 @@ def construct_examtt_variant1(nsemesters=6, courses_per_semester=5, slots_per_da
             mock_constraints.append(mock_c1)
             model += mock_c1
 
-    # Mock 2: AllDifferent on semesters 1,3,5 combined (non-contiguous pattern)
-    # Force odd-indexed semesters to have all unique slots
+
     if nsemesters >= 5:
         odd_sems = [variables[1, :].flatten(), variables[3, :].flatten()]
         if nsemesters >= 5:
@@ -79,16 +69,14 @@ def construct_examtt_variant1(nsemesters=6, courses_per_semester=5, slots_per_da
         mock_constraints.append(mock_c2)
         model += mock_c2
 
-    # Mock 3: AllDifferent on first 2 courses from ALL semesters (aggressive column)
-    # Force first 2 columns to be globally unique
+
     if nsemesters >= 5 and courses_per_semester >= 2:
         first_two_cols = variables[:, :2].flatten()
         mock_c3 = cp.AllDifferent(first_two_cols)
         mock_constraints.append(mock_c3)
         model += mock_c3
 
-    # Mock 4: AllDifferent on semesters 0,2,4 (even pattern, larger scope)
-    # Even semesters must all have unique slots
+
     if nsemesters >= 5:
         even_sem_vars = []
         for sem in [0, 2, 4]:
@@ -98,15 +86,13 @@ def construct_examtt_variant1(nsemesters=6, courses_per_semester=5, slots_per_da
         mock_constraints.append(mock_c4)
         model += mock_c4
 
-    # Mock 5: AllDifferent on last 3 courses from first 4 semesters
-    # Forces last 3 columns to be globally unique
+
     if nsemesters >= 4 and courses_per_semester >= 3:
         last_three_cols = variables[:4, -3:].flatten()
         mock_c5 = cp.AllDifferent(last_three_cols)
         mock_constraints.append(mock_c5)
         model += mock_c5
 
-    # Mock 6: AllDifferent on diagonal + anti-diagonal combined (structural)
     if nsemesters >= 5 and courses_per_semester >= 5:
         diagonal = [variables[i, i] for i in range(min(5, nsemesters, courses_per_semester))]
         anti_diag = [variables[i, courses_per_semester - 1 - i] 
@@ -116,8 +102,7 @@ def construct_examtt_variant1(nsemesters=6, courses_per_semester=5, slots_per_da
         mock_constraints.append(mock_c6)
         model += mock_c6
 
-    # Mock 7: AllDifferent on middle 3 courses from middle 3 semesters
-    # Selective subset that's overly restrictive
+
     if nsemesters >= 5 and courses_per_semester >= 3:
         mid_sem = nsemesters // 2
         mid_course = courses_per_semester // 2
@@ -134,15 +119,14 @@ def construct_examtt_variant1(nsemesters=6, courses_per_semester=5, slots_per_da
             mock_constraints.append(mock_c7)
             model += mock_c7
 
-    # Mock 8: AllDifferent on checkerboard pattern (complex selection)
-    # Alternate semesters and courses
+
     if nsemesters >= 6 and courses_per_semester >= 4:
         checkerboard = []
-        for sem in range(0, min(6, nsemesters), 2):  # Even semesters
-            for course in range(0, min(4, courses_per_semester), 2):  # Even courses
+        for sem in range(0, min(6, nsemesters), 2):  
+            for course in range(0, min(4, courses_per_semester), 2):  
                 checkerboard.append(variables[sem, course])
-        for sem in range(1, min(6, nsemesters), 2):  # Odd semesters
-            for course in range(1, min(4, courses_per_semester), 2):  # Odd courses
+        for sem in range(1, min(6, nsemesters), 2):  
+            for course in range(1, min(4, courses_per_semester), 2):  
                 if sem < nsemesters and course < courses_per_semester:
                     checkerboard.append(variables[sem, course])
         if len(checkerboard) >= 8:
@@ -173,16 +157,12 @@ def construct_examtt_variant1(nsemesters=6, courses_per_semester=5, slots_per_da
     )
 
     oracle = ConstraintOracle(C_T)
-    
-    # Return mock constraints so Phase 1 can use them as overfitted constraints
+
     return instance, oracle, mock_constraints
 
 
 def construct_examtt_variant2(nsemesters=8, courses_per_semester=7, slots_per_day=8, days_for_exams=12):
-    """
-    Exam Timetabling Variant 2: Larger instance with different mock constraints.
-    Focus: Cross-semester patterns and ordering constraints.
-    """
+    
     total_courses = nsemesters * courses_per_semester
     total_slots = slots_per_day * days_for_exams
 
@@ -197,31 +177,25 @@ def construct_examtt_variant2(nsemesters=8, courses_per_semester=7, slots_per_da
     variables = cp.intvar(1, total_slots, shape=(nsemesters, courses_per_semester), name="var")
 
     model = cp.Model()
-    
-    # TRUE CONSTRAINTS (part of target model)
-    # All exams must be scheduled in different timeslots
+
+
     model += cp.AllDifferent(variables)
 
-    # Exams in the same semester must be on different days
     for semester_index, row in enumerate(variables):
         exam_days = [day_of_exam(course, slots_per_day) for course in row]
         model += cp.AllDifferent(exam_days)
-    
-    # Limit the number of exams per day
+
     all_exams = variables.flatten()
     max_exams_per_day = (total_courses + days_for_exams - 1) // days_for_exams + 1
     for day in range(days_for_exams):
         exams_on_day = cp.Count([day_of_exam(exam, slots_per_day) for exam in all_exams], day)
         model += (exams_on_day <= max_exams_per_day)
 
-    # Save TRUE constraints for oracle
     C_T = list(model.constraints)
 
-    # MOCK OVER-FITTED CONSTRAINTS (ALLDIFFERENT ONLY - Phase 1 filters others!)
-    # Larger instance needs more aggressive mocks
+
     mock_constraints = []
 
-    # Mock 1: AllDifferent on first 3 semesters' days (cross-semester constraint)
     if nsemesters >= 3:
         first_three_sems = variables[:3, :].flatten()
         first_three_days = [day_of_exam(exam, slots_per_day) for exam in first_three_sems]
@@ -229,7 +203,6 @@ def construct_examtt_variant2(nsemesters=8, courses_per_semester=7, slots_per_da
         mock_constraints.append(mock_c1)
         model += mock_c1
 
-    # Mock 2: AllDifferent on time-of-day across first 4 semesters
     if nsemesters >= 4 and courses_per_semester >= 2:
         first_four = variables[:4, :].flatten()
         time_slots = [exam % slots_per_day for exam in first_four]
@@ -237,21 +210,18 @@ def construct_examtt_variant2(nsemesters=8, courses_per_semester=7, slots_per_da
         mock_constraints.append(mock_c2)
         model += mock_c2
 
-    # Mock 3: AllDifferent on first 2 courses from each semester (column pattern)
     if nsemesters >= 5 and courses_per_semester >= 2:
         first_two_cols = variables[:, :2].flatten()
         mock_c3 = cp.AllDifferent(first_two_cols[:min(15, len(first_two_cols))])
         mock_constraints.append(mock_c3)
         model += mock_c3
 
-    # Mock 4: AllDifferent on diagonal
     if nsemesters >= 5 and courses_per_semester >= 5:
         diagonal = [variables[i, i] for i in range(min(5, nsemesters, courses_per_semester))]
         mock_c4 = cp.AllDifferent(diagonal)
         mock_constraints.append(mock_c4)
         model += mock_c4
 
-    # Mock 5: AllDifferent on anti-diagonal
     if nsemesters >= 5 and courses_per_semester >= 5:
         anti_diag = [variables[i, courses_per_semester - 1 - i] 
                      for i in range(min(5, nsemesters, courses_per_semester))]
@@ -259,35 +229,30 @@ def construct_examtt_variant2(nsemesters=8, courses_per_semester=7, slots_per_da
         mock_constraints.append(mock_c5)
         model += mock_c5
 
-    # Mock 6: AllDifferent on even semesters, first 3 courses each
     if nsemesters >= 6 and courses_per_semester >= 3:
         even_subset = variables[::2, :3].flatten()
         mock_c6 = cp.AllDifferent(even_subset[:min(12, len(even_subset))])
         mock_constraints.append(mock_c6)
         model += mock_c6
 
-    # Mock 7: AllDifferent on odd semesters, last 3 courses each
     if nsemesters >= 5 and courses_per_semester >= 3:
         odd_subset = variables[1::2, -3:].flatten()
         mock_c7 = cp.AllDifferent(odd_subset[:min(12, len(odd_subset))])
         mock_constraints.append(mock_c7)
         model += mock_c7
 
-    # Mock 8: AllDifferent on first column (first course of each semester)
     if nsemesters >= 6 and courses_per_semester >= 1:
         first_col = [variables[sem, 0] for sem in range(min(6, nsemesters))]
         mock_c8 = cp.AllDifferent(first_col)
         mock_constraints.append(mock_c8)
         model += mock_c8
 
-    # Mock 9: AllDifferent on last column (last course of each semester)
     if nsemesters >= 5 and courses_per_semester >= 2:
         last_col = [variables[sem, -1] for sem in range(min(5, nsemesters))]
         mock_c9 = cp.AllDifferent(last_col)
         mock_constraints.append(mock_c9)
         model += mock_c9
 
-    # Mock 10: AllDifferent on middle courses
     if nsemesters >= 6 and courses_per_semester >= 3:
         mid_idx = courses_per_semester // 2
         middle_col = [variables[sem, mid_idx] for sem in range(min(6, nsemesters))]
@@ -318,7 +283,6 @@ def construct_examtt_variant2(nsemesters=8, courses_per_semester=7, slots_per_da
     )
 
     oracle = ConstraintOracle(C_T)
-    
-    # Return mock constraints so Phase 1 can use them as overfitted constraints
+
     return instance, oracle, mock_constraints
 
