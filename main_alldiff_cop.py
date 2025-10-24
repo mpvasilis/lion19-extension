@@ -325,7 +325,7 @@ def test_constraints_individually(candidates, oracle, probabilities, all_variabl
     from enhanced_bayesian_pqgen import EnhancedBayesianPQGen
     
     updated_probs = probabilities.copy()
-    to_remove = []
+    to_remove = set()
     
     for c_target in candidates:
         print(f"\n  Testing constraint independently: {c_target}")
@@ -371,7 +371,7 @@ def test_constraints_individually(candidates, oracle, probabilities, all_variabl
             print(f"  Result: REJECTED (P={updated_probs[c_target]:.3f})")
             
             if updated_probs[c_target] <= theta_min:
-                to_remove.append(c_target)
+                to_remove.add(c_target)
         else:
             # Constraint still in bias - uncertain
             updated_probs[c_target] = env.constraint_probs.get(c_target, probabilities[c_target])
@@ -410,7 +410,7 @@ def disambiguate_violated_constraints(Viol_e, C_validated, CG, oracle, probabili
         Tuple (updated_probabilities, constraints_to_remove, disambiguation_queries_used)
     """
     updated_probs = probabilities.copy()
-    to_remove = []
+    to_remove = set()
     total_disambiguation_queries = 0
     
     for c_target in Viol_e:
@@ -475,7 +475,7 @@ def disambiguate_violated_constraints(Viol_e, C_validated, CG, oracle, probabili
             print(f"  Result: Rejected (P={updated_probs[c_target]:.3f})")
             
             if updated_probs[c_target] <= theta_min:
-                to_remove.append(c_target)
+                to_remove.add(c_target)
         else:
             # Constraint still in bias - update probability from environment
             updated_probs[c_target] = env.constraint_probs.get(c_target, probabilities[c_target])
@@ -517,7 +517,8 @@ def cop_based_refinement(experiment_name, oracle, candidate_constraints, initial
     queries_used = 0
     
     # Copy to avoid modifying inputs
-    CG = list(candidate_constraints)
+    # Convert to set for efficient membership testing and removal (O(1) instead of O(n))
+    CG = set(candidate_constraints) if not isinstance(candidate_constraints, set) else candidate_constraints.copy()
     probabilities = initial_probabilities.copy()
     C_validated = []
     
@@ -557,7 +558,7 @@ def cop_based_refinement(experiment_name, oracle, candidate_constraints, initial
             for c in CG:
                 C_validated.append(c)
                 print(f"  Accepted: {c} (P={probabilities[c]:.3f})")
-            CG = []
+            CG = set()  # Empty set
             break
         
         print(f"Status: {len(C_validated)} validated, {len(CG)} candidates, {queries_used} queries used")
@@ -588,7 +589,7 @@ def cop_based_refinement(experiment_name, oracle, candidate_constraints, initial
                 else:
                     print(f"  [UNCERTAIN] {c} (P={probabilities[c]:.3f}) - keeping in candidates")
             
-            CG = [c for c in CG if probabilities[c] < 0.7]
+            CG = {c for c in CG if probabilities[c] < 0.7}  # Keep as set
             
             if not CG:
                 break
@@ -645,10 +646,12 @@ def cop_based_refinement(experiment_name, oracle, candidate_constraints, initial
             print(f"[QUERIES] Main loop: {queries_used - disambiguation_queries}, Disambiguation: {disambiguation_queries}, Total so far: {queries_used}")
             
             # Remove constraints marked for removal (low confidence)
+            CG = set(CG)
             for c in to_remove:
                 if c in CG:
                     CG.remove(c)
                     print(f"  [REMOVE] Removed: {c} (P={probabilities[c]:.3f})")
+            
             
             # Accept constraints that reached high confidence during disambiguation
             # Check remaining violated constraints (not removed)
@@ -934,6 +937,51 @@ if __name__ == "__main__":
         
         # Initialize with uniform prior
         probabilities = initialize_probabilities(CG, prior=args.prior)
+    
+    # SAFETY: Deduplicate constraints based on variable scope and convert to set
+    # This handles legacy pickle files that may contain duplicates or be stored as lists
+    print(f"\nDeduplication check...")
+    
+    # Convert to list if it's a set for compatibility
+    CG_iterable = CG if isinstance(CG, (list, set)) else list(CG)
+    
+    seen_patterns = {}
+    for c in CG_iterable:
+        scope_vars = get_variables([c])
+        pattern = tuple(sorted([v.name for v in scope_vars]))
+        if pattern not in seen_patterns:
+            seen_patterns[pattern] = c
+    
+    if len(seen_patterns) < len(CG):
+        print(f"  [WARNING] Found {len(CG) - len(seen_patterns)} duplicate constraints!")
+        print(f"  Deduplicating: {len(CG)} -> {len(seen_patterns)} constraints")
+        
+        # Rebuild CG and probabilities with deduplicated constraints as a set
+        CG_dedup = set(seen_patterns.values())
+        probabilities_dedup = {}
+        for c in CG_dedup:
+            # Keep the highest probability for this pattern
+            scope_vars = get_variables([c])
+            pattern = tuple(sorted([v.name for v in scope_vars]))
+            
+            # Find all constraints with this pattern and take max probability
+            max_prob = 0.0
+            for c_orig in CG_iterable:
+                scope_orig = get_variables([c_orig])
+                pattern_orig = tuple(sorted([v.name for v in scope_orig]))
+                if pattern == pattern_orig and c_orig in probabilities:
+                    max_prob = max(max_prob, probabilities[c_orig])
+            
+            probabilities_dedup[c] = max_prob if max_prob > 0 else probabilities.get(c, args.prior)
+        
+        CG = CG_dedup
+        probabilities = probabilities_dedup
+    else:
+        print(f"  No duplicates found - all {len(CG)} constraints are unique")
+        # Ensure CG is a set even if no duplicates were found
+        if not isinstance(CG, set):
+            CG = set(CG)
+            print(f"  Converted CG to set for efficient operations")
     
     if len(CG) == 0:
         print(f"\n[WARNING] No AllDifferent constraints found")

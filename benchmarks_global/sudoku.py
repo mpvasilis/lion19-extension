@@ -16,17 +16,14 @@ def construct_sudoku(block_size_row, block_size_col, grid_size):
     # Constraints on rows and columns
     for row in grid:
         model += cp.AllDifferent(row)
-        # model += cp.AllDifferent(row).decompose()
 
     for col in grid.T:
         model += cp.AllDifferent(col)
-        # model += cp.AllDifferent(col).decompose()
 
     # Constraints on blocks
     for i in range(0, grid_size, block_size_row):
         for j in range(0, grid_size, block_size_col):
             model += cp.AllDifferent(grid[i:i + block_size_row, j:j + block_size_col])
-            # model += cp.AllDifferent(grid[i:i + block_size_row, j:j + block_size_col]).decompose()
 
 
     C_T = list(set(toplevel_list(model.constraints)))

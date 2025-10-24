@@ -46,11 +46,6 @@ def run_phase2_for_benchmark(benchmark_name, phase1_pickle_path, output_dir, log
         'main_alldiff_cop.py',
         '--experiment', benchmark_name,
         '--phase1_pickle', phase1_pickle_path,
-        '--alpha', '0.42',
-        '--theta_max', '0.9',
-        '--theta_min', '0.1',
-        '--max_queries', '500',
-        '--timeout', '600'
     ]
     
     print(f"Command: {' '.join(cmd)}\n")

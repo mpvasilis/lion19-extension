@@ -34,19 +34,10 @@ from benchmarks_global import construct_nurse_rostering as nr_global
 
 
 def construct_instance(benchmark_name):
-    """
-    Construct problem instance and oracle for given benchmark.
-    
-    Args:
-        benchmark_name: Name of benchmark (sudoku, sudoku_gt, examtt, examtt_v1, examtt_v2, nurse, uefa)
-        
-    Returns:
-        Tuple (instance, oracle)
-    """
+
     if 'graph_coloring_register' in benchmark_name.lower() or 'register' in benchmark_name.lower():
         print("Constructing Graph Coloring (Register Allocation)...")
         result = construct_graph_coloring_register()
-        # Handle optional mock_constraints return
         if len(result) == 3:
             instance, oracle, mock_constraints = result
             print(f"  Received {len(mock_constraints)} mock constraints from benchmark")
@@ -58,7 +49,7 @@ def construct_instance(benchmark_name):
     elif 'graph_coloring_scheduling' in benchmark_name.lower() or benchmark_name.lower() == 'scheduling':
         print("Constructing Graph Coloring (Course Scheduling)...")
         result = construct_graph_coloring_scheduling()
-        # Handle optional mock_constraints return
+        
         if len(result) == 3:
             instance, oracle, mock_constraints = result
             print(f"  Received {len(mock_constraints)} mock constraints from benchmark")
@@ -70,7 +61,7 @@ def construct_instance(benchmark_name):
     elif 'latin_square' in benchmark_name.lower() or 'latin' in benchmark_name.lower():
         print("Constructing 9x9 Latin Square...")
         result = construct_latin_square(n=9)
-        # Handle optional mock_constraints return
+        
         if len(result) == 3:
             instance, oracle, mock_constraints = result
             print(f"  Received {len(mock_constraints)} mock constraints from benchmark")
@@ -82,7 +73,7 @@ def construct_instance(benchmark_name):
     elif 'jsudoku' in benchmark_name.lower():
         print("Constructing 9x9 JSudoku (Jigsaw Sudoku)...")
         result = construct_jsudoku(grid_size=9)
-        # Handle optional mock_constraints return
+        
         if len(result) == 3:
             instance, oracle, mock_constraints = result
             print(f"  Received {len(mock_constraints)} mock constraints from benchmark")
@@ -94,7 +85,7 @@ def construct_instance(benchmark_name):
     elif 'sudoku_gt' in benchmark_name.lower() or 'sudoku_greater' in benchmark_name.lower():
         print("Constructing 9x9 Sudoku with Greater-Than constraints...")
         result = construct_sudoku_greater_than(3, 3, 9)
-        # Handle optional mock_constraints return
+        
         if len(result) == 3:
             instance, oracle, mock_constraints = result
             print(f"  Received {len(mock_constraints)} mock constraints from benchmark")
@@ -106,7 +97,7 @@ def construct_instance(benchmark_name):
     elif 'sudoku' in benchmark_name.lower():
         print("Constructing 9x9 Sudoku...")
         result = construct_sudoku(3, 3, 9)
-        # Handle optional mock_constraints return
+        
         if len(result) == 3:
             instance, oracle, mock_constraints = result
             print(f"  Received {len(mock_constraints)} mock constraints from benchmark")
@@ -119,7 +110,7 @@ def construct_instance(benchmark_name):
         print("Constructing Exam Timetabling Variant 1...")
         result = construct_examtt_variant1(nsemesters=6, courses_per_semester=5, 
                                            slots_per_day=6, days_for_exams=10)
-        # Handle optional mock_constraints return
+        
         if len(result) == 3:
             instance, oracle, mock_constraints = result
             print(f"  Received {len(mock_constraints)} mock constraints from benchmark")
@@ -132,7 +123,7 @@ def construct_instance(benchmark_name):
         print("Constructing Exam Timetabling Variant 2...")
         result = construct_examtt_variant2(nsemesters=8, courses_per_semester=7, 
                                            slots_per_day=8, days_for_exams=12)
-        # Handle optional mock_constraints return
+        
         if len(result) == 3:
             instance, oracle, mock_constraints = result
             print(f"  Received {len(mock_constraints)} mock constraints from benchmark")
@@ -145,7 +136,7 @@ def construct_instance(benchmark_name):
         print("Constructing Exam Timetabling...")
         result = ces_global(nsemesters=9, courses_per_semester=6, 
                            slots_per_day=9, days_for_exams=14)
-        # Handle optional mock_constraints return
+        
         if len(result) == 3:
             instance, oracle, mock_constraints = result
             print(f"  Received {len(mock_constraints)} mock constraints from benchmark")
@@ -207,23 +198,11 @@ def construct_instance(benchmark_name):
 
 
 def generate_positive_examples(oracle, variables, count=5):
-    """
-    Generate positive examples by solving the target model.
-    
-    Args:
-        oracle: Oracle with target constraints
-        variables: CPMpy variables
-        count: Number of examples to generate
-        
-    Returns:
-        List of example dicts: [{var_name: value, ...}, ...]
-    """
+
     print(f"\nGenerating {count} positive examples...")
     
-    # Create model with target constraints
     model = Model(oracle.constraints)
     
-    # Test if satisfiable
     if not model.solve():
         print("ERROR: Target model is UNSAT!")
         return []
@@ -231,7 +210,6 @@ def generate_positive_examples(oracle, variables, count=5):
     positive_examples = []
     exclusion_constraints = []
     
-    # Extract first solution
     example = {}
     for var in variables:
         if hasattr(var, 'value'):
@@ -257,7 +235,6 @@ def generate_positive_examples(oracle, variables, count=5):
             print(f"  Warning: Could not add exclusion constraint: {e}")
             break
         
-        # Solve for another solution
         if model.solve():
             example = {}
             new_exclusion = []
@@ -281,19 +258,7 @@ def generate_positive_examples(oracle, variables, count=5):
 
 
 def detect_structured_patterns(variables, positive_examples, grid_size=9):
-    """
-    Detect structured AllDifferent patterns (rows, columns, blocks) based on variable naming.
-    
-    This is optimized for grid-based problems like Sudoku, Exam Timetabling, Nurse Rostering.
-    
-    Args:
-        variables: List of CPMpy variables
-        positive_examples: List of example dicts
-        grid_size: Grid dimension (default: 9 for Sudoku)
-        
-    Returns:
-        List of detected AllDifferent constraints
-    """
+
     print(f"\n  [Pattern-based detection]")
     detected = []
     var_dict = {var.name: var for var in variables}
@@ -345,7 +310,6 @@ def detect_structured_patterns(variables, positive_examples, grid_size=9):
                         if check_alldiff_in_examples(block_vars, positive_examples):
                             detected.append(AllDifferent(block_vars))
     
-    # Case 2: Multi-dimensional indexed variables (e.g., var[day,shift,nurse])
     elif '[' in sample_var:
         print(f"  Detected multi-dimensional structure")
         
@@ -388,16 +352,6 @@ def detect_structured_patterns(variables, positive_examples, grid_size=9):
 
 
 def check_alldiff_in_examples(var_subset, positive_examples):
-    """
-    Check if a variable subset satisfies AllDifferent in all examples.
-    
-    Args:
-        var_subset: List of variables
-        positive_examples: List of example dicts
-        
-    Returns:
-        True if AllDifferent holds in all examples
-    """
     for example in positive_examples:
         values = []
         for var in var_subset:
@@ -406,7 +360,6 @@ def check_alldiff_in_examples(var_subset, positive_examples):
             else:
                 return False
         
-        # Check if all values are different
         if len(values) != len(set(values)):
             return False
     
@@ -415,24 +368,7 @@ def check_alldiff_in_examples(var_subset, positive_examples):
 
 def detect_alldifferent_patterns(variables, positive_examples, use_structured=True, 
                                  use_combinatorial=False, min_scope=9, max_scope=11):
-    """
-    Find variable subsets where all values are different across ALL examples.
-    
-    Uses two strategies:
-    1. Pattern-based: Detects structured patterns (rows, columns, blocks)
-    2. Combinatorial: Enumerates all subsets (expensive, optional)
-    
-    Args:
-        variables: List of CPMpy variables
-        positive_examples: List of example dicts
-        use_structured: Use pattern-based detection (default: True)
-        use_combinatorial: Use combinatorial search (default: False)
-        min_scope: Minimum scope size for combinatorial (default: 7)
-        max_scope: Maximum scope size for combinatorial (default: 11)
-        
-    Returns:
-        List of CPMpy AllDifferent constraints
-    """
+
     print(f"\nDetecting AllDifferent patterns...")
     print(f"  Variables: {len(variables)}")
     print(f"  Strategy: ", end="")
@@ -476,15 +412,7 @@ def detect_alldifferent_patterns(variables, positive_examples, use_structured=Tr
 
 
 def extract_alldifferent_constraints(oracle):
-    """
-    Extract only AllDifferent constraints from oracle.
-    
-    Args:
-        oracle: Oracle object with constraints attribute
-        
-    Returns:
-        List of AllDifferent constraints
-    """
+
     alldiff_constraints = []
     for c in oracle.constraints:
         if isinstance(c, AllDifferent) or "alldifferent" in str(c).lower():
@@ -493,21 +421,7 @@ def extract_alldifferent_constraints(oracle):
 
 
 def generate_overfitted_alldifferent(variables, positive_examples, target_alldiffs, count=4, max_attempts=1000):
-    """
-    Generate synthetic overfitted AllDifferent constraints.
-    
-    These constraints satisfy all examples but are NOT in the target model.
-    
-    Args:
-        variables: List of CPMpy variables
-        positive_examples: List of example dicts
-        target_alldiffs: Target AllDifferent constraints (to avoid duplicates)
-        count: Number of overfitted constraints to generate
-        max_attempts: Maximum random attempts
-        
-    Returns:
-        List of overfitted AllDifferent constraints
-    """
+
     print(f"\nGenerating {count} overfitted AllDifferent constraints...")
     
     # Convert target constraints to string representations for comparison
@@ -528,7 +442,7 @@ def generate_overfitted_alldifferent(variables, positive_examples, target_alldif
         attempts += 1
         
         # Random scope size between 3 and 7
-        scope_size = random.randint(3, min(7, len(var_list)))
+        scope_size = random.randint(4, min(7, len(var_list)))
         
         # Random subset of variables
         var_subset = random.sample(var_list, scope_size)
@@ -701,7 +615,7 @@ def run_phase1(benchmark_name, output_dir='phase1_output', num_examples=5, num_o
     # 1. Load benchmark
     result = construct_instance(benchmark_name)
     
-    # Handle optional mock_constraints return
+    
     if len(result) == 3:
         instance, oracle, mock_constraints_from_benchmark = result
         print(f"Using {len(mock_constraints_from_benchmark)} mock constraints from benchmark")
@@ -792,18 +706,57 @@ def run_phase1(benchmark_name, output_dir='phase1_output', num_examples=5, num_o
     
     # 7. Combine: CG = all_targets + overfitted
     CG = all_target_constraints + overfitted_constraints
-    print(f"\nFinal CG: {len(all_target_constraints)} target + {len(overfitted_constraints)} overfitted = {len(CG)} total")
+    print(f"\nCombined CG (before dedup): {len(all_target_constraints)} target + {len(overfitted_constraints)} overfitted = {len(CG)} total")
+    
+    # 7.5. DEDUPLICATE: Remove duplicate constraint patterns using a set
+    # Constraints with identical variable scopes should only appear once
+    # Use pattern-based deduplication since constraint objects are compared by identity
+    seen_patterns = {}  # Map from pattern (sorted var names tuple) to (constraint, priority, source)
+    
+    # First pass: collect all target constraints (priority 0 = highest)
+    for c in all_target_constraints:
+        scope_vars = get_variables([c])
+        pattern = tuple(sorted([v.name for v in scope_vars]))
+        if pattern not in seen_patterns:
+            seen_patterns[pattern] = (c, 0, 'target')  # priority 0 = target (keep)
+    
+    # Second pass: add overfitted constraints only if pattern not seen
+    for c in overfitted_constraints:
+        scope_vars = get_variables([c])
+        pattern = tuple(sorted([v.name for v in scope_vars]))
+        if pattern not in seen_patterns:
+            seen_patterns[pattern] = (c, 1, 'overfitted')  # priority 1 = overfitted
+    
+    # Build deduplicated CG as a set for efficient membership testing and removal
+    CG = set()
+    dedup_target_count = 0
+    dedup_overfitted_count = 0
+    duplicates_removed = len(all_target_constraints) + len(overfitted_constraints) - len(seen_patterns)
+    
+    for constraint, priority, source in seen_patterns.values():
+        CG.add(constraint)  # Use set.add() instead of list.append()
+        if source == 'target':
+            dedup_target_count += 1
+        else:
+            dedup_overfitted_count += 1
+    
+    print(f"Deduplicated CG (set): {dedup_target_count} target + {dedup_overfitted_count} overfitted = {len(CG)} total")
+    if duplicates_removed > 0:
+        print(f"  Removed {duplicates_removed} duplicate constraint patterns")
     
     # 8. Create informed priors for each constraint
     # Target constraints (detected or appended) → 0.8 (high confidence, true constraints)
     # Overfitted constraints (mocks or synthetic) → 0.3 (low confidence, should be rejected)
     initial_probabilities = {}
-    for c in all_target_constraints:
-        initial_probabilities[c] = 0.8  # High prior for target constraints
-    for c in overfitted_constraints:
-        initial_probabilities[c] = 0.3  # Low prior for overfitted constraints
     
-    print(f"Initial probabilities: {len(all_target_constraints)} @ 0.8 (target), {len(overfitted_constraints)} @ 0.3 (overfitted)")
+    # Assign priors based on which list each pattern came from (priority determines source)
+    for constraint, priority, source in seen_patterns.values():
+        if source == 'target':
+            initial_probabilities[constraint] = 0.8  # High prior for target constraints
+        else:
+            initial_probabilities[constraint] = 0.3  # Low prior for overfitted constraints
+    
+    print(f"Initial probabilities: {dedup_target_count} @ 0.8 (target), {dedup_overfitted_count} @ 0.3 (overfitted)")
     
     # 7. Generate complete binary bias
     language = ['==', '!=', '<', '>', '<=', '>=']
@@ -814,7 +767,7 @@ def run_phase1(benchmark_name, output_dir='phase1_output', num_examples=5, num_o
     
     # 9. Save to pickle
     output_data = {
-        'CG': CG,  # List of CPMpy AllDifferent constraints
+        'CG': CG,  # List of CPMpy AllDifferent constraints (deduplicated)
         'B_fixed': B_fixed_pruned,  # List of pruned binary constraints
         'E+': positive_examples,  # List of example dicts
         'variables': instance.X,  # CPMpy variables
@@ -826,6 +779,9 @@ def run_phase1(benchmark_name, output_dir='phase1_output', num_examples=5, num_o
             'num_appended_alldiffs': len(missing_targets),
             'num_target_alldiffs': len(all_target_constraints),
             'num_overfitted_alldiffs': len(overfitted_constraints),
+            'num_target_alldiffs_dedup': dedup_target_count,  # After deduplication
+            'num_overfitted_alldiffs_dedup': dedup_overfitted_count,  # After deduplication
+            'num_duplicates_removed': duplicates_removed,
             'use_mock_constraints': mock_constraints_from_benchmark is not None,
             'num_bias_initial': len(B_fixed),
             'num_bias_pruned': len(B_fixed_pruned),

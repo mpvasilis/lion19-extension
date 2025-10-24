@@ -23,43 +23,43 @@ def main():
             'name': 'sudoku',
             'description': 'Regular 9x9 Sudoku',
             'num_examples': 5,
-            'num_overfitted': 4
+            'num_overfitted': 10
         },
         {
             'name': 'sudoku_gt',
             'description': 'Sudoku with Greater-Than Constraints',
             'num_examples': 5,
-            'num_overfitted': 6  # More mocks for this variant
+            'num_overfitted': 18  # More mocks for this variant
         },
         {
             'name': 'jsudoku',
             'description': 'Jigsaw Sudoku (9x9 with irregular regions)',
             'num_examples': 5,
-            'num_overfitted': 4  # Similar to regular sudoku
+            'num_overfitted': 20  # Similar to regular sudoku
         },
         {
             'name': 'latin_square',
             'description': 'Latin Square (9x9 - rows and columns only)',
             'num_examples': 5,
-            'num_overfitted': 3  # Simpler than Sudoku
+            'num_overfitted': 10  # Simpler than Sudoku
         },
         {
             'name': 'graph_coloring_register',
             'description': 'Graph Coloring - Register Allocation (realistic compiler problem)',
             'num_examples': 5,
-            'num_overfitted': 3  # Realistic CP problem
+            'num_overfitted': 10  # Realistic CP problem
         },
         {
             'name': 'examtt_v1',
             'description': 'Exam Timetabling Variant 1 (Small)',
             'num_examples': 5,
-            'num_overfitted': 5  # 5 different mock patterns
+            'num_overfitted': 10  # 5 different mock patterns
         },
         {
             'name': 'examtt_v2',
             'description': 'Exam Timetabling Variant 2 (Large)',
             'num_examples': 5,
-            'num_overfitted': 6  # 6 different mock patterns
+            'num_overfitted': 10  # 6 different mock patterns
         }
     ]
     
