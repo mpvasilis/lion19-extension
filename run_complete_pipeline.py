@@ -91,10 +91,7 @@ def main():
     for benchmark in benchmarks:
         name = benchmark['name']
         phase1_pickle = benchmark['phase1_pickle']
-        
-        print(f"\n\n{'
-        print(f"
-        print(f"{'
+
 
         if not os.path.exists(phase1_pickle):
             print(f"[ERROR] Phase 1 pickle not found: {phase1_pickle}")

@@ -116,7 +116,7 @@ def update_supporting_evidence(P_c, alpha):
     return P_c + (1 - P_c) * (1 - alpha)
 
 
-def generate_violation_query(CG, C_validated, probabilities, all_variables):
+def generate_violation_query(CG, C_validated, probabilities, all_variables, oracle=None):
     
     import cpmpy as cp
     import time
@@ -124,6 +124,28 @@ def generate_violation_query(CG, C_validated, probabilities, all_variables):
     print(f"  Building COP model: {len(CG)} candidates, {len(C_validated)} validated, {len(all_variables)} variables")
 
     model = cp.Model()
+
+    # Add all non-AllDifferent constraints from oracle as hard constraints
+    if oracle is not None:
+        print(f"  Oracle provided: {len(oracle.constraints)} total constraints")
+        non_alldiff_constraints = []
+        alldiff_count = 0
+        for c in oracle.constraints:
+            if isinstance(c, AllDifferent) or "alldifferent" in str(c).lower():
+                alldiff_count += 1
+            else:
+                non_alldiff_constraints.append(c)
+        
+        print(f"  Oracle breakdown: {alldiff_count} AllDifferent, {len(non_alldiff_constraints)} non-AllDifferent")
+        
+        if non_alldiff_constraints:
+            print(f"  Adding {len(non_alldiff_constraints)} non-AllDifferent constraints as hard constraints")
+            for c in non_alldiff_constraints:
+                model += c
+        else:
+            print(f"  Warning: No non-AllDifferent constraints found in oracle!")
+    else:
+        print(f"  WARNING: No oracle provided to generate_violation_query!")
 
     for c in C_validated:
         model += c
@@ -137,19 +159,9 @@ def generate_violation_query(CG, C_validated, probabilities, all_variables):
     gamma_list = list(gamma.values())
     model += (cp.sum(gamma_list) >= 1)  
 
-
-
-    violation_count = cp.sum(gamma_list)
-    weighted_preference = cp.sum([
-        (1.0 - probabilities[c]) * gamma[str(c)]
-        for c in CG
-    ])
-    
-    epsilon = 0.01
-    objective = violation_count - epsilon * weighted_preference
-
-
-
+    # Objective: minimize sum of probabilities of violated constraints
+    # Prefer to violate constraints with low probability (likely incorrect)
+    objective = cp.sum([probabilities[c] * gamma[str(c)] for c in CG])
 
     model.minimize(objective)
 
@@ -179,6 +191,26 @@ def generate_violation_query(CG, C_validated, probabilities, all_variables):
 
         values_set = sum(1 for v in Y if v.value() is not None)
         print(f"  Variables with values: {values_set}/{len(Y)}")
+        
+        # Map values to original variables if provided
+        if all_variables is not None:
+            print(f"  Mapping values to {len(all_variables)} original variables")
+            # Create a mapping by variable name
+            value_map = {}
+            for v in Y:
+                if hasattr(v, 'name') and v.value() is not None:
+                    value_map[str(v.name)] = v.value()
+            
+            # Set values on original variables
+            for orig_var in all_variables:
+                if hasattr(orig_var, 'name'):
+                    var_name = str(orig_var.name)
+                    if var_name in value_map:
+                        # Set the value on the original variable
+                        if hasattr(orig_var, '_value'):
+                            orig_var._value = value_map[var_name]
+            
+            Y = all_variables
 
         Viol_e = get_kappa(CG, Y)
         print(f"  Violating {len(Viol_e)}/{len(CG)} constraints")
@@ -315,7 +347,7 @@ def cop_based_refinement(experiment_name, oracle, candidate_constraints, initial
         print(f"Status: {len(C_validated)} validated, {len(CG)} candidates, {queries_used} queries used")
 
         print(f"\n[QUERY] Generating violation query...")
-        Y, Viol_e, status = generate_violation_query(CG, C_validated, probabilities, variables)
+        Y, Viol_e, status = generate_violation_query(CG, C_validated, probabilities, variables, oracle)
         
         if status == "UNSAT":
             consecutive_unsat += 1
@@ -362,14 +394,36 @@ def cop_based_refinement(experiment_name, oracle, candidate_constraints, initial
                 print(Y)
 
         print(f"\n[ORACLE] Asking oracle...")
+        print(f"[DEBUG] Oracle has {len(oracle.constraints)} total constraints")
+        print(f"[DEBUG] CG has {len(CG)} AllDifferent constraints")
+        print(f"[DEBUG] Violation query violates {len(Viol_e)} constraints from CG")
+        
+        # Check if Y violates ANY oracle constraints (not just CG)
+        all_violated = get_kappa(oracle.constraints, Y)
+        print(f"[DEBUG] Violation query violates {len(all_violated)} constraints from FULL oracle")
+        if len(all_violated) > len(Viol_e):
+            print(f"[WARNING] Query violates {len(all_violated) - len(Viol_e)} additional constraints beyond CG!")
+        
         answer = oracle.answer_membership_query(Y)
         queries_used += 1
+        print(f"[DEBUG] Oracle returned: {answer}")
         
-        if answer == False:
+        if answer == True:
             print(f"Oracle: Yes (valid assignment)")
-            print(f"{len(Viol_e)} constraints violated by valid solution - entering disambiguation")
+            print(f"{len(Viol_e)} constraints violated by valid solution - deleting all violated constraints")
 
+            # Remove all violated constraints without disambiguation
+            CG = set(CG)
+            for c in Viol_e:
+                if c in CG:
+                    CG.remove(c)
+                    print(f"  [REMOVE] Removed: {c} (P={probabilities[c]:.3f})")
+        
+        else:  
+            print(f"Oracle: No (invalid assignment)")
+            print(f"{len(Viol_e)} constraints violated - entering disambiguation")
 
+            # Disambiguation phase
             probabilities, to_remove, disambiguation_queries = disambiguate_violated_constraints(
                 Viol_e, C_validated, CG, oracle, probabilities, variables, 
                 alpha, theta_max, theta_min,
@@ -385,26 +439,12 @@ def cop_based_refinement(experiment_name, oracle, candidate_constraints, initial
                     CG.remove(c)
                     print(f"  [REMOVE] Removed: {c} (P={probabilities[c]:.3f})")
 
-
+            # Accept constraints that met threshold during disambiguation
             for c in Viol_e:
                 if c not in to_remove and c in CG and probabilities[c] >= theta_max:
                     C_validated.append(c)
                     CG.remove(c)
                     print(f"  [ACCEPT] Accepted: {c} (P={probabilities[c]:.3f} >= {theta_max})")
-        
-        else:  
-            print(f"[Oracle: No (invalid assignment)")
-            print(f"Supporting {len(Viol_e)} constraints")
-
-            for c in Viol_e:
-                old_prob = probabilities[c]
-                probabilities[c] = update_supporting_evidence(probabilities[c], alpha)
-                print(f"  [UPDATE] {c}: P={old_prob:.3f} -> {probabilities[c]:.3f}")
-
-                if probabilities[c] >= theta_max:
-                    C_validated.append(c)
-                    CG.remove(c)
-                    print(f"    [ACCEPT] Accepted (P >= {theta_max})")
     
     end_time = time.time()
     total_duration = end_time - start_time

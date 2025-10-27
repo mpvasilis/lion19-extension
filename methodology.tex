@@ -1,0 +1,597 @@
+\documentclass[11pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{algorithm}
+\usepackage{algorithmicx}
+\usepackage[noend]{algpseudocode}
+\usepackage{geometry}
+\usepackage{hyperref}
+\usepackage{booktabs}
+\usepackage{graphicx}
+
+\geometry{margin=1in}
+
+\newtheorem{definition}{Definition}
+
+\title{Hierarchical Constraint Acquisition with Refinement (HCAR): \\
+A Three-Phase Methodology for Learning Global Constraints}
+\author{}
+\date{}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+We present a novel three-phase methodology for constraint acquisition that combines passive learning, interactive refinement, and active learning to effectively learn constraint satisfaction problems containing global constraints. The methodology addresses the challenge of learning high-level global constraints (e.g., \textsc{AllDifferent}) while maintaining correctness and efficiency in the presence of noisy or incomplete initial knowledge.
+\end{abstract}
+
+\section{Introduction}
+
+Constraint acquisition aims to learn the constraints of a target CSP from interactions with an oracle. While traditional methods focus on learning binary constraints, many real-world problems naturally contain global constraints that capture complex relationships. Our methodology, HCAR (Hierarchical Constraint Acquisition with Refinement), operates in three distinct phases:
+
+\begin{enumerate}
+    \item \textbf{Phase 1}: Passive Learning from positive examples to identify candidate global constraints
+    \item \textbf{Phase 2}: Interactive Refinement using constraint optimization and Bayesian inference to validate global constraints
+    \item \textbf{Phase 3}: Active Learning using MQuAcq-2 to learn remaining binary constraints
+\end{enumerate}
+
+\section{Problem Formulation}
+
+\subsection{Definitions}
+
+\begin{definition}[Constraint Satisfaction Problem]
+A CSP is defined as a triple \(\mathcal{P} = (\mathcal{X}, \mathcal{D}, \mathcal{C})\) where:
+\begin{itemize}
+    \item \(\mathcal{X} = \{X_1, X_2, \ldots, X_n\}\) is a set of variables
+    \item \(\mathcal{D} = \{D_1, D_2, \ldots, D_n\}\) is a set of finite domains
+    \item \(\mathcal{C} = \mathcal{C}_G \cup \mathcal{C}_B\) is a set of constraints, where \(\mathcal{C}_G\) are global constraints and \(\mathcal{C}_B\) are binary constraints
+\end{itemize}
+\end{definition}
+
+\begin{definition}[Global Constraint]
+A global constraint \(c \in \mathcal{C}_G\) is a constraint over a subset of variables \(\text{scope}(c) \subseteq \mathcal{X}\) that expresses a non-binary relationship. Examples include \textsc{AllDifferent}(\(X_1, \ldots, X_k\)), which requires all variables in its scope to take distinct values.
+\end{definition}
+
+\begin{definition}[Oracle]
+An oracle \(\mathcal{O}\) is an entity that can answer membership queries: given an assignment \(e: \mathcal{X} \rightarrow \mathcal{D}\), the oracle returns \texttt{true} if \(e\) satisfies all constraints in the target CSP, and \texttt{false} otherwise.
+\end{definition}
+
+\subsection{HCAR Objective}
+
+Given:
+\begin{itemize}
+    \item A set of variables \(\mathcal{X}\) with domains \(\mathcal{D}\)
+    \item Access to an oracle \(\mathcal{O}\) for the unknown target CSP \(\mathcal{P}^*\)
+    \item A constraint language \(\mathcal{L}\) that includes global and binary constraints
+\end{itemize}
+
+The objective is to learn \(\mathcal{C}^* = \mathcal{C}_G^* \cup \mathcal{C}_B^*\) using minimal oracle queries while correctly identifying both global and binary constraints.
+
+\section{Phase 1: Passive Learning}
+
+Phase 1 establishes initial knowledge by analyzing positive examples (solutions) of the target CSP. The goal is to identify candidate global \textsc{AllDifferent} constraints and construct a pruned bias for binary constraints.
+
+\subsection{Methodology}
+
+\subsubsection{Positive Example Generation}
+
+We generate a set of diverse positive examples \(E^+ = \{e_1, e_2, \ldots, e_m\}\) by solving the target CSP (via the oracle) with diversity constraints. Each example \(e_i\) is a complete assignment satisfying all constraints in \(\mathcal{C}^*\).
+
+\begin{algorithm}[H]
+\caption{Generate Positive Examples}
+\label{alg:gen-examples}
+\begin{algorithmic}[1]
+\Require Oracle \(\mathcal{O}\), variables \(\mathcal{X}\), count \(m\)
+\Ensure Set of positive examples \(E^+\)
+\State \(E^+ \gets \emptyset\)
+\State \(M \gets \text{Model}(\mathcal{C}^*)\) \Comment{Initialize with target constraints}
+\For{\(i = 1\) to \(m\)}
+    \If{\(M.\text{solve}()\)}
+        \State \(e \gets \) current assignment
+        \State \(E^+ \gets E^+ \cup \{e\}\)
+        \State Add diversity constraint: \(M \gets M \cup \{\text{any}(X_j \neq e[X_j] \mid X_j \in \mathcal{X})\}\)
+    \Else
+        \State \textbf{break} \Comment{No more diverse solutions}
+    \EndIf
+\EndFor
+\State \Return \(E^+\)
+\end{algorithmic}
+\end{algorithm}
+
+\subsubsection{Pattern-Based AllDifferent Detection}
+
+We detect candidate \textsc{AllDifferent} constraints by identifying structured patterns in the variable naming and verifying them against positive examples.
+
+\begin{algorithm}[H]
+\caption{Detect AllDifferent Patterns}
+\label{alg:detect-alldiff}
+\begin{algorithmic}[1]
+\Require Variables \(\mathcal{X}\), positive examples \(E^+\)
+\Ensure Candidate global constraints \(\mathcal{C}_G^{\text{cand}}\)
+\State \(\mathcal{C}_G^{\text{cand}} \gets \emptyset\)
+\State
+\Comment{Detect structured patterns based on variable naming}
+\If{variables follow grid pattern (e.g., \texttt{grid[i,j]})}
+    \For{each row \(r\)}
+        \State \(S_r \gets \{X_{r,c} \mid c \in \text{cols}\}\)
+        \If{\(\text{CheckAllDiff}(S_r, E^+)\)}
+            \State \(\mathcal{C}_G^{\text{cand}} \gets \mathcal{C}_G^{\text{cand}} \cup \{\text{AllDifferent}(S_r)\}\)
+        \EndIf
+    \EndFor
+    \For{each column \(c\)}
+        \State \(S_c \gets \{X_{r,c} \mid r \in \text{rows}\}\)
+        \If{\(\text{CheckAllDiff}(S_c, E^+)\)}
+            \State \(\mathcal{C}_G^{\text{cand}} \gets \mathcal{C}_G^{\text{cand}} \cup \{\text{AllDifferent}(S_c)\}\)
+        \EndIf
+    \EndFor
+    \Comment{Check blocks for Sudoku-like structures}
+    \For{each block \(b\)}
+        \State \(S_b \gets \text{variables in block } b\)
+        \If{\(\text{CheckAllDiff}(S_b, E^+)\)}
+            \State \(\mathcal{C}_G^{\text{cand}} \gets \mathcal{C}_G^{\text{cand}} \cup \{\text{AllDifferent}(S_b)\}\)
+        \EndIf
+    \EndFor
+\EndIf
+\State \Return \(\mathcal{C}_G^{\text{cand}}\)
+\end{algorithmic}
+\end{algorithm}
+
+\begin{algorithm}[H]
+\caption{CheckAllDiff}
+\label{alg:check-alldiff}
+\begin{algorithmic}[1]
+\Require Variable subset \(S \subseteq \mathcal{X}\), positive examples \(E^+\)
+\Ensure \texttt{true} if \(S\) forms an \textsc{AllDifferent} constraint, \texttt{false} otherwise
+\For{each example \(e \in E^+\)}
+    \State \(V \gets \{e[X] \mid X \in S\}\) \Comment{Values assigned to variables in \(S\)}
+    \If{\(|V| \neq |S|\)} \Comment{Duplicate values found}
+        \State \Return \texttt{false}
+    \EndIf
+\EndFor
+\State \Return \texttt{true}
+\end{algorithmic}
+\end{algorithm}
+
+\subsubsection{Binary Bias Construction and Pruning}
+
+We construct a complete binary bias \(\mathcal{B}\) over all variable pairs using a constraint language \(\mathcal{L} = \{=, \neq, <, >, \leq, \geq\}\), then prune it using the positive examples.
+
+\begin{equation}
+\mathcal{B}_{\text{init}} = \{X_i \bowtie X_j \mid X_i, X_j \in \mathcal{X}, i < j, \bowtie \in \mathcal{L}\}
+\end{equation}
+
+\begin{algorithm}[H]
+\caption{Prune Bias with Examples}
+\label{alg:prune-bias}
+\begin{algorithmic}[1]
+\Require Initial bias \(\mathcal{B}_{\text{init}}\), positive examples \(E^+\)
+\Ensure Pruned bias \(\mathcal{B}_{\text{fixed}}\)
+\State \(\mathcal{B}_{\text{fixed}} \gets \emptyset\)
+\For{each constraint \(c \in \mathcal{B}_{\text{init}}\)}
+    \State \textit{consistent} \(\gets\) \texttt{true}
+    \For{each example \(e \in E^+\)}
+        \If{\(e\) does not satisfy \(c\)}
+            \State \textit{consistent} \(\gets\) \texttt{false}
+            \State \textbf{break}
+        \EndIf
+    \EndFor
+    \If{\textit{consistent}}
+        \State \(\mathcal{B}_{\text{fixed}} \gets \mathcal{B}_{\text{fixed}} \cup \{c\}\)
+    \EndIf
+\EndFor
+\State \Return \(\mathcal{B}_{\text{fixed}}\)
+\end{algorithmic}
+\end{algorithm}
+
+\subsubsection{Probabilistic Initialization}
+
+For each candidate global constraint \(c \in \mathcal{C}_G^{\text{cand}}\), we assign an initial probability \(P_0(c)\) based on its source:
+
+\begin{equation}
+P_0(c) = \begin{cases}
+0.8 & \text{if } c \text{ is a detected target constraint} \\
+0.3 & \text{if } c \text{ is an overfitted constraint}
+\end{cases}
+\end{equation}
+
+\subsection{Phase 1 Output}
+
+Phase 1 produces:
+\begin{itemize}
+    \item \(\mathcal{C}_G^{\text{cand}}\): Candidate global constraints with initial probabilities
+    \item \(\mathcal{B}_{\text{fixed}}\): Pruned binary bias consistent with \(E^+\)
+    \item \(E^+\): Set of positive examples
+\end{itemize}
+
+\section{Phase 2: Interactive Refinement via COP}
+
+Phase 2 refines the candidate global constraints using an iterative constraint optimization approach combined with Bayesian probability updates. The goal is to validate or reject each candidate global constraint through strategic membership queries.
+
+\subsection{Constraint Optimization Problem Formulation}
+
+At each iteration, we formulate a Constraint Optimization Problem (COP) to generate queries that violate candidate constraints with low probability (likely incorrect):
+
+\begin{align}
+\text{minimize} \quad & \sum_{c \in \mathcal{C}_G^{\text{cand}}} P(c) \cdot \gamma_c \\
+\text{subject to} \quad & \forall c \in \mathcal{C}_V: c(\mathbf{x}) \text{ is satisfied} \\
+& \forall c \in \mathcal{C}_G^{\text{cand}}: \gamma_c \Leftrightarrow \neg c(\mathbf{x}) \\
+& \sum_{c \in \mathcal{C}_G^{\text{cand}}} \gamma_c \geq 1 \\
+& \gamma_c \in \{0, 1\}, \quad \mathbf{x} \in \mathcal{D}^{|\mathcal{X}|}
+\end{align}
+
+where:
+\begin{itemize}
+    \item \(\mathcal{C}_V\): Set of validated constraints and non-\textsc{AllDifferent} oracle constraints (hard constraints)
+    \item \(\gamma_c\): Binary indicator variable (\(1\) if constraint \(c\) is violated, \(0\) otherwise)
+    \item \(P(c)\): Current probability that constraint \(c\) is correct
+    \item \(\mathbf{x}\): Assignment to variables in \(\mathcal{X}\)
+\end{itemize}
+
+The objective minimizes the total probability of violated constraints, preferring to violate constraints with lower probability (likely spurious).
+
+\subsection{Bayesian Probability Updates}
+
+We maintain and update probability estimates \(P(c)\) for each candidate constraint \(c\) based on oracle responses. The update rules are:
+
+\begin{equation}
+P_{t+1}(c) = \begin{cases}
+P_t(c) + (1 - P_t(c)) \cdot (1 - \alpha) & \text{if } c \text{ is supported by evidence} \\
+P_t(c) \cdot \alpha & \text{if } c \text{ is violated by a positive example}
+\end{cases}
+\end{equation}
+
+where \(\alpha \in (0, 1)\) is a decay parameter (e.g., \(\alpha = 0.42\)) controlling the learning rate.
+
+\subsection{Disambiguation Phase}
+
+When the oracle rejects a query that violates multiple constraints, we enter a disambiguation phase to determine which specific constraints are incorrect.
+
+\subsubsection{Isolation Learning}
+
+For each violated constraint \(c \in \text{Viol}_e\), we perform isolation learning:
+
+\begin{enumerate}
+    \item Construct a learning instance where:
+    \begin{itemize}
+        \item Initial CL contains validated constraints and all non-violated candidates
+        \item Bias contains only \(c\) (the constraint being tested)
+    \end{itemize}
+    \item Run a Bayesian learning procedure (BayesianQuAcq) with limited queries
+    \item Update \(P(c)\) based on learning outcome:
+    \begin{itemize}
+        \item If \(c\) is learned (added to CL): increase \(P(c)\)
+        \item If \(c\) is rejected: decrease \(P(c)\) via \(P(c) \gets P(c) \cdot \alpha\)
+    \end{itemize}
+\end{enumerate}
+
+\subsection{Decision Criteria}
+
+Constraints are accepted or rejected based on probability thresholds:
+
+\begin{itemize}
+    \item If \(P(c) \geq \theta_{\max}\): Accept \(c\) and move to \(\mathcal{C}_V\) (validated constraints)
+    \item If \(P(c) \leq \theta_{\min}\): Reject \(c\) and remove from candidates
+    \item Otherwise: Keep \(c\) as candidate for further refinement
+\end{itemize}
+
+Typical values: \(\theta_{\max} = 0.9\), \(\theta_{\min} = 0.1\).
+
+\subsection{Phase 2 Algorithm}
+
+\begin{algorithm}[H]
+\caption{COP-Based Interactive Refinement (Phase 2)}
+\label{alg:phase2}
+\begin{algorithmic}[1]
+\Require Candidate constraints \(\mathcal{C}_G^{\text{cand}}\), initial probabilities \(P_0\), oracle \(\mathcal{O}\), parameters \(\alpha, \theta_{\max}, \theta_{\min}\)
+\Ensure Validated constraints \(\mathcal{C}_V\)
+\State \(\mathcal{C}_V \gets \emptyset\) \Comment{Validated constraints}
+\State \(P \gets P_0\) \Comment{Initialize probabilities}
+\State \(q \gets 0\) \Comment{Query counter}
+\While{\(\mathcal{C}_G^{\text{cand}} \neq \emptyset\) and budget not exhausted}
+    \State
+    \Comment{Generate violation query using COP}
+    \State \(\mathbf{y}, \text{Viol}_e, \text{status} \gets \text{GenerateViolationQuery}(\mathcal{C}_G^{\text{cand}}, \mathcal{C}_V, P, \mathcal{O})\)
+    \State
+    \If{\(\text{status} = \text{UNSAT}\)}
+        \State \Comment{Cannot violate remaining constraints - accept high-probability ones}
+        \For{each \(c \in \mathcal{C}_G^{\text{cand}}\)}
+            \If{\(P(c) \geq 0.7\)}
+                \State \(\mathcal{C}_V \gets \mathcal{C}_V \cup \{c\}\)
+            \EndIf
+        \EndFor
+        \State \textbf{break}
+    \EndIf
+    \State
+    \Comment{Query the oracle}
+    \State \(q \gets q + 1\)
+    \State \(\text{answer} \gets \mathcal{O}.\text{membership\_query}(\mathbf{y})\)
+    \State
+    \If{\(\text{answer} = \texttt{true}\)}
+        \State \Comment{Valid solution violates these constraints - all are spurious}
+        \For{each \(c \in \text{Viol}_e\)}
+            \State \(\mathcal{C}_G^{\text{cand}} \gets \mathcal{C}_G^{\text{cand}} \setminus \{c\}\)
+        \EndFor
+    \Else
+        \State \Comment{Invalid solution - disambiguate which constraints are correct}
+        \State \(P, \text{ToRemove}, q_{\text{dis}} \gets \text{Disambiguate}(\text{Viol}_e, \mathcal{C}_V, \mathcal{C}_G^{\text{cand}}, \mathcal{O}, P, \alpha)\)
+        \State \(q \gets q + q_{\text{dis}}\)
+        \For{each \(c \in \text{ToRemove}\)}
+            \State \(\mathcal{C}_G^{\text{cand}} \gets \mathcal{C}_G^{\text{cand}} \setminus \{c\}\)
+        \EndFor
+        \For{each \(c \in \text{Viol}_e \setminus \text{ToRemove}\)}
+            \If{\(P(c) \geq \theta_{\max}\)}
+                \State \(\mathcal{C}_V \gets \mathcal{C}_V \cup \{c\}\)
+                \State \(\mathcal{C}_G^{\text{cand}} \gets \mathcal{C}_G^{\text{cand}} \setminus \{c\}\)
+            \EndIf
+        \EndFor
+    \EndIf
+\EndWhile
+\State \Return \(\mathcal{C}_V\)
+\end{algorithmic}
+\end{algorithm}
+
+\begin{algorithm}[H]
+\caption{Disambiguate Violated Constraints}
+\label{alg:disambiguate}
+\begin{algorithmic}[1]
+\Require Violated constraints \(\text{Viol}_e\), validated \(\mathcal{C}_V\), candidates \(\mathcal{C}_G^{\text{cand}}\), oracle \(\mathcal{O}\), probabilities \(P\), decay \(\alpha\)
+\Ensure Updated probabilities \(P'\), constraints to remove \(\text{ToRemove}\), query count \(q_{\text{dis}}\)
+\State \(P' \gets P\)
+\State \(\text{ToRemove} \gets \emptyset\)
+\State \(q_{\text{dis}} \gets 0\)
+\For{each \(c \in \text{Viol}_e\)}
+    \State \Comment{Isolation learning for constraint \(c\)}
+    \State \(\text{CL}_{\text{init}} \gets \mathcal{C}_V \cup (\mathcal{C}_G^{\text{cand}} \setminus \text{Viol}_e)\)
+    \State \(\mathcal{I} \gets \text{ProblemInstance}(\text{CL} = \text{CL}_{\text{init}}, \text{Bias} = \{c\})\)
+    \State \(\mathcal{I}', q_c \gets \text{BayesianQuAcq}(\mathcal{I}, \mathcal{O}, P'(c))\) \Comment{Limited budget per constraint}
+    \State \(q_{\text{dis}} \gets q_{\text{dis}} + q_c\)
+    \State
+    \If{\(c \in \mathcal{I}'.\text{CL}\)}
+        \State \(P'(c) \gets P'(c) + (1 - P'(c)) \cdot (1 - \alpha)\) \Comment{Increase probability}
+    \ElsIf{\(c \notin \mathcal{I}'.\text{Bias}\)}
+        \State \(P'(c) \gets P'(c) \cdot \alpha\) \Comment{Decrease probability}
+        \If{\(P'(c) \leq \theta_{\min}\)}
+            \State \(\text{ToRemove} \gets \text{ToRemove} \cup \{c\}\)
+        \EndIf
+    \EndIf
+\EndFor
+\State \Return \(P', \text{ToRemove}, q_{\text{dis}}\)
+\end{algorithmic}
+\end{algorithm}
+
+\subsection{Phase 2 Output}
+
+Phase 2 produces:
+\begin{itemize}
+    \item \(\mathcal{C}_V\): Set of validated global constraints
+    \item Updated probabilities for remaining candidates (if any)
+    \item Query statistics (total queries, time)
+\end{itemize}
+
+\section{Phase 3: Active Learning with MQuAcq-2}
+
+Phase 3 learns the remaining binary constraints using MQuAcq-2, a state-of-the-art active constraint acquisition algorithm. The validated global constraints from Phase 2 are used to prune the binary bias, significantly reducing the search space.
+
+\subsection{Bias Pruning with Global Constraints}
+
+Before running MQuAcq-2, we prune the binary bias \(\mathcal{B}_{\text{fixed}}\) by removing constraints that are logically implied by validated global constraints:
+
+\begin{equation}
+\mathcal{B}_{\text{pruned}} = \mathcal{B}_{\text{fixed}} \setminus \{c_b \in \mathcal{B}_{\text{fixed}} \mid \mathcal{C}_V \models c_b\}
+\end{equation}
+
+For example, if \(\text{AllDifferent}(X_1, X_2, X_3) \in \mathcal{C}_V\), then binary constraints \(X_1 \neq X_2\), \(X_1 \neq X_3\), and \(X_2 \neq X_3\) are implied and removed from \(\mathcal{B}_{\text{pruned}}\).
+
+\subsection{Initial Constraint Network}
+
+We initialize the constraint network for MQuAcq-2 with:
+
+\begin{itemize}
+    \item \textbf{Initial CL}: Decomposed binary constraints from \(\mathcal{C}_V\)
+    \begin{equation}
+    \text{CL}_{\text{init}} = \bigcup_{c \in \mathcal{C}_V} \text{Decompose}(c)
+    \end{equation}
+    where \(\text{Decompose}(\text{AllDifferent}(X_1, \ldots, X_k)) = \{X_i \neq X_j \mid 1 \leq i < j \leq k\}\)
+    
+    \item \textbf{Bias}: Pruned binary bias \(\mathcal{B}_{\text{pruned}}\)
+\end{itemize}
+
+\subsection{MQuAcq-2 Algorithm}
+
+MQuAcq-2 is an active learning algorithm that alternates between generating partial queries and learning constraints through scope-finding procedures.
+
+\begin{algorithm}[H]
+\caption{MQuAcq-2 (Simplified)}
+\label{alg:mquacq2}
+\begin{algorithmic}[1]
+\Require Instance \(\mathcal{I} = (\mathcal{X}, \text{CL}_{\text{init}}, \mathcal{B}_{\text{pruned}})\), oracle \(\mathcal{O}\)
+\Ensure Learned instance \(\mathcal{I}' = (\mathcal{X}, \text{CL}', \mathcal{B}')\)
+\State \(\text{CL} \gets \text{CL}_{\text{init}}\)
+\State \(\mathcal{B} \gets \mathcal{B}_{\text{pruned}}\)
+\While{\(\mathcal{B} \neq \emptyset\)}
+    \State \(\mathbf{y} \gets \text{GeneratePartialQuery}(\text{CL}, \mathcal{B})\)
+    \If{\(\mathbf{y} = \emptyset\)}
+        \State \textbf{break} \Comment{No more queries can be generated}
+    \EndIf
+    \State \(\kappa_{\mathcal{B}} \gets \{c \in \mathcal{B} \mid \mathbf{y} \text{ violates } c\}\)
+    \State \(\text{answer} \gets \mathcal{O}.\text{membership\_query}(\mathbf{y})\)
+    \If{\(\text{answer} = \texttt{true}\)}
+        \State \(\mathcal{B} \gets \mathcal{B} \setminus \kappa_{\mathcal{B}}\) \Comment{Remove violated constraints}
+    \Else
+        \State \Comment{Find the correct constraint(s) from violated set}
+        \For{each scope \(S\) in violated scopes}
+            \State \(c_S \gets \text{FindC}(S, \text{CL}, \mathcal{B}, \mathcal{O})\) \Comment{Identify constraint on scope \(S\)}
+            \State \(\text{CL} \gets \text{CL} \cup \{c_S\}\)
+            \State \(\mathcal{B} \gets \mathcal{B} \setminus \{c_S\}\)
+        \EndFor
+    \EndIf
+\EndWhile
+\State \Return \((\mathcal{X}, \text{CL}, \mathcal{B})\)
+\end{algorithmic}
+\end{algorithm}
+
+\subsubsection{Query Generation}
+
+MQuAcq-2 generates partial queries that:
+\begin{enumerate}
+    \item Satisfy all constraints in CL
+    \item Violate at least one constraint in the bias \(\mathcal{B}\)
+\end{enumerate}
+
+The query is formulated as:
+\begin{align}
+\exists \mathbf{x}: \quad & \bigwedge_{c \in \text{CL}} c(\mathbf{x}) \wedge \bigvee_{c \in \mathcal{B}} \neg c(\mathbf{x})
+\end{align}
+
+\subsubsection{Scope Finding (FindC)}
+
+When the oracle rejects a query, FindC identifies the specific constraint from the violated set. This is done through binary search over the constraint scope:
+
+\begin{algorithm}[H]
+\caption{FindC (Simplified)}
+\label{alg:findc}
+\begin{algorithmic}[1]
+\Require Scope \(S\), CL, Bias \(\mathcal{B}\), oracle \(\mathcal{O}\)
+\Ensure Constraint \(c_S\) on scope \(S\)
+\State \(\mathcal{B}_S \gets \{c \in \mathcal{B} \mid \text{scope}(c) = S\}\)
+\State Perform binary search over \(\mathcal{B}_S\) using membership queries
+\State \Return identified constraint \(c_S\)
+\end{algorithmic}
+\end{algorithm}
+
+\subsection{Resilience Mechanisms}
+
+Our implementation includes resilience mechanisms to handle imperfect bias:
+
+\begin{itemize}
+    \item \textbf{ResilientFindC}: Handles cases where the target constraint may not be in the bias by using fallback strategies
+    \item \textbf{ResilientMQuAcq2}: Skips problematic scopes and continues learning other constraints
+\end{itemize}
+
+\subsection{Phase 3 Output}
+
+Phase 3 produces:
+\begin{itemize}
+    \item \(\text{CL}_{\text{final}}\): Complete learned constraint network (binary constraints)
+    \item \(\mathcal{C}_{\text{learned}} = \mathcal{C}_V \cup \text{CL}_{\text{final}}\): Full learned CSP
+    \item Query statistics for Phase 3
+\end{itemize}
+
+\section{Complete HCAR Pipeline}
+
+\subsection{Integration}
+
+The three phases are integrated sequentially:
+
+\begin{algorithm}[H]
+\caption{HCAR Complete Pipeline}
+\label{alg:hcar-complete}
+\begin{algorithmic}[1]
+\Require Variables \(\mathcal{X}\), domains \(\mathcal{D}\), oracle \(\mathcal{O}\)
+\Ensure Learned CSP \(\mathcal{C}_{\text{learned}}\)
+\State
+\Comment{Phase 1: Passive Learning}
+\State \(E^+ \gets \text{GeneratePositiveExamples}(\mathcal{O}, \mathcal{X}, m)\)
+\State \(\mathcal{C}_G^{\text{cand}}, P_0 \gets \text{DetectAllDifferentPatterns}(\mathcal{X}, E^+)\)
+\State \(\mathcal{B}_{\text{fixed}} \gets \text{PruneBiasWithExamples}(\mathcal{B}_{\text{init}}, E^+)\)
+\State
+\Comment{Phase 2: Interactive Refinement}
+\State \(\mathcal{C}_V \gets \text{COPBasedRefinement}(\mathcal{C}_G^{\text{cand}}, P_0, \mathcal{O}, \alpha, \theta_{\max}, \theta_{\min})\)
+\State
+\Comment{Phase 3: Active Learning}
+\State \(\text{CL}_{\text{init}} \gets \bigcup_{c \in \mathcal{C}_V} \text{Decompose}(c)\)
+\State \(\mathcal{B}_{\text{pruned}} \gets \text{PruneBiasWithGlobals}(\mathcal{B}_{\text{fixed}}, \mathcal{C}_V)\)
+\State \(\mathcal{I} \gets \text{ProblemInstance}(\mathcal{X}, \text{CL}_{\text{init}}, \mathcal{B}_{\text{pruned}})\)
+\State \(\mathcal{I}' \gets \text{MQuAcq2}(\mathcal{I}, \mathcal{O})\)
+\State
+\State \(\mathcal{C}_{\text{learned}} \gets \mathcal{C}_V \cup \mathcal{I}'.\text{CL}\)
+\State \Return \(\mathcal{C}_{\text{learned}}\)
+\end{algorithmic}
+\end{algorithm}
+
+\subsection{Complexity Analysis}
+
+\subsubsection{Phase 1 Complexity}
+
+\begin{itemize}
+    \item Example generation: \(O(m \cdot T_{\text{solve}})\) where \(m\) is the number of examples
+    \item Pattern detection: \(O(|\mathcal{C}_G^{\text{cand}}| \cdot m \cdot k)\) where \(k\) is the average scope size
+    \item Bias pruning: \(O(|\mathcal{B}_{\text{init}}| \cdot m)\)
+\end{itemize}
+
+Total Phase 1 complexity: \(O(m \cdot (T_{\text{solve}} + |\mathcal{B}_{\text{init}}|))\)
+
+\subsubsection{Phase 2 Complexity}
+
+\begin{itemize}
+    \item COP solving per iteration: \(O(T_{\text{COP}})\)
+    \item Disambiguation per constraint: \(O(q_{\max} \cdot T_{\text{query}})\)
+    \item Number of iterations: \(O(|\mathcal{C}_G^{\text{cand}}|)\) in the worst case
+\end{itemize}
+
+Total Phase 2 query complexity: \(O(|\mathcal{C}_G^{\text{cand}}| \cdot q_{\max})\) membership queries
+
+\subsubsection{Phase 3 Complexity}
+
+MQuAcq-2 query complexity: \(O(|\mathcal{B}_{\text{pruned}}| \cdot \log(|\mathcal{L}|))\) where \(|\mathcal{L}|\) is the size of the constraint language.
+
+In practice, \(|\mathcal{B}_{\text{pruned}}| \ll |\mathcal{B}_{\text{init}}|\) due to pruning in Phases 1 and 2.
+
+\subsection{Correctness Guarantees}
+
+\begin{theorem}[Phase 2 Convergence]
+Given an oracle for target CSP \(\mathcal{P}^*\), if Phase 2 terminates with validated set \(\mathcal{C}_V\), then:
+\begin{enumerate}
+    \item All constraints in \(\mathcal{C}_V\) are consistent with \(\mathcal{P}^*\)
+    \item All rejected constraints are inconsistent with at least one positive example
+\end{enumerate}
+\end{theorem}
+
+\begin{theorem}[MQuAcq-2 Completeness]
+If the target constraint network is in the hypothesis space defined by CL and Bias, MQuAcq-2 will learn it exactly (modulo equivalence).
+\end{theorem}
+
+\section{Evaluation Metrics}
+
+We evaluate the learned CSP \(\mathcal{C}_{\text{learned}}\) against the target \(\mathcal{C}^*\) using:
+
+\subsection{Constraint-Level Metrics}
+
+\begin{align}
+\text{Precision} &= \frac{|\mathcal{C}_{\text{learned}} \cap \mathcal{C}^*|}{|\mathcal{C}_{\text{learned}}|} \\
+\text{Recall} &= \frac{|\mathcal{C}_{\text{learned}} \cap \mathcal{C}^*|}{|\mathcal{C}^*|} \\
+\text{F1-Score} &= \frac{2 \cdot \text{Precision} \cdot \text{Recall}}{\text{Precision} + \text{Recall}}
+\end{align}
+
+\subsection{Solution-Space Metrics}
+
+Let \(\text{Sol}(\mathcal{C})\) denote the solution set of constraint set \(\mathcal{C}\):
+
+\begin{align}
+\text{S-Precision} &= \frac{|\text{Sol}(\mathcal{C}_{\text{learned}}) \cap \text{Sol}(\mathcal{C}^*)|}{|\text{Sol}(\mathcal{C}_{\text{learned}})|} \\
+\text{S-Recall} &= \frac{|\text{Sol}(\mathcal{C}_{\text{learned}}) \cap \text{Sol}(\mathcal{C}^*)|}{|\text{Sol}(\mathcal{C}^*)|} \\
+\text{S-F1} &= \frac{2 \cdot \text{S-Precision} \cdot \text{S-Recall}}{\text{S-Precision} + \text{S-Recall}}
+\end{align}
+
+\subsection{Efficiency Metrics}
+
+\begin{itemize}
+    \item \textbf{Total Queries}: \(Q_{\text{total}} = Q_{\text{Phase2}} + Q_{\text{Phase3}}\) (Phase 1 uses 0 queries)
+    \item \textbf{Total Time}: \(T_{\text{total}} = T_{\text{Phase1}} + T_{\text{Phase2}} + T_{\text{Phase3}}\)
+    \item \textbf{Bias Reduction}: \(\frac{|\mathcal{B}_{\text{init}}| - |\mathcal{B}_{\text{pruned}}|}{|\mathcal{B}_{\text{init}}|} \times 100\%\)
+\end{itemize}
+
+\section{Conclusion}
+
+The HCAR methodology provides a principled approach to constraint acquisition that leverages:
+\begin{enumerate}
+    \item Passive learning to bootstrap knowledge from solutions
+    \item Interactive refinement using optimization and Bayesian inference to validate global constraints
+    \item Active learning to complete the constraint network with binary constraints
+\end{enumerate}
+
+This hierarchical approach significantly reduces the query complexity compared to learning all constraints actively, while maintaining high accuracy for both global and binary constraints.
+
+\end{document}
+

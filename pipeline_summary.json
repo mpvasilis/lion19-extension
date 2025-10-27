@@ -1,0 +1,49 @@
+{
+  "timestamp": "2025-10-27T05:29:31.033664",
+  "results": [
+    {
+      "benchmark": "sudoku",
+      "phase2_success": true,
+      "phase3_success": true,
+      "error": null
+    },
+    {
+      "benchmark": "sudoku_gt",
+      "phase2_success": true,
+      "phase3_success": true,
+      "error": null
+    },
+    {
+      "benchmark": "jsudoku",
+      "phase2_success": true,
+      "phase3_success": true,
+      "error": null
+    },
+    {
+      "benchmark": "latin_square",
+      "phase2_success": true,
+      "phase3_success": true,
+      "error": null
+    },
+    {
+      "benchmark": "graph_coloring_register",
+      "phase2_success": true,
+      "phase3_success": true,
+      "error": null
+    },
+    {
+      "benchmark": "examtt_v1",
+      "phase2_success": true,
+      "phase3_success": true,
+      "error": null
+    },
+    {
+      "benchmark": "examtt_v2",
+      "phase2_success": true,
+      "phase3_success": true,
+      "error": null
+    }
+  ],
+  "total_benchmarks": 7,
+  "successful": 7
+}
