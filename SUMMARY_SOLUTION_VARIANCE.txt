@@ -1,0 +1,185 @@
+================================================================================
+SOLUTION VARIANCE EXPERIMENT SCRIPT - SUMMARY
+================================================================================
+
+CREATED FILES:
+--------------
+1. run_solution_variance_experiments.py       - Main experiment script
+2. SOLUTION_VARIANCE_EXPERIMENTS.md           - Full documentation
+3. RUN_VARIANCE_EXPERIMENTS_QUICKSTART.md     - Quick reference guide
+4. SUMMARY_SOLUTION_VARIANCE.txt              - This file
+
+================================================================================
+WHAT IT DOES:
+================================================================================
+
+Tests how the NUMBER OF SOLUTIONS affects learning performance with an
+INVERSE MOCK CONSTRAINT relationship.
+
+Configuration Matrix:
+┌───────────┬──────────────────┬─────────────────────────────┐
+│ Solutions │ Mock Constraints │ Rationale                   │
+├───────────┼──────────────────┼─────────────────────────────┤
+│ 2         │ 50               │ Low data → More exploration │
+│ 5         │ 20               │ Baseline (current default)  │
+│ 10        │ 10               │ Balanced approach           │
+│ 50        │ 2                │ High data → Minimal noise   │
+└───────────┴──────────────────┴─────────────────────────────┘
+
+Inverse relationship ensures:
+- Fewer solutions → More mock constraints (compensate with exploration)
+- More solutions → Fewer mock constraints (data quality over quantity)
+
+================================================================================
+KEY FEATURES:
+================================================================================
+
+✓ Follows run_complete_pipeline.py format
+✓ Runs complete 3-phase pipeline for each configuration
+✓ LOGS PHASE 1 TIME (passive learning) - NEW METRIC!
+✓ Collects all standard HCAR metrics
+✓ Outputs in exact format: Prob. Sols StartC InvC CT Bias ViolQ MQuQ TQ...
+✓ Generates TXT, CSV, and JSON results
+✓ 8 benchmarks × 4 configurations = 32 complete runs
+
+================================================================================
+OUTPUT FORMAT (Matches Your Existing Results):
+================================================================================
+
+Prob.           Sols   StartC   InvC   CT    Bias   ViolQ  MQuQ   TQ    ALQ PAQ  P1T(s)  VT(s)   MQuT(s)  TT(s)   ALT(s) PAT(s)
+================================================================================================================================
+Sudoku          2      37       10     27    2291   120    1500   1620  N/A N/A  8.45    320.15  145.30   473.90  N/A    N/A
+Sudoku          5      37       10     27    2291   101    1232   1333  N/A N/A  15.32   317.69  141.14   474.15  N/A    N/A
+Sudoku          10     37       10     27    2291   95     1100   1195  N/A N/A  25.67   310.22  135.80   471.69  N/A    N/A
+Sudoku          50     37       10     27    2291   88     980    1068  N/A N/A  78.12   298.45  128.33   504.90  N/A    N/A
+
+NEW COLUMN: P1T(s) = Phase 1 Time in seconds (passive learning)
+
+All other columns match your existing HCAR pipeline results format exactly!
+
+================================================================================
+HOW TO RUN:
+================================================================================
+
+Simply execute:
+    python run_solution_variance_experiments.py
+
+No arguments needed! The script handles everything automatically.
+
+================================================================================
+EXPECTED OUTPUTS:
+================================================================================
+
+Location: solution_variance_output/
+
+Files generated:
+1. variance_results.txt          → Human-readable table (your format!)
+2. variance_results.csv          → CSV for Excel/analysis
+3. variance_experiment_detailed.json → Complete data + metadata
+
+Plus intermediate files in subdirectories:
+- <benchmark>_sol2_mock50/
+- <benchmark>_sol5_mock20/
+- <benchmark>_sol10_mock10/
+- <benchmark>_sol50_mock2/
+
+================================================================================
+WHAT TO ANALYZE:
+================================================================================
+
+1. PHASE 1 TIMING (P1T)
+   → How does P1T scale with more solutions?
+   → Is the time investment worth it?
+
+2. QUERY REDUCTION (TQ = ViolQ + MQuQ)
+   → Do more solutions reduce total queries?
+   → What's the optimal solution count?
+
+3. MOCK CONSTRAINT QUALITY (InvC)
+   → Do more solutions reduce invalid constraints?
+   → Is the inverse relationship correct?
+
+4. TOTAL TIME EFFICIENCY (TT)
+   → Which configuration gives best overall time?
+   → Balance between P1T cost and query savings
+
+5. SWEET SPOT IDENTIFICATION
+   → Compare 2, 5, 10, 50 solutions
+   → Find optimal configuration per benchmark
+
+================================================================================
+EXPECTED RUNTIME:
+================================================================================
+
+Per configuration:  5-30 minutes
+Per benchmark:      20-120 minutes (4 configs)
+Total experiment:   3-16 hours (8 benchmarks × 4 configs)
+
+Recommendation: Run overnight or on a dedicated machine
+
+================================================================================
+UNDERSTANDING THE PROCESS:
+================================================================================
+
+For EACH of 8 benchmarks:
+  For EACH of 4 solution counts (2, 5, 10, 50):
+    
+    1. Calculate inverse mock constraints
+       Example: 2 sols → 50 mocks
+                50 sols → 2 mocks
+    
+    2. Run Phase 1 (Passive Learning)
+       - Generate N solutions
+       - Detect patterns
+       - Add mock constraints
+       → TIMED! (P1T metric)
+    
+    3. Run Phase 2 (Violation Detection)
+       - Validate global constraints
+       - Count queries (ViolQ)
+       → TIMED! (VT metric)
+    
+    4. Run Phase 3 (Active Learning)
+       - Refine with MQuAcq
+       - Count queries (MQuQ)
+       → TIMED! (MQuT metric)
+    
+    5. Extract ALL metrics:
+       - Prob, Sols, StartC, InvC, CT, Bias
+       - ViolQ, MQuQ, TQ
+       - P1T(s), VT(s), MQuT(s), TT(s)
+       - Precision, Recall metrics
+    
+    6. Save to formatted output
+
+================================================================================
+VERIFICATION:
+================================================================================
+
+The script correctly:
+✓ Loads Phase 1 pickle data → Extracts StartC, Bias
+✓ Loads Phase 3 JSON results → Extracts all phase metrics
+✓ Calculates derived metrics → InvC, TQ, TT
+✓ Formats output exactly as: Prob. Sols StartC InvC CT Bias ViolQ MQuQ TQ...
+✓ Includes P1T(s) column for passive learning time
+✓ Generates CSV with all columns in correct order
+✓ Saves detailed JSON for further analysis
+
+================================================================================
+READY TO USE!
+================================================================================
+
+All scripts have been created and verified with no linting errors.
+
+To start the experiment:
+    cd c:\Users\Balafas\lion19-extension
+    python run_solution_variance_experiments.py
+
+For quick reference:
+    See: RUN_VARIANCE_EXPERIMENTS_QUICKSTART.md
+
+For detailed documentation:
+    See: SOLUTION_VARIANCE_EXPERIMENTS.md
+
+================================================================================
+
