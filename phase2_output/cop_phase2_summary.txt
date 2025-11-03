@@ -1,7 +1,7 @@
 ================================================================================
 PHASE 2 EXPERIMENTS - COMPREHENSIVE SUMMARY
 ================================================================================
-Generated: 2025-11-03T14:24:46.546137
+Generated: 2025-11-03T13:29:54.640079
 Total benchmarks: 4
 ================================================================================
 
@@ -16,9 +16,10 @@ PER-BENCHMARK RESULTS
 
 Benchmark: sudoku
   Status: SUCCESS
+  Approach: cop
   Queries: 101
-  Time: 316.17s
-  Total Duration: 320.02s
+  Time: 323.85s
+  Total Duration: 335.88s
 
   Constraint Learning:
     Target constraints: 27
@@ -33,38 +34,40 @@ Benchmark: sudoku
     Precision: 100.00%
     Recall: 100.00%
 
-  Log file: phase2_output\sudoku_phase2.log
+  Log file: phase2_output\sudoku_cop_phase2.log
 
 --------------------------------------------------------------------------------
 
 Benchmark: sudoku_gt
   Status: COMPLETED
-  Queries: 88
-  Time: 73.94s
-  Total Duration: 75.88s
+  Approach: cop
+  Queries: 180
+  Time: 113.36s
+  Total Duration: 115.98s
 
   Constraint Learning:
     Target constraints: 27
-    Learned constraints: 11
-    Validated: 11
-    Rejected: 29
+    Learned constraints: 12
+    Validated: 12
+    Rejected: 28
 
   Accuracy:
-    Correct: 11
-    Missing: 16
+    Correct: 12
+    Missing: 15
     Spurious: 0
     Precision: 100.00%
-    Recall: 40.74%
+    Recall: 44.44%
 
-  Log file: phase2_output\sudoku_gt_phase2.log
+  Log file: phase2_output\sudoku_gt_cop_phase2.log
 
 --------------------------------------------------------------------------------
 
 Benchmark: examtt_v1
   Status: COMPLETED
+  Approach: cop
   Queries: 1
-  Time: 0.77s
-  Total Duration: 2.64s
+  Time: 0.70s
+  Total Duration: 2.46s
 
   Constraint Learning:
     Target constraints: 7
@@ -78,15 +81,16 @@ Benchmark: examtt_v1
     Spurious: 0
     Recall: 0.00%
 
-  Log file: phase2_output\examtt_v1_phase2.log
+  Log file: phase2_output\examtt_v1_cop_phase2.log
 
 --------------------------------------------------------------------------------
 
 Benchmark: examtt_v2
   Status: COMPLETED
+  Approach: cop
   Queries: 1
-  Time: 2.77s
-  Total Duration: 4.85s
+  Time: 2.45s
+  Total Duration: 4.15s
 
   Constraint Learning:
     Target constraints: 9
@@ -100,7 +104,7 @@ Benchmark: examtt_v2
     Spurious: 0
     Recall: 0.00%
 
-  Log file: phase2_output\examtt_v2_phase2.log
+  Log file: phase2_output\examtt_v2_cop_phase2.log
 
 --------------------------------------------------------------------------------
 
@@ -108,8 +112,8 @@ SUMMARY TABLE
 --------------------------------------------------------------------------------
 Benchmark            Status       Queries    Time(s)    Precision    Recall    
 --------------------------------------------------------------------------------
-sudoku               SUCCESS      101        316.2      100.00%      100.00%   
-sudoku_gt            COMPLETED    88         73.9       100.00%      40.74%    
-examtt_v1            COMPLETED    1          0.8        N/A          0.00%     
-examtt_v2            COMPLETED    1          2.8        N/A          0.00%     
+sudoku               SUCCESS      101        323.9      100.00%      100.00%   
+sudoku_gt            COMPLETED    180        113.4      100.00%      44.44%    
+examtt_v1            COMPLETED    1          0.7        N/A          0.00%     
+examtt_v2            COMPLETED    1          2.5        N/A          0.00%     
 ================================================================================

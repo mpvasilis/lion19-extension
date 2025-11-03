@@ -7,11 +7,7 @@ from cpmpy import *
 from cpmpy import cpm_array
 from cpmpy.transformations.get_variables import get_variables
 from cpmpy.expressions.globalconstraints import AllDifferent
-from pycona import ProblemInstance
 from pycona.utils import get_kappa
-from bayesian_quacq import BayesianQuAcq
-from bayesian_ca_env import BayesianActiveCAEnv
-from enhanced_bayesian_pqgen import EnhancedBayesianPQGen
 from benchmarks_global import construct_sudoku, construct_jsudoku, construct_latin_square
 from benchmarks_global import construct_graph_coloring_register, construct_graph_coloring_scheduling
 from benchmarks_global import construct_sudoku_greater_than
@@ -223,228 +219,258 @@ def generate_violation_query(CG, C_validated, probabilities, all_variables, orac
 
 
 
-def disambiguate_violated_constraints(Viol_e, C_validated, CG, oracle, probabilities, all_variables, 
-                                      alpha, theta_max, theta_min, max_queries_per_constraint=10):
+def cop_refinement_recursive(CG_cand, C_validated, oracle, probabilities, all_variables,
+                             alpha, theta_max, theta_min, max_queries, timeout, 
+                             recursion_depth=0, experiment_name=""):
+    """
+    Recursive COP-based constraint refinement.
     
-    updated_probs = probabilities.copy()
-    to_remove = set()
-    total_disambiguation_queries = 0
+    This is the core refinement algorithm that can be called recursively for disambiguation.
+    When oracle rejects a query violating multiple constraints, we recursively call this
+    on the violated set to determine which constraints are correct.
     
-    for c_target in Viol_e:
-        print(f"\n  Disambiguating constraint: {c_target}")
-        print(f"  Current P(c) = {probabilities[c_target]:.3f}")
-
-
-        init_cl = list(C_validated)
-
-        remaining_cg = [c for c in CG if c not in Viol_e]
-        init_cl.extend(remaining_cg)
-        print(f"  Init CL: {len(C_validated)} validated + {len(remaining_cg)} remaining CG candidates")
-
-        all_vars = get_variables([c_target] + init_cl)
-
-        instance = ProblemInstance(
-            variables=cpm_array(all_vars),
-            init_cl=init_cl,
-            bias=[c_target],  
-            name="isolation_learning"
-        )
-
-        env = BayesianActiveCAEnv(
-            qgen=EnhancedBayesianPQGen(),
-            theta_max=theta_max,
-            theta_min=theta_min,
-            prior=probabilities[c_target],  
-            alpha=alpha
-        )
-
-        env.constraint_probs = {c_target: probabilities[c_target]}
-        env.max_queries = max_queries_per_constraint
-
-        ca_system = BayesianQuAcq(ca_env=env)
-        learned_instance = ca_system.learn(instance, oracle=oracle, verbose=2)
-
-        if hasattr(env, 'metrics') and env.metrics is not None:
-            queries_used_for_this_constraint = env.metrics.membership_queries_count
-        else:
-            queries_used_for_this_constraint = 1  
+    Algorithm Flow:
+    1. Generate violation query that violates subset of CG_cand (minimizing sum of P(c))
+    2. Ask oracle about the query
+    3. If oracle accepts (TRUE):
+         → All violated constraints are INCORRECT (counterexample found)
+         → Remove them and continue
+    4. If oracle rejects (FALSE):
+         → At least one violated constraint is CORRECT
+         → If single constraint: must be correct, validate it
+         → If multiple constraints: RECURSIVELY call this function on violated set
+            to disambiguate which are correct via bisection-like search
+    5. Repeat until budget exhausted or all constraints classified
+    
+    Args:
+        CG_cand: Candidate global constraints to refine
+        C_validated: Already validated constraints (used as hard constraints in COP)
+        oracle: Oracle for membership queries
+        probabilities: Current probability estimates for each constraint
+        all_variables: All problem variables
+        alpha: Bayesian learning rate (decay factor for refutation)
+        theta_max: Acceptance threshold
+        theta_min: Rejection threshold
+        max_queries: Query budget for this call (including recursive calls)
+        timeout: Time budget in seconds
+        recursion_depth: Current recursion depth (for logging/indentation)
+        experiment_name: Name of experiment (for special handling like sudoku display)
+    
+    Returns:
+        C_validated: List of validated constraints
+        CG_remaining: Set of remaining uncertain constraints  
+        probabilities: Updated probability dictionary
+        queries_used: Number of queries consumed
+    """
+    start_time = time.time()
+    queries_used = 0
+    
+    # Make a working copy
+    CG = set(CG_cand) if not isinstance(CG_cand, set) else CG_cand.copy()
+    C_val = list(C_validated)  # Local validated set
+    probs = probabilities.copy()
+    
+    indent = "  " * recursion_depth
+    print(f"\n{indent}{'─'*50}")
+    print(f"{indent}COP Refinement [Depth={recursion_depth}]")
+    print(f"{indent}{'─'*50}")
+    print(f"{indent}Candidates: {len(CG)}, Validated: {len(C_val)}, Budget: {max_queries}q, {timeout}s")
+    
+    iteration = 0
+    consecutive_unsat = 0
+    
+    while True:
+        iteration += 1
         
-        total_disambiguation_queries += queries_used_for_this_constraint
-        print(f"  [Queries for this constraint: {queries_used_for_this_constraint}]")
-
-        if c_target in learned_instance.cl:
-
-
-            updated_probs[c_target] = env.constraint_probs.get(c_target, probabilities[c_target])
-            print(f"  Result: Kept (P={updated_probs[c_target]:.3f})")
+        # Check termination conditions
+        if queries_used >= max_queries:
+            print(f"{indent}[STOP] Query budget exhausted ({queries_used}/{max_queries})")
+            break
         
-        elif c_target not in learned_instance.bias:
-
-            updated_probs[c_target] = env.constraint_probs.get(c_target, probabilities[c_target] * alpha)
-            print(f"  Result: Rejected (P={updated_probs[c_target]:.3f})")
+        if time.time() - start_time > timeout:
+            print(f"{indent}[STOP] Timeout reached")
+            break
+        
+        if not CG:
+            print(f"{indent}[STOP] No more candidates")
+            break
+        
+        # Check if all remaining have high confidence
+        if len(CG) > 0 and min(probs[c] for c in CG) > theta_max:
+            print(f"{indent}[STOP] All remaining P(c) > {theta_max}")
+            for c in CG:
+                C_val.append(c)
+                print(f"{indent}  [ACCEPT] {c} (P={probs[c]:.3f})")
+            CG = set()
+            break
+        
+        print(f"\n{indent}[Iter {iteration}] {len(C_val)} validated, {len(CG)} candidates, {queries_used}q used")
+        
+        # Generate violation query
+        print(f"{indent}[QUERY] Generating violation query...")
+        Y, Viol_e, status = generate_violation_query(CG, C_val, probs, all_variables, oracle)
+        
+        if status == "UNSAT":
+            consecutive_unsat += 1
+            print(f"{indent}[UNSAT] No violation query exists (consecutive: {consecutive_unsat})")
             
-            if updated_probs[c_target] <= theta_min:
-                to_remove.add(c_target)
+            # Accept high-confidence constraints
+            for c in list(CG):
+                if probs[c] >= 0.7:
+                    C_val.append(c)
+                    print(f"{indent}  [ACCEPT] {c} (P={probs[c]:.3f})")
+            
+            CG = {c for c in CG if probs[c] < 0.7}
+            
+            if not CG or consecutive_unsat >= 2:
+                # Final decision on remaining
+                for c in list(CG):
+                    if probs[c] >= 0.5:
+                        C_val.append(c)
+                        print(f"{indent}  [FINAL ACCEPT] {c} (P={probs[c]:.3f})")
+                    else:
+                        print(f"{indent}  [FINAL REJECT] {c} (P={probs[c]:.3f})")
+                break
+            
+            continue
+        
+        consecutive_unsat = 0
+        
+        print(f"{indent}Generated query violating {len(Viol_e)} constraints")
+        for c in Viol_e:
+            print(f"{indent}  - {c} (P={probs[c]:.3f})")
+        
+        # Display grid for sudoku if at top level
+        if recursion_depth == 0 and 'sudoku' in experiment_name.lower() and len(all_variables) == 81:
+            try:
+                display_sudoku_grid(Y, title=f"{indent}Violation Query Assignment", debug=False)
+            except Exception as e:
+                print(f"{indent}Error displaying grid: {e}")
+        
+        # Ask oracle
+        print(f"{indent}[ORACLE] Asking...")
+        answer = oracle.answer_membership_query(Y)
+        queries_used += 1
+        
+        if answer == True:
+            # Counterexample: all violated constraints are incorrect
+            print(f"{indent}Oracle: YES (valid) → Remove all {len(Viol_e)} violated constraints")
+            for c in Viol_e:
+                if c in CG:
+                    CG.remove(c)
+                    probs[c] *= alpha  # Penalize
+                    print(f"{indent}  [REMOVE] {c} (P={probs[c]:.3f})")
+        
         else:
-
-            updated_probs[c_target] = env.constraint_probs.get(c_target, probabilities[c_target])
-            print(f"  Result: Uncertain (P={updated_probs[c_target]:.3f})")
+            # Oracle: NO (invalid) → At least one violated constraint is correct
+            print(f"{indent}Oracle: NO (invalid) → Disambiguate {len(Viol_e)} violated constraints")
+            
+            if len(Viol_e) == 1:
+                # Only one violated: must be correct
+                c = list(Viol_e)[0]
+                print(f"{indent}  [SINGLE VIOLATION] Must be correct: {c}")
+                probs[c] = update_supporting_evidence(probs[c], alpha)
+                if c in CG:
+                    CG.remove(c)
+                    C_val.append(c)
+                print(f"{indent}  [VALIDATE] {c} (P={probs[c]:.3f})")
+            
+            else:
+                # Multiple violated: recursive disambiguation
+                print(f"{indent}[DISAMBIGUATE] Recursively refining {len(Viol_e)} constraints...")
+                
+                # Budget for recursive call (fraction of remaining budget)
+                recursive_budget = min(max_queries - queries_used, max(10, (max_queries - queries_used) // 2))
+                recursive_timeout = max(10, (timeout - (time.time() - start_time)) / 2)
+                
+                print(f"{indent}  Recursive budget: {recursive_budget}q, {recursive_timeout:.0f}s")
+                
+                # Recursive call with violated constraints as new candidates
+                C_val_recursive, CG_remaining_recursive, probs_recursive, queries_recursive = \
+                    cop_refinement_recursive(
+                        CG_cand=list(Viol_e),
+                        C_validated=C_val,  # Pass current validated as context
+                        oracle=oracle,
+                        probabilities=probs,
+                        all_variables=all_variables,
+                        alpha=alpha,
+                        theta_max=theta_max,
+                        theta_min=theta_min,
+                        max_queries=recursive_budget,
+                        timeout=recursive_timeout,
+                        recursion_depth=recursion_depth + 1,
+                        experiment_name=experiment_name
+                    )
+                
+                queries_used += queries_recursive
+                print(f"{indent}[DISAMBIGUATE] Recursive call used {queries_recursive}q")
+                
+                # Update probabilities from recursive call
+                for c in Viol_e:
+                    if c in probs_recursive:
+                        probs[c] = probs_recursive[c]
+                
+                # Process results
+                ToValidate = [c for c in C_val_recursive if c in Viol_e and c not in C_val]
+                ToRemove = [c for c in Viol_e if c not in C_val_recursive and c in CG_remaining_recursive and probs[c] <= theta_min]
+                
+                print(f"{indent}[DISAMBIGUATE] Results: {len(ToValidate)} validated, {len(ToRemove)} removed")
+                
+                # Apply results
+                for c in ToValidate:
+                    if c in CG:
+                        CG.remove(c)
+                        C_val.append(c)
+                    print(f"{indent}  [VALIDATE] {c} (P={probs[c]:.3f})")
+                
+                for c in ToRemove:
+                    if c in CG:
+                        CG.remove(c)
+                    print(f"{indent}  [REMOVE] {c} (P={probs[c]:.3f})")
     
-    print(f"\n[DISAMBIGUATION] Total queries used: {total_disambiguation_queries}")
-    return updated_probs, to_remove, total_disambiguation_queries
+    duration = time.time() - start_time
+    print(f"\n{indent}{'─'*50}")
+    print(f"{indent}Refinement [Depth={recursion_depth}] Complete")
+    print(f"{indent}Validated: {len(C_val)}, Remaining: {len(CG)}, Queries: {queries_used}, Time: {duration:.2f}s")
+    print(f"{indent}{'─'*50}")
+    
+    return C_val, CG, probs, queries_used
 
 
 def cop_based_refinement(experiment_name, oracle, candidate_constraints, initial_probabilities,
                          variables, alpha=0.42, theta_max=0.9, theta_min=0.1, 
                          max_queries=500, timeout=600):
+    """
+    Wrapper function for the recursive COP-based refinement.
     
+    Implements Algorithm: COP-Based Interactive Refinement with Disambiguation.
+    Uses recursive COP refinement for principled disambiguation instead of 
+    hard-coded engineering approaches.
+    """
     start_time = time.time()
-    queries_used = 0
-
-
-    CG = set(candidate_constraints) if not isinstance(candidate_constraints, set) else candidate_constraints.copy()
-    probabilities = initial_probabilities.copy()
-    C_validated = []
     
     print(f"\n{'='*60}")
     print(f"COP-Based Refinement for {experiment_name}")
     print(f"{'='*60}")
-    print(f"Initial candidate constraints: {len(CG)}")
+    print(f"Initial candidate constraints: {len(candidate_constraints)}")
     print(f"Parameters: alpha={alpha}, theta_max={theta_max}, theta_min={theta_min}")
     print(f"Budget: {max_queries} queries, {timeout}s timeout\n")
     
-    iteration = 0
-    consecutive_unsat = 0  
-    
-    while True:
-
-        iteration += 1
-        print(f"\n{'-'*60}")
-        print(f"Iteration {iteration}")
-        print(f"{'-'*60}")
-
-        if queries_used >= max_queries:
-            print(f" Reached maximum query budget ({max_queries})")
-            break
-        
-        if time.time() - start_time > timeout:
-            print(f" Timeout ({timeout}s) reached")
-            break
-        
-        if not CG:
-            print(f" No more candidate constraints")
-            break
-        
-        if len(CG) > 0 and min(probabilities[c] for c in CG) > theta_max:
-            print(f" All remaining constraints have P(c) > {theta_max}")
-
-            for c in CG:
-                C_validated.append(c)
-                print(f"  Accepted: {c} (P={probabilities[c]:.3f})")
-            CG = set()  
-            break
-        
-        print(f"Status: {len(C_validated)} validated, {len(CG)} candidates, {queries_used} queries used")
-
-        print(f"\n[QUERY] Generating violation query...")
-        Y, Viol_e, status = generate_violation_query(CG, C_validated, probabilities, variables, oracle)
-        
-        if status == "UNSAT":
-            consecutive_unsat += 1
-            print(f"[UNSAT] Cannot generate violation query for remaining {len(CG)} constraints")
-            print(f"[DECISION] Accepting remaining constraints as likely correct or implied")
-
-            for c in list(CG):
-                if probabilities[c] >= 0.7:  
-                    C_validated.append(c)
-                    print(f"  [ACCEPT] {c} (P={probabilities[c]:.3f})")
-                else:
-                    print(f"  [UNCERTAIN] {c} (P={probabilities[c]:.3f}) - keeping in candidates")
-            
-            CG = {c for c in CG if probabilities[c] < 0.7}  
-            
-            if not CG:
-                break
-
-            if consecutive_unsat >= 2:
-                print(f" Multiple consecutive UNSAT results - accepting/rejecting remaining constraints")
-                for c in list(CG):
-                    if probabilities[c] >= 0.5:  
-                        C_validated.append(c)
-                        print(f"  [FINAL ACCEPT] {c} (P={probabilities[c]:.3f})")
-                    else:
-                        print(f"  [FINAL REJECT] {c} (P={probabilities[c]:.3f}) - too uncertain")
-                break
-            else:
-                print(f"[CONTINUE] {len(CG)} uncertain constraints remaining (UNSAT count: {consecutive_unsat})")
-
-                continue  
-
-        consecutive_unsat = 0
-        
-        print(f"Generated query violating {len(Viol_e)} constraints")
-        for c in Viol_e:
-            print(f"  - {c} (P={probabilities[c]:.3f})")
-
-        if 'sudoku' in experiment_name.lower() and len(variables) == 81:
-            try:
-                display_sudoku_grid(Y, title="Violation Query Assignment", debug=False)
-            except Exception as e:
-                print(f"Error displaying Sudoku grid: {e}")
-                print(Y)
-
-        print(f"\n[ORACLE] Asking oracle...")
-        print(f"[DEBUG] Oracle has {len(oracle.constraints)} total constraints")
-        print(f"[DEBUG] CG has {len(CG)} AllDifferent constraints")
-        print(f"[DEBUG] Violation query violates {len(Viol_e)} constraints from CG")
-        
-        # Check if Y violates ANY oracle constraints (not just CG)
-        all_violated = get_kappa(oracle.constraints, Y)
-        print(f"[DEBUG] Violation query violates {len(all_violated)} constraints from FULL oracle")
-        if len(all_violated) > len(Viol_e):
-            print(f"[WARNING] Query violates {len(all_violated) - len(Viol_e)} additional constraints beyond CG!")
-        
-        answer = oracle.answer_membership_query(Y)
-        queries_used += 1
-        print(f"[DEBUG] Oracle returned: {answer}")
-        
-        if answer == True:
-            print(f"Oracle: Yes (valid assignment)")
-            print(f"{len(Viol_e)} constraints violated by valid solution - deleting all violated constraints")
-
-            # Remove all violated constraints without disambiguation
-            CG = set(CG)
-            for c in Viol_e:
-                if c in CG:
-                    CG.remove(c)
-                    print(f"  [REMOVE] Removed: {c} (P={probabilities[c]:.3f})")
-        
-        else:  
-            print(f"Oracle: No (invalid assignment)")
-            print(f"{len(Viol_e)} constraints violated - entering disambiguation")
-
-            # Disambiguation phase
-            probabilities, to_remove, disambiguation_queries = disambiguate_violated_constraints(
-                Viol_e, C_validated, CG, oracle, probabilities, variables, 
-                alpha, theta_max, theta_min,
-                max_queries_per_constraint=10  
-            )
-
-            queries_used += disambiguation_queries
-            print(f"[QUERIES] Main loop: {queries_used - disambiguation_queries}, Disambiguation: {disambiguation_queries}, Total so far: {queries_used}")
-
-            CG = set(CG)
-            for c in to_remove:
-                if c in CG:
-                    CG.remove(c)
-                    print(f"  [REMOVE] Removed: {c} (P={probabilities[c]:.3f})")
-
-            # Accept constraints that met threshold during disambiguation
-            for c in Viol_e:
-                if c not in to_remove and c in CG and probabilities[c] >= theta_max:
-                    C_validated.append(c)
-                    CG.remove(c)
-                    print(f"  [ACCEPT] Accepted: {c} (P={probabilities[c]:.3f} >= {theta_max})")
+    # Call the recursive refinement function
+    C_validated, CG_remaining, probabilities_final, queries_used = cop_refinement_recursive(
+        CG_cand=candidate_constraints,
+        C_validated=[],
+        oracle=oracle,
+        probabilities=initial_probabilities,
+        all_variables=variables,
+        alpha=alpha,
+        theta_max=theta_max,
+        theta_min=theta_min,
+        max_queries=max_queries,
+        timeout=timeout,
+        recursion_depth=0,
+        experiment_name=experiment_name
+    )
     
     end_time = time.time()
     total_duration = end_time - start_time
@@ -454,17 +480,24 @@ def cop_based_refinement(experiment_name, oracle, candidate_constraints, initial
     print(f"{'='*60}")
     print(f"Validated constraints: {len(C_validated)}")
     print(f"Rejected constraints: {len(candidate_constraints) - len(C_validated)}")
+    print(f"Uncertain/remaining: {len(CG_remaining)}")
     print(f"Total queries: {queries_used}")
     print(f"Total time: {total_duration:.2f}s")
     print(f"\nValidated constraints:")
     for c in C_validated:
         print(f"  [OK] {c}")
     
+    if CG_remaining:
+        print(f"\nRemaining uncertain constraints:")
+        for c in CG_remaining:
+            print(f"  [?] {c} (P={probabilities_final.get(c, 0.5):.3f})")
+    
     stats = {
         'queries': queries_used,
         'time': total_duration,
         'validated': len(C_validated),
-        'rejected': len(candidate_constraints) - len(C_validated)
+        'rejected': len(candidate_constraints) - len(C_validated) - len(CG_remaining),
+        'uncertain': len(CG_remaining)
     }
     
     return C_validated, stats
@@ -756,3 +789,4 @@ if __name__ == "__main__":
     
     print(f"\n Phase 2 outputs saved to: {phase2_pickle_path}")
     print(f"  - Validated constraints: {len(C_validated)}")
+

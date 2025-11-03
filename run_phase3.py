@@ -11,6 +11,7 @@ from cpmpy import cpm_array
 from cpmpy.transformations.get_variables import get_variables
 from pycona import MQuAcq2, ProblemInstance
 from pycona.ca_environment import ActiveCAEnv
+from pycona.query_generation import PQGen
 
 from resilient_findc import ResilientFindC
 from resilient_mquacq2 import ResilientMQuAcq2
@@ -332,8 +333,9 @@ def run_phase3(experiment_name, phase2_pickle_path, max_queries=1000, timeout=60
     print(f"  Bias: {len(mquacq_instance.bias)}")
     
     print(f"\n[INFO] Using MQuAcq-2 to handle imperfect bias")
-    resilient_findc = ResilientFindC()
-    custom_env = ActiveCAEnv(findc=resilient_findc)
+    resilient_findc = ResilientFindC(time_limit=1)  # Set FindC solver timeout to 5 seconds
+    qgen = PQGen(time_limit=2)  # Set query generator solver timeout to 5 seconds
+    custom_env = ActiveCAEnv(qgen=qgen, findc=resilient_findc)
     ca_system = ResilientMQuAcq2(ca_env=custom_env)
     
     phase3_start = time.time()
