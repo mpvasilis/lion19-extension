@@ -34,8 +34,8 @@ def run_phase2(experiment, phase1_pickle):
         'python', 'main_alldiff_cop.py',
         '--experiment', experiment,
         '--phase1_pickle', phase1_pickle,
-        '--max_queries', '500',
-        '--timeout', '600'
+        '--max_queries', '5000',
+        '--timeout', '1200'
     ]
     
     return run_command(cmd, f"Phase 2: {experiment}")

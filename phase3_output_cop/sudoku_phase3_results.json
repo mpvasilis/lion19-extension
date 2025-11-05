@@ -1,0 +1,242 @@
+{
+  "experiment": "sudoku",
+  "timestamp": "2025-11-04T17:44:16.093696",
+  "phase1": {
+    "queries": 0,
+    "time": 0,
+    "E_plus_size": 50,
+    "B_fixed_size": 821
+  },
+  "phase2": {
+    "queries": 57,
+    "time": 1227.8087921142578,
+    "validated_globals": 2,
+    "validated_globals_list": [
+      "alldifferent(grid[0,4],grid[1,4],grid[2,4],grid[3,4],grid[4,4],grid[5,4],grid[6,4],grid[7,4],grid[8,4])",
+      "alldifferent(grid[0,5],grid[1,5],grid[2,5],grid[3,5],grid[4,5],grid[5,5],grid[6,5],grid[7,5],grid[8,5])"
+    ]
+  },
+  "phase3": {
+    "queries": 274,
+    "time": 12.041360139846802,
+    "initial_cl": 72,
+    "pruned_bias": 749,
+    "final_model_size": 76,
+    "resilience": {
+      "findc": {
+        "collapse_warnings": 35,
+        "unresolved_scopes": 35,
+        "unresolved_details": [
+          {
+            "scope": "[grid[2,2], grid[2,1]]",
+            "target": "[]"
+          },
+          {
+            "scope": "[grid[7,0], grid[8,0]]",
+            "target": "[]"
+          },
+          {
+            "scope": "[grid[4,2], grid[5,2]]",
+            "target": "[]"
+          },
+          {
+            "scope": "[grid[4,3], grid[5,3]]",
+            "target": "[]"
+          },
+          {
+            "scope": "[grid[7,3], grid[8,3]]",
+            "target": "[]"
+          },
+          {
+            "scope": "[grid[2,8], grid[2,7]]",
+            "target": "[]"
+          },
+          {
+            "scope": "[grid[7,6], grid[8,6]]",
+            "target": "[]"
+          },
+          {
+            "scope": "[grid[8,7], grid[4,7]]",
+            "target": "[]"
+          },
+          {
+            "scope": "[grid[4,8], grid[5,8]]",
+            "target": "[]"
+          },
+          {
+            "scope": "[grid[2,2], grid[1,1]]",
+            "target": "[]"
+          },
+          {
+            "scope": "[grid[7,0]]",
+            "target": "[]"
+          },
+          {
+            "scope": "[grid[5,2]]",
+            "target": "[]"
+          },
+          {
+            "scope": "[grid[5,3]]",
+            "target": "[]"
+          },
+          {
+            "scope": "[grid[4,3], grid[8,3]]",
+            "target": "[]"
+          },
+          {
+            "scope": "[grid[3,6], grid[8,6]]",
+            "target": "[]"
+          },
+          {
+            "scope": "[grid[8,7], grid[6,7]]",
+            "target": "[]"
+          },
+          {
+            "scope": "[grid[5,1], grid[1,5]]",
+            "target": "[]"
+          },
+          {
+            "scope": "[grid[4,7], grid[3,8]]",
+            "target": "[]"
+          },
+          {
+            "scope": "[grid[3,6], grid[2,6]]",
+            "target": "[]"
+          },
+          {
+            "scope": "[grid[2,2], grid[8,2]]",
+            "target": "[]"
+          },
+          {
+            "scope": "[grid[7,8], grid[8,7]]",
+            "target": "[]"
+          },
+          {
+            "scope": "[grid[4,3]]",
+            "target": "[]"
+          },
+          {
+            "scope": "[grid[3,4]]",
+            "target": "[]"
+          },
+          {
+            "scope": "[grid[0,0]]",
+            "target": "[]"
+          },
+          {
+            "scope": "[grid[8,5]]",
+            "target": "[]"
+          },
+          {
+            "scope": "[grid[5,8]]",
+            "target": "[]"
+          },
+          {
+            "scope": "[grid[2,4]]",
+            "target": "[]"
+          },
+          {
+            "scope": "[grid[4,5], grid[4,1]]",
+            "target": "[]"
+          },
+          {
+            "scope": "[grid[7,1]]",
+            "target": "[]"
+          },
+          {
+            "scope": "[grid[0,2], grid[1,2]]",
+            "target": "[]"
+          },
+          {
+            "scope": "[grid[6,6]]",
+            "target": "[]"
+          },
+          {
+            "scope": "[grid[8,5]]",
+            "target": "[]"
+          },
+          {
+            "scope": "[grid[6,3]]",
+            "target": "[]"
+          },
+          {
+            "scope": "[grid[2,2], grid[2,4]]",
+            "target": "[]"
+          },
+          {
+            "scope": "[grid[6,3]]",
+            "target": "[]"
+          }
+        ]
+      },
+      "mquacq2": {
+        "skipped_scopes_count": 35,
+        "skipped_scopes": [
+          "[grid[2,2], grid[2,1]]",
+          "[grid[7,0], grid[8,0]]",
+          "[grid[4,2], grid[5,2]]",
+          "[grid[4,3], grid[5,3]]",
+          "[grid[7,3], grid[8,3]]",
+          "[grid[2,8], grid[2,7]]",
+          "[grid[7,6], grid[8,6]]",
+          "[grid[8,7], grid[4,7]]",
+          "[grid[4,8], grid[5,8]]",
+          "[grid[2,2], grid[1,1]]",
+          "[grid[7,0]]",
+          "[grid[5,2]]",
+          "[grid[5,3]]",
+          "[grid[4,3], grid[8,3]]",
+          "[grid[3,6], grid[8,6]]",
+          "[grid[8,7], grid[6,7]]",
+          "[grid[5,1], grid[1,5]]",
+          "[grid[4,7], grid[3,8]]",
+          "[grid[3,6], grid[2,6]]",
+          "[grid[2,2], grid[8,2]]",
+          "[grid[7,8], grid[8,7]]",
+          "[grid[4,3]]",
+          "[grid[3,4]]",
+          "[grid[0,0]]",
+          "[grid[8,5]]",
+          "[grid[5,8]]",
+          "[grid[2,4]]",
+          "[grid[4,5], grid[4,1]]",
+          "[grid[7,1]]",
+          "[grid[0,2], grid[1,2]]",
+          "[grid[6,6]]",
+          "[grid[8,5]]",
+          "[grid[6,3]]",
+          "[grid[2,2], grid[2,4]]",
+          "[grid[6,3]]"
+        ]
+      },
+      "total_issues": 70
+    }
+  },
+  "total": {
+    "queries": 331,
+    "time": 1239.8501522541046
+  },
+  "evaluation": {
+    "constraint_level": {
+      "target_size": 27,
+      "learned_size": 76,
+      "correct": 0,
+      "missing": 27,
+      "spurious": 76,
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0
+    },
+    "solution_level": {
+      "s_precision": 0.0,
+      "s_recall": 0.0,
+      "s_f1": 0.0,
+      "learned_solutions": 1,
+      "target_solutions": 3,
+      "intersection_solutions": 0,
+      "is_complete": false,
+      "learned_incomplete": true,
+      "target_incomplete": true
+    }
+  }
+}

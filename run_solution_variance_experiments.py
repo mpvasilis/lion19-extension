@@ -1,15 +1,19 @@
 """
-Solution Variance Experiments
-==============================
+Solution Variance Experiments - COP vs LION Comparison
+=======================================================
 This script runs experiments with varying numbers of solutions and inversely 
-proportional mock constraints. As the number of solutions increases, the number 
-of mock constraints decreases.
+proportional mock constraints, comparing both COP and LION approaches.
+As the number of solutions increases, the number of mock constraints decreases.
 
 Configurations:
 - 2 solutions  -> 50 mock constraints
 - 5 solutions  -> 20 mock constraints  
 - 10 solutions -> 10 mock constraints
 - 50 solutions -> 2 mock constraints
+
+Each configuration is tested with both:
+- COP approach (main_alldiff_cop.py)
+- LION approach (main_alldiff_lion19.py)
 """
 
 import os
@@ -17,8 +21,11 @@ import sys
 import json
 import time
 import pickle
+import shutil
 import subprocess
 from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from threading import Lock
 
 # Benchmark display names for formatted output
 BENCHMARK_DISPLAY_NAMES = {
@@ -97,40 +104,90 @@ def run_phase1_with_timing(experiment, num_examples, num_overfitted, output_dir=
         return False, None, elapsed_time
 
 
-def run_phase2(experiment, phase1_pickle, max_queries=500, timeout=600):
-    """Run Phase 2 with the given Phase 1 pickle."""
+def run_phase2(experiment, phase1_pickle, approach='cop', max_queries=5000, timeout=1200):
+    """Run Phase 2 with the given Phase 1 pickle using specified approach (cop or lion)."""
+    
+    # Select the appropriate script based on approach
+    script_map = {
+        'cop': 'main_alldiff_cop.py',
+        'lion': 'main_alldiff_lion19.py'
+    }
+    
+    script = script_map.get(approach.lower(), 'main_alldiff_cop.py')
+    
+    # Different scripts output different filenames
+    # COP outputs: {experiment}_phase2.pkl
+    # LION outputs: {experiment}_lion19_phase2.pkl
+    filename_map = {
+        'cop': f"{experiment}_phase2.pkl",
+        'lion': f"{experiment}_lion19_phase2.pkl"
+    }
     
     cmd = [
-        'python', 'main_alldiff_cop.py',
+        'python', script,
         '--experiment', experiment,
         '--phase1_pickle', phase1_pickle,
         '--max_queries', str(max_queries),
         '--timeout', str(timeout)
     ]
     
-    success, _ = run_command(cmd, f"Phase 2: {experiment}")
+    success, _ = run_command(cmd, f"Phase 2 ({approach.upper()}): {experiment}")
     
     if success:
-        # Derive phase2 pickle path from phase1 pickle path
-        phase1_dir = os.path.dirname(phase1_pickle)
-        phase2_pickle = phase1_pickle.replace('_phase1.pkl', '_phase2.pkl')
-        # Phase 2 outputs to phase2_output by default, need to adjust
-        phase2_pickle = f"phase2_output/{experiment}_phase2.pkl"
-        return True, phase2_pickle
+        # Both scripts output to "phase2_output" directory
+        default_output = "phase2_output"
+        source_pickle = os.path.join(default_output, filename_map[approach.lower()])
+        
+        # Move to approach-specific directory for organization
+        target_dir = f"phase2_output_{approach.lower()}"
+        os.makedirs(target_dir, exist_ok=True)
+        target_pickle = os.path.join(target_dir, filename_map[approach.lower()])
+        
+        # Move the file
+        if os.path.exists(source_pickle):
+            shutil.move(source_pickle, target_pickle)
+            print(f"\n[INFO] Moved {source_pickle} to {target_pickle}")
+            return True, target_pickle
+        else:
+            print(f"\n[WARNING] Expected output file not found: {source_pickle}")
+            return True, source_pickle
     else:
         return False, None
 
 
-def run_phase3(experiment, phase2_pickle):
+def run_phase3(experiment, phase2_pickle, approach='cop'):
     """Run Phase 3 with the given Phase 2 pickle."""
     
     cmd = [
         'python', 'run_phase3.py',
         '--experiment', experiment,
-        '--phase2_pickle', phase2_pickle,
+        '--phase2_pickle', phase2_pickle
     ]
     
-    success, _ = run_command(cmd, f"Phase 3: {experiment}")
+    success, _ = run_command(cmd, f"Phase 3 ({approach.upper()}): {experiment}")
+    
+    if success:
+        # Phase 3 outputs to "phase3_output" directory by default
+        default_output = "phase3_output"
+        
+        # Move outputs to approach-specific directory
+        target_dir = f"phase3_output_{approach.lower()}"
+        os.makedirs(target_dir, exist_ok=True)
+        
+        # Files to move
+        results_json = f"{experiment}_phase3_results.json"
+        final_model_pkl = f"{experiment}_final_model.pkl"
+        
+        for filename in [results_json, final_model_pkl]:
+            source = os.path.join(default_output, filename)
+            target = os.path.join(target_dir, filename)
+            
+            if os.path.exists(source):
+                shutil.move(source, target)
+                print(f"[INFO] Moved {source} to {target}")
+            else:
+                print(f"[WARNING] Expected file not found: {source}")
+    
     return success
 
 
@@ -146,9 +203,10 @@ def load_phase1_pickle(pickle_path):
         return None
 
 
-def load_phase3_results(benchmark_name):
-    """Load Phase 3 JSON results."""
-    json_path = f"phase3_output/{benchmark_name}_phase3_results.json"
+def load_phase3_results(benchmark_name, approach='cop'):
+    """Load Phase 3 JSON results from approach-specific directory."""
+    output_dir = f"phase3_output_{approach.lower()}"
+    json_path = f"{output_dir}/{benchmark_name}_phase3_results.json"
     if not os.path.exists(json_path):
         return None
     try:
@@ -159,7 +217,7 @@ def load_phase3_results(benchmark_name):
         return None
 
 
-def extract_metrics(benchmark_name, num_solutions, phase1_pickle_path, phase1_time):
+def extract_metrics(benchmark_name, num_solutions, phase1_pickle_path, phase1_time, approach='cop'):
     """Extract all metrics from phase outputs for the results table."""
     
     # Load Phase 1 data
@@ -167,8 +225,8 @@ def extract_metrics(benchmark_name, num_solutions, phase1_pickle_path, phase1_ti
     if phase1_data is None:
         return None
     
-    # Load Phase 3 results
-    phase3_results = load_phase3_results(benchmark_name)
+    # Load Phase 3 results from approach-specific directory
+    phase3_results = load_phase3_results(benchmark_name, approach=approach)
     if phase3_results is None:
         return None
     
@@ -176,6 +234,9 @@ def extract_metrics(benchmark_name, num_solutions, phase1_pickle_path, phase1_ti
     
     # Problem name
     metrics['Prob.'] = BENCHMARK_DISPLAY_NAMES.get(benchmark_name, benchmark_name)
+    
+    # Approach (COP or LION)
+    metrics['Approach'] = approach.upper()
     
     # Number of solutions
     metrics['Sols'] = num_solutions
@@ -250,117 +311,144 @@ def calculate_mock_constraints(num_solutions):
     return mapping.get(num_solutions, 10)  # Default to 10 if not in mapping
 
 
-def main():
-    """Run the complete solution variance experiment."""
+def process_benchmark_config(benchmark, num_solutions, approaches):
+    """
+    Worker function to process a single benchmark configuration.
+    Runs Phase 1 once, then both COP and LION approaches.
+    Returns list of metrics collected.
+    """
+    num_mocks = calculate_mock_constraints(num_solutions)
     
     print(f"\n{'='*80}")
-    print(f"SOLUTION VARIANCE EXPERIMENTS")
+    print(f"[THREAD] Processing: {benchmark} | Solutions={num_solutions}, Mocks={num_mocks}")
+    print(f"{'='*80}\n")
+    
+    config_metrics = []
+    
+    # Run Phase 1 once (shared for both approaches)
+    phase1_success, phase1_pickle, phase1_time = run_phase1_with_timing(
+        benchmark, num_solutions, num_mocks
+    )
+    
+    if not phase1_success:
+        print(f"\n[THREAD ERROR] Phase 1 failed for {benchmark} with {num_solutions} solutions")
+        return config_metrics
+    
+    # Run both COP and LION approaches for this configuration
+    for approach in approaches:
+        print(f"\n{'-'*60}")
+        print(f"[THREAD] Running {approach.upper()} approach for {benchmark}")
+        print(f"{'-'*60}\n")
+        
+        # Run Phase 2 with the specified approach
+        phase2_success, phase2_pickle = run_phase2(benchmark, phase1_pickle, approach=approach)
+        
+        if not phase2_success:
+            print(f"\n[THREAD ERROR] Phase 2 ({approach.upper()}) failed for {benchmark}")
+            continue
+        
+        # Run Phase 3 with the specified approach
+        phase3_success = run_phase3(benchmark, phase2_pickle, approach=approach)
+        
+        if not phase3_success:
+            print(f"\n[THREAD ERROR] Phase 3 ({approach.upper()}) failed for {benchmark}")
+            continue
+        
+        # Extract metrics if all phases succeeded
+        metrics = extract_metrics(benchmark, num_solutions, phase1_pickle, phase1_time, approach=approach)
+        if metrics:
+            config_metrics.append(metrics)
+            print(f"\n[THREAD SUCCESS] Extracted metrics for {benchmark} | Solutions={num_solutions} | {approach.upper()}")
+        else:
+            print(f"\n[THREAD WARNING] Could not extract metrics for {benchmark} | Solutions={num_solutions} | {approach.upper()}")
+    
+    return config_metrics
+
+
+def main():
+    """Run the complete solution variance experiment with parallel execution."""
+    
+    print(f"\n{'='*80}")
+    print(f"SOLUTION VARIANCE EXPERIMENTS - COP vs LION COMPARISON (PARALLEL)")
     print(f"{'='*80}")
     print(f"Starting at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"\nConfiguration:")
     print(f"  Solutions: [2, 5, 10, 50]")
     print(f"  Mock Constraints (inverse): [50, 20, 10, 2]")
+    print(f"  Approaches: [COP, LION]")
+    print(f"  Parallel threads: 4")
+    print(f"  Note: Each thread runs Phase 1 once, then both COP and LION for Phase 2+3")
     print(f"{'='*80}\n")
     
     # Define benchmarks to test
     benchmarks = [
-        # 'sudoku',
-        # 'sudoku_gt',
-        'jsudoku',
-        # 'latin_square',
-        # 'graph_coloring_register',
-        # 'examtt_v1',
-        # 'examtt_v2',
-        # 'nurse'
+        'sudoku',
+        'sudoku_gt',
+        'latin_square',
+        'graph_coloring_register',
+        'examtt_v1',
+        'examtt_v2',
+        'nurse',
+        # 'jsudoku',
     ]
     
     # Define solution variance configurations
     solution_configs = [2, 5, 10, 50]
     
-    # Results storage
-    all_results = []
+    # Define approaches to compare
+    approaches = ['cop', 'lion']
     
-    # Storage for collected metrics
+    # Storage for collected metrics (thread-safe)
     all_metrics = []
+    metrics_lock = Lock()
     
-    # Run experiments for each benchmark and configuration
+    # Create list of all tasks (benchmark, solution_config combinations)
+    tasks = []
     for benchmark in benchmarks:
-        print(f"\n\n{'='*80}")
-        print(f"BENCHMARK: {benchmark}")
-        print(f"{'='*80}\n")
-        
-        benchmark_results = {
-            'benchmark': benchmark,
-            'configurations': []
+        for num_solutions in solution_configs:
+            tasks.append((benchmark, num_solutions, approaches))
+    
+    print(f"Total tasks to process: {len(tasks)}")
+    print(f"Each task will run Phase 1 + COP (Phase 2+3) + LION (Phase 2+3)")
+    print(f"Processing with 4 parallel threads...\n")
+    
+    # Process tasks in parallel using ThreadPoolExecutor
+    completed_tasks = 0
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        # Submit all tasks
+        future_to_task = {
+            executor.submit(process_benchmark_config, benchmark, num_sols, approaches): (benchmark, num_sols)
+            for benchmark, num_sols, approaches in tasks
         }
         
-        for num_solutions in solution_configs:
-            num_mocks = calculate_mock_constraints(num_solutions)
+        # Process completed tasks as they finish
+        for future in as_completed(future_to_task):
+            benchmark, num_sols = future_to_task[future]
+            completed_tasks += 1
             
-            print(f"\n{'-'*80}")
-            print(f"Configuration: {num_solutions} solutions, {num_mocks} mock constraints")
-            print(f"{'-'*80}\n")
-            
-            config_result = {
-                'num_solutions': num_solutions,
-                'num_mock_constraints': num_mocks,
-                'phase1_success': False,
-                'phase1_time': None,
-                'phase1_pickle': None,
-                'phase2_success': False,
-                'phase3_success': False,
-                'error': None
-            }
-            
-            # Run Phase 1 with timing
-            phase1_success, phase1_pickle, phase1_time = run_phase1_with_timing(
-                benchmark, num_solutions, num_mocks
-            )
-            
-            config_result['phase1_success'] = phase1_success
-            config_result['phase1_time'] = phase1_time
-            config_result['phase1_pickle'] = phase1_pickle
-            
-            if not phase1_success:
-                config_result['error'] = 'Phase 1 failed'
-                benchmark_results['configurations'].append(config_result)
-                continue
-            
-            # Run Phase 2
-            phase2_success, phase2_pickle = run_phase2(benchmark, phase1_pickle)
-            config_result['phase2_success'] = phase2_success
-            
-            if not phase2_success:
-                config_result['error'] = 'Phase 2 failed'
-                benchmark_results['configurations'].append(config_result)
-                continue
-            
-            # Run Phase 3
-            phase3_success = run_phase3(benchmark, phase2_pickle)
-            config_result['phase3_success'] = phase3_success
-            
-            if not phase3_success:
-                config_result['error'] = 'Phase 3 failed'
-                benchmark_results['configurations'].append(config_result)
-                continue
-            
-            # Extract metrics if all phases succeeded
-            metrics = extract_metrics(benchmark, num_solutions, phase1_pickle, phase1_time)
-            if metrics:
-                all_metrics.append(metrics)
-                print(f"\n[METRICS] Successfully extracted metrics for {benchmark} with {num_solutions} solutions")
-            else:
-                print(f"\n[WARNING] Could not extract metrics for {benchmark} with {num_solutions} solutions")
-            
-            benchmark_results['configurations'].append(config_result)
-            
-            print(f"\n[SUMMARY] Configuration complete:")
-            print(f"  Solutions: {num_solutions}, Mocks: {num_mocks}")
-            print(f"  Phase 1: {'✓' if phase1_success else '✗'} ({phase1_time:.2f}s)")
-            print(f"  Phase 2: {'✓' if phase2_success else '✗'}")
-            print(f"  Phase 3: {'✓' if phase3_success else '✗'}")
-        
-        all_results.append(benchmark_results)
+            try:
+                config_metrics = future.result()
+                
+                # Thread-safe addition to all_metrics
+                with metrics_lock:
+                    all_metrics.extend(config_metrics)
+                
+                print(f"\n{'='*80}")
+                print(f"[PROGRESS] Completed {completed_tasks}/{len(tasks)}: {benchmark} with {num_sols} solutions")
+                print(f"[PROGRESS] Collected {len(config_metrics)} metric sets from this task")
+                print(f"{'='*80}\n")
+                
+            except Exception as e:
+                print(f"\n[ERROR] Task failed for {benchmark} with {num_sols} solutions: {e}")
+                import traceback
+                traceback.print_exc()
+    
+    # All tasks completed
+    print(f"\n{'='*80}")
+    print(f"ALL PARALLEL TASKS COMPLETED")
+    print(f"{'='*80}")
+    print(f"Total metrics collected: {len(all_metrics)}")
+    print(f"{'='*80}\n")
     
     # Generate summary report
     print(f"\n\n{'='*80}")
@@ -376,24 +464,25 @@ def main():
     # Generate formatted text report (matching HCAR format)
     report_path = f"{output_dir}/variance_results.txt"
     with open(report_path, 'w') as f:
-        f.write("Solution Variance Experiment Results\n")
-        f.write("="*130 + "\n\n")
+        f.write("Solution Variance Experiment Results (COP vs LION Comparison)\n")
+        f.write("="*140 + "\n\n")
         
         # Header line
-        f.write(f"{'Prob.':<15} {'Sols':<6} {'StartC':<8} {'InvC':<6} {'CT':<5} {'Bias':<6} ")
+        f.write(f"{'Prob.':<15} {'Approach':<9} {'Sols':<6} {'StartC':<8} {'InvC':<6} {'CT':<5} {'Bias':<6} ")
         f.write(f"{'ViolQ':<7} {'MQuQ':<7} {'TQ':<6} {'ALQ':<5} {'PAQ':<5} ")
         f.write(f"{'P1T(s)':<8} {'VT(s)':<8} {'MQuT(s)':<9} {'TT(s)':<8} {'ALT(s)':<7} {'PAT(s)':<7}\n")
         
         # Data rows
         for m in all_metrics:
-            f.write(f"{m['Prob.']:<15} {m['Sols']:<6} {m['StartC']:<8} {m['InvC']:<6} ")
+            f.write(f"{m['Prob.']:<15} {m['Approach']:<9} {m['Sols']:<6} {m['StartC']:<8} {m['InvC']:<6} ")
             f.write(f"{str(m['CT']):<5} {m['Bias']:<6} ")
             f.write(f"{m['ViolQ']:<7} {m['MQuQ']:<7} {m['TQ']:<6} {m['ALQ']:<5} {m['PAQ']:<5} ")
             f.write(f"{m['P1T(s)']:<8} {m['VT(s)']:<8} {m['MQuT(s)']:<9} {m['TT(s)']:<8} ")
             f.write(f"{m['ALT(s)']:<7} {m['PAT(s)']:<7}\n")
         
-        f.write("\n" + "="*130 + "\n")
+        f.write("\n" + "="*140 + "\n")
         f.write("Legend:\n")
+        f.write("  Approach: COP or LION methodology\n")
         f.write("  Sols: Number of given solutions (positive examples)\n")
         f.write("  StartC: Number of candidate constraints from passive learning\n")
         f.write("  InvC: Number of constraints invalidated by refinement\n")
@@ -414,11 +503,11 @@ def main():
     print(f"[SAVED] Formatted results saved to: {report_path}")
     
     # Print to console
-    print(f"\n{'Prob.':<15} {'Sols':<6} {'StartC':<8} {'InvC':<6} {'CT':<5} {'Bias':<6} ")
+    print(f"\n{'Prob.':<15} {'Approach':<9} {'Sols':<6} {'StartC':<8} {'InvC':<6} {'CT':<5} {'Bias':<6} ")
     print(f"{'ViolQ':<7} {'MQuQ':<7} {'TQ':<6} {'P1T(s)':<8} {'VT(s)':<8} {'MQuT(s)':<9} {'TT(s)':<8}")
-    print("="*110)
+    print("="*120)
     for m in all_metrics:
-        print(f"{m['Prob.']:<15} {m['Sols']:<6} {m['StartC']:<8} {m['InvC']:<6} ", end="")
+        print(f"{m['Prob.']:<15} {m['Approach']:<9} {m['Sols']:<6} {m['StartC']:<8} {m['InvC']:<6} ", end="")
         print(f"{str(m['CT']):<5} {m['Bias']:<6} ", end="")
         print(f"{m['ViolQ']:<7} {m['MQuQ']:<7} {m['TQ']:<6} ", end="")
         print(f"{m['P1T(s)']:<8} {m['VT(s)']:<8} {m['MQuT(s)']:<9} {m['TT(s)']:<8}")
@@ -427,13 +516,13 @@ def main():
     csv_path = f"{output_dir}/variance_results.csv"
     with open(csv_path, 'w') as f:
         # Header
-        f.write("Prob.,Sols,StartC,InvC,CT,Bias,ViolQ,MQuQ,TQ,ALQ,PAQ,")
+        f.write("Prob.,Approach,Sols,StartC,InvC,CT,Bias,ViolQ,MQuQ,TQ,ALQ,PAQ,")
         f.write("P1T(s),VT(s),MQuT(s),TT(s),ALT(s),PAT(s),")
         f.write("precision,recall,s_precision,s_recall\n")
         
         # Data
         for m in all_metrics:
-            f.write(f"{m['Prob.']},{m['Sols']},{m['StartC']},{m['InvC']},")
+            f.write(f"{m['Prob.']},{m['Approach']},{m['Sols']},{m['StartC']},{m['InvC']},")
             f.write(f"{m['CT']},{m['Bias']},{m['ViolQ']},{m['MQuQ']},{m['TQ']},")
             f.write(f"{m['ALQ']},{m['PAQ']},")
             f.write(f"{m['P1T(s)']},{m['VT(s)']},{m['MQuT(s)']},{m['TT(s)']},")
@@ -442,16 +531,91 @@ def main():
     
     print(f"[SAVED] CSV results saved to: {csv_path}")
     
+    # Generate comparison summary (COP vs LION side-by-side)
+    comparison_path = f"{output_dir}/cop_vs_lion_comparison.txt"
+    with open(comparison_path, 'w') as f:
+        f.write("COP vs LION Comparison Summary\n")
+        f.write("="*120 + "\n\n")
+        
+        # Group by benchmark and solution count
+        grouped = {}
+        for m in all_metrics:
+            key = (m['Prob.'], m['Sols'])
+            if key not in grouped:
+                grouped[key] = {}
+            grouped[key][m['Approach']] = m
+        
+        for (benchmark, sols), approaches in sorted(grouped.items()):
+            f.write(f"\n{benchmark} - {sols} solutions:\n")
+            f.write("-" * 100 + "\n")
+            
+            cop = approaches.get('COP', {})
+            lion = approaches.get('LION', {})
+            
+            if cop and lion:
+                f.write(f"{'Metric':<20} {'COP':<15} {'LION':<15} {'Difference':<15}\n")
+                f.write("-" * 100 + "\n")
+                
+                # Query metrics
+                f.write(f"{'ViolQ':<20} {cop.get('ViolQ', 0):<15} {lion.get('ViolQ', 0):<15} ")
+                f.write(f"{lion.get('ViolQ', 0) - cop.get('ViolQ', 0):<15}\n")
+                
+                f.write(f"{'MQuQ':<20} {cop.get('MQuQ', 0):<15} {lion.get('MQuQ', 0):<15} ")
+                f.write(f"{lion.get('MQuQ', 0) - cop.get('MQuQ', 0):<15}\n")
+                
+                f.write(f"{'Total Queries':<20} {cop.get('TQ', 0):<15} {lion.get('TQ', 0):<15} ")
+                f.write(f"{lion.get('TQ', 0) - cop.get('TQ', 0):<15}\n")
+                
+                # Time metrics
+                f.write(f"{'VT(s)':<20} {cop.get('VT(s)', 0):<15} {lion.get('VT(s)', 0):<15} ")
+                f.write(f"{lion.get('VT(s)', 0) - cop.get('VT(s)', 0):<15.2f}\n")
+                
+                f.write(f"{'MQuT(s)':<20} {cop.get('MQuT(s)', 0):<15} {lion.get('MQuT(s)', 0):<15} ")
+                f.write(f"{lion.get('MQuT(s)', 0) - cop.get('MQuT(s)', 0):<15.2f}\n")
+                
+                f.write(f"{'Total Time (s)':<20} {cop.get('TT(s)', 0):<15} {lion.get('TT(s)', 0):<15} ")
+                f.write(f"{lion.get('TT(s)', 0) - cop.get('TT(s)', 0):<15.2f}\n")
+                
+                # Accuracy metrics
+                f.write(f"{'Precision (%)':<20} {cop.get('precision', 0):<15} {lion.get('precision', 0):<15} ")
+                f.write(f"{lion.get('precision', 0) - cop.get('precision', 0):<15.2f}\n")
+                
+                f.write(f"{'Recall (%)':<20} {cop.get('recall', 0):<15} {lion.get('recall', 0):<15} ")
+                f.write(f"{lion.get('recall', 0) - cop.get('recall', 0):<15.2f}\n")
+                
+                # Winner determination
+                f.write("\nWinner: ")
+                if cop.get('TQ', 0) < lion.get('TQ', 0):
+                    f.write("COP (fewer queries)\n")
+                elif lion.get('TQ', 0) < cop.get('TQ', 0):
+                    f.write("LION (fewer queries)\n")
+                else:
+                    f.write("TIE (same queries)\n")
+            else:
+                if cop:
+                    f.write("  COP: Available\n")
+                if lion:
+                    f.write("  LION: Available\n")
+                if not cop:
+                    f.write("  COP: Missing\n")
+                if not lion:
+                    f.write("  LION: Missing\n")
+    
+    print(f"[SAVED] COP vs LION comparison saved to: {comparison_path}")
+    
     # Save detailed JSON
     json_path = f"{output_dir}/variance_experiment_detailed.json"
     summary = {
         'timestamp': datetime.now().isoformat(),
         'metrics': all_metrics,
-        'raw_results': all_results,
         'total_benchmarks': len(benchmarks),
         'solution_configurations': solution_configs,
         'mock_constraints_mapping': {
             str(sol): calculate_mock_constraints(sol) for sol in solution_configs
+        },
+        'parallel_execution': {
+            'max_workers': 4,
+            'total_tasks': len(tasks)
         }
     }
     
@@ -461,16 +625,22 @@ def main():
     print(f"[SAVED] Detailed JSON saved to: {json_path}")
     
     # Calculate statistics
-    total_configs = sum(len(br['configurations']) for br in all_results)
+    total_expected_configs = len(benchmarks) * len(solution_configs) * len(approaches)
     successful_configs = len(all_metrics)
     
+    # Count COP vs LION results
+    cop_results = [m for m in all_metrics if m['Approach'] == 'COP']
+    lion_results = [m for m in all_metrics if m['Approach'] == 'LION']
+    
     print(f"\n{'='*80}")
-    print(f"FINAL STATISTICS")
+    print(f"FINAL STATISTICS (PARALLEL EXECUTION)")
     print(f"{'='*80}")
-    print(f"Total configurations tested: {total_configs}")
-    print(f"Successful completions: {successful_configs}/{total_configs}")
-    if total_configs > 0:
-        print(f"Success rate: {100*successful_configs/total_configs:.1f}%")
+    print(f"Total configurations expected: {total_expected_configs}")
+    print(f"Successful completions: {successful_configs}/{total_expected_configs}")
+    print(f"  - COP approach: {len(cop_results)} successful")
+    print(f"  - LION approach: {len(lion_results)} successful")
+    if total_expected_configs > 0:
+        print(f"Success rate: {100*successful_configs/total_expected_configs:.1f}%")
     print(f"\nCompleted at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"{'='*80}\n")
 

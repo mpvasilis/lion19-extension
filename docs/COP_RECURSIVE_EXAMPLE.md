@@ -38,16 +38,34 @@ Oracle.ASK(y1) → FALSE (invalid assignment)
 
 ### Step 3: Disambiguate via Recursion
 
+**First, filter relevant validated constraints:**
+
+```python
+# Decompose violated AllDifferent constraints to get their variables
+S = get_variables([c3, c7, c12, c15, c20].decompose())
+# Example: S contains all variables from these 5 AllDifferent constraints
+
+# Filter validated constraints to only those interacting with S
+# (constraints with ≥2 variables in S)
+C_v_filtered = get_con_subset(C_validated, S)
+# Example: If C_validated had 10 constraints, maybe only 3 interact with S
+
+print(f"Variables in violated constraints: {len(S)}")
+print(f"Relevant validated constraints: {len(C_v_filtered)}/{len(C_validated)}")
+```
+
 **Recursive Call:**
 ```
 cop_refinement_recursive(
     CG_cand = [c3, c7, c12, c15, c20],  ← Only the violated set!
-    C_validated = [],
+    C_validated = C_v_filtered,          ← Only relevant validated constraints!
     probabilities = {c3: 0.5, c7: 0.5, ...},
     max_queries = 250,  ← Half of remaining budget
     recursion_depth = 1  ← Increase depth
 )
 ```
+
+**Why filter?** If we're disambiguating row constraints, we don't need to enforce unrelated column constraints in the recursive COP!
 
 ---
 
@@ -257,11 +275,16 @@ COP_Refine(Viol_e):
 
 ```
 Depth 0: CG = [c1, c2, c3, ..., c27] (27 constraints)
+         CV = [] (0 validated)
          │
          ├─ Query violates [c3, c7, c12, c15, c20]
          ├─ Oracle: FALSE → Must disambiguate
          │
+         ├─ S = get_variables(decompose([c3, c7, c12, c15, c20]))  ← Get scope
+         ├─ CV_filtered = get_con_subset(CV, S) = [] (no validated yet)
+         │
          └─► Depth 1: CG = [c3, c7, c12, c15, c20] (5 constraints)
+                      CV = [] (0 validated - none were relevant)
                       │
                       ├─ Query violates [c7, c15]
                       ├─ Oracle: TRUE → Remove both
@@ -277,8 +300,47 @@ Depth 0: CG = [c1, c2, c3, ..., c27] (27 constraints)
                       │
                       └─► Return: Validated=[c3,c12,c20], Removed=[c7,c15]
          
-         Continue with CG = [c1, c2, c4, ..., c27] \ {c3,c7,c12,c15,c20}
+         Continue with:
+         CG = [c1, c2, c4, ..., c27] \ {c3,c7,c12,c15,c20} (22 remaining)
+         CV = [c3, c12, c20] (3 validated)
 ```
 
 This recursive structure naturally handles arbitrarily complex disambiguation scenarios!
+
+---
+
+## Example: Filtering in Action (Later Iterations)
+
+Imagine in iteration 5, we have:
+- **CG** = 15 remaining candidates
+- **CV** = 12 already validated constraints from previous iterations
+
+Query violates `[c17, c19, c22]`, oracle says FALSE.
+
+**Without filtering (bad):**
+```
+Recursive call gets ALL 12 validated constraints
+→ COP has to respect 12 + many oracle constraints
+→ Slower, unnecessary complexity
+```
+
+**With filtering (good):**
+```python
+S = get_variables([c17, c19, c22].decompose())  # Say 18 variables
+
+C_v_filtered = get_con_subset(CV, S)
+# Out of 12 validated constraints, only 4 have ≥2 variables in S
+
+Recursive call gets only 4 relevant constraints
+→ COP is much simpler and faster
+→ Still correct because other constraints don't affect these variables
+```
+
+**Concrete Sudoku Example:**
+- Disambiguating: `[AllDiff(row5), AllDiff(row7), AllDiff(box3)]`
+- S contains ~20 variables (from rows 5, 7, and box 3)
+- Validated constraints might include column AllDiffs
+- **Filter removes** column AllDiffs that don't interact with S
+- **Filter keeps** row/box AllDiffs that do interact with S
+- Result: Much smaller COP for faster solving!
 

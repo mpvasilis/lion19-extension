@@ -7,7 +7,7 @@ from cpmpy import *
 from cpmpy import cpm_array
 from cpmpy.transformations.get_variables import get_variables
 from cpmpy.expressions.globalconstraints import AllDifferent
-from pycona.utils import get_kappa
+from pycona.utils import get_kappa, get_con_subset
 from benchmarks_global import construct_sudoku, construct_jsudoku, construct_latin_square
 from benchmarks_global import construct_graph_coloring_register, construct_graph_coloring_scheduling
 from benchmarks_global import construct_sudoku_greater_than
@@ -233,13 +233,15 @@ def cop_refinement_recursive(CG_cand, C_validated, oracle, probabilities, all_va
     1. Generate violation query that violates subset of CG_cand (minimizing sum of P(c))
     2. Ask oracle about the query
     3. If oracle accepts (TRUE):
-         → All violated constraints are INCORRECT (counterexample found)
-         → Remove them and continue
+         - All violated constraints are INCORRECT (counterexample found)
+         - Remove them and continue
     4. If oracle rejects (FALSE):
-         → At least one violated constraint is CORRECT
-         → If single constraint: must be correct, validate it
-         → If multiple constraints: RECURSIVELY call this function on violated set
+         - At least one violated constraint is CORRECT
+         - If single constraint: must be correct, validate it
+         - If multiple constraints: RECURSIVELY call this function on violated set
             to disambiguate which are correct via bisection-like search
+            * Recursive call receives filtered C_validated containing only constraints
+              whose scope has at least 2 variables in common with violated set (via get_con_subset)
     5. Repeat until budget exhausted or all constraints classified
     
     Args:
@@ -271,9 +273,9 @@ def cop_refinement_recursive(CG_cand, C_validated, oracle, probabilities, all_va
     probs = probabilities.copy()
     
     indent = "  " * recursion_depth
-    print(f"\n{indent}{'─'*50}")
+    print(f"\n{indent}{'-'*50}")
     print(f"{indent}COP Refinement [Depth={recursion_depth}]")
-    print(f"{indent}{'─'*50}")
+    print(f"{indent}{'-'*50}")
     print(f"{indent}Candidates: {len(CG)}, Validated: {len(C_val)}, Budget: {max_queries}q, {timeout}s")
     
     iteration = 0
@@ -340,7 +342,6 @@ def cop_refinement_recursive(CG_cand, C_validated, oracle, probabilities, all_va
         for c in Viol_e:
             print(f"{indent}  - {c} (P={probs[c]:.3f})")
         
-        # Display grid for sudoku if at top level
         if recursion_depth == 0 and 'sudoku' in experiment_name.lower() and len(all_variables) == 81:
             try:
                 display_sudoku_grid(Y, title=f"{indent}Violation Query Assignment", debug=False)
@@ -354,16 +355,16 @@ def cop_refinement_recursive(CG_cand, C_validated, oracle, probabilities, all_va
         
         if answer == True:
             # Counterexample: all violated constraints are incorrect
-            print(f"{indent}Oracle: YES (valid) → Remove all {len(Viol_e)} violated constraints")
+            print(f"{indent}Oracle: YES (valid) - Remove all {len(Viol_e)} violated constraints")
             for c in Viol_e:
                 if c in CG:
                     CG.remove(c)
-                    probs[c] *= alpha  # Penalize
+                    probs[c] *= alpha 
                     print(f"{indent}  [REMOVE] {c} (P={probs[c]:.3f})")
         
         else:
-            # Oracle: NO (invalid) → At least one violated constraint is correct
-            print(f"{indent}Oracle: NO (invalid) → Disambiguate {len(Viol_e)} violated constraints")
+            # Oracle: NO (invalid) - At least one violated constraint is correct
+            print(f"{indent}Oracle: NO (invalid) - Disambiguate {len(Viol_e)} violated constraints")
             
             if len(Viol_e) == 1:
                 # Only one violated: must be correct
@@ -376,20 +377,31 @@ def cop_refinement_recursive(CG_cand, C_validated, oracle, probabilities, all_va
                 print(f"{indent}  [VALIDATE] {c} (P={probs[c]:.3f})")
             
             else:
-                # Multiple violated: recursive disambiguation
                 print(f"{indent}[DISAMBIGUATE] Recursively refining {len(Viol_e)} constraints...")
                 
-                # Budget for recursive call (fraction of remaining budget)
+                # S = variables involved in the violated AllDifferent constraints
+                decomposed_viol = []
+                for c in Viol_e:
+                    if isinstance(c, AllDifferent):
+                        decomposed_viol.extend(c.decompose())
+                    else:
+                        decomposed_viol.append(c)
+                
+                S = get_variables(decomposed_viol)
+                print(f"{indent}  Variables in violated constraints: {len(S)}")
+                
+                C_val_filtered = get_con_subset(C_val, S) if C_val else []
+                print(f"{indent}  Relevant validated constraints: {len(C_val_filtered)}/{len(C_val)}")
+                
                 recursive_budget = min(max_queries - queries_used, max(10, (max_queries - queries_used) // 2))
                 recursive_timeout = max(10, (timeout - (time.time() - start_time)) / 2)
                 
                 print(f"{indent}  Recursive budget: {recursive_budget}q, {recursive_timeout:.0f}s")
                 
-                # Recursive call with violated constraints as new candidates
                 C_val_recursive, CG_remaining_recursive, probs_recursive, queries_recursive = \
                     cop_refinement_recursive(
                         CG_cand=list(Viol_e),
-                        C_validated=C_val,  # Pass current validated as context
+                        C_validated=C_val_filtered,  # Pass only relevant validated constraints
                         oracle=oracle,
                         probabilities=probs,
                         all_variables=all_variables,
@@ -405,7 +417,7 @@ def cop_refinement_recursive(CG_cand, C_validated, oracle, probabilities, all_va
                 queries_used += queries_recursive
                 print(f"{indent}[DISAMBIGUATE] Recursive call used {queries_recursive}q")
                 
-                # Update probabilities from recursive call
+                # Update probabilities
                 for c in Viol_e:
                     if c in probs_recursive:
                         probs[c] = probs_recursive[c]
@@ -429,10 +441,10 @@ def cop_refinement_recursive(CG_cand, C_validated, oracle, probabilities, all_va
                     print(f"{indent}  [REMOVE] {c} (P={probs[c]:.3f})")
     
     duration = time.time() - start_time
-    print(f"\n{indent}{'─'*50}")
+    print(f"\n{indent}{'-'*50}")
     print(f"{indent}Refinement [Depth={recursion_depth}] Complete")
     print(f"{indent}Validated: {len(C_val)}, Remaining: {len(CG)}, Queries: {queries_used}, Time: {duration:.2f}s")
-    print(f"{indent}{'─'*50}")
+    print(f"{indent}{'-'*50}")
     
     return C_val, CG, probs, queries_used
 
