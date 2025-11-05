@@ -21,7 +21,7 @@ def construct_latin_square(n=9):
     
     C_T = list(set(toplevel_list(model.constraints)))
 
-    mock_constraints = []
+    overfitted_constraints = []
 
 
 
@@ -46,7 +46,7 @@ def construct_latin_square(n=9):
     instance = ProblemInstance(variables=grid, params=parameters, language=lang, name="latin_square")
     oracle = ConstraintOracle(C_T)
     
-    return instance, oracle, mock_constraints
+    return instance, oracle, overfitted_constraints
 
 
 def construct_latin_square_4x4():

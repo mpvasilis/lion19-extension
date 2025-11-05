@@ -27,9 +27,9 @@ def construct_instance(benchmark_name):
         print("Constructing Graph Coloring (Register Allocation)...")
         result = construct_graph_coloring_register()
         if len(result) == 3:
-            instance, oracle, mock_constraints = result
-            print(f"  Received {len(mock_constraints)} mock constraints from benchmark")
-            return instance, oracle, mock_constraints
+            instance, oracle, overfitted_constraints = result
+            print(f"  Received {len(overfitted_constraints)} overfitted constraints from benchmark")
+            return instance, oracle, overfitted_constraints
         else:
             instance, oracle = result
             return instance, oracle
@@ -39,9 +39,9 @@ def construct_instance(benchmark_name):
         result = construct_graph_coloring_scheduling()
         
         if len(result) == 3:
-            instance, oracle, mock_constraints = result
-            print(f"  Received {len(mock_constraints)} mock constraints from benchmark")
-            return instance, oracle, mock_constraints
+            instance, oracle, overfitted_constraints = result
+            print(f"  Received {len(overfitted_constraints)} overfitted constraints from benchmark")
+            return instance, oracle, overfitted_constraints
         else:
             instance, oracle = result
             return instance, oracle
@@ -51,9 +51,9 @@ def construct_instance(benchmark_name):
         result = construct_latin_square(n=9)
         
         if len(result) == 3:
-            instance, oracle, mock_constraints = result
-            print(f"  Received {len(mock_constraints)} mock constraints from benchmark")
-            return instance, oracle, mock_constraints
+            instance, oracle, overfitted_constraints = result
+            print(f"  Received {len(overfitted_constraints)} overfitted constraints from benchmark")
+            return instance, oracle, overfitted_constraints
         else:
             instance, oracle = result
             return instance, oracle
@@ -63,9 +63,9 @@ def construct_instance(benchmark_name):
         result = construct_jsudoku(grid_size=9)
         
         if len(result) == 3:
-            instance, oracle, mock_constraints = result
-            print(f"  Received {len(mock_constraints)} mock constraints from benchmark")
-            return instance, oracle, mock_constraints
+            instance, oracle, overfitted_constraints = result
+            print(f"  Received {len(overfitted_constraints)} overfitted constraints from benchmark")
+            return instance, oracle, overfitted_constraints
         else:
             instance, oracle = result
             return instance, oracle
@@ -75,9 +75,9 @@ def construct_instance(benchmark_name):
         result = construct_sudoku_greater_than(3, 3, 9)
         
         if len(result) == 3:
-            instance, oracle, mock_constraints = result
-            print(f"  Received {len(mock_constraints)} mock constraints from benchmark")
-            return instance, oracle, mock_constraints
+            instance, oracle, overfitted_constraints = result
+            print(f"  Received {len(overfitted_constraints)} overfitted constraints from benchmark")
+            return instance, oracle, overfitted_constraints
         else:
             instance, oracle = result
             return instance, oracle
@@ -87,9 +87,9 @@ def construct_instance(benchmark_name):
         result = construct_sudoku(3, 3, 9)
         
         if len(result) == 3:
-            instance, oracle, mock_constraints = result
-            print(f"  Received {len(mock_constraints)} mock constraints from benchmark")
-            return instance, oracle, mock_constraints
+            instance, oracle, overfitted_constraints = result
+            print(f"  Received {len(overfitted_constraints)} overfitted constraints from benchmark")
+            return instance, oracle, overfitted_constraints
         else:
             instance, oracle = result
             return instance, oracle
@@ -100,9 +100,9 @@ def construct_instance(benchmark_name):
                                            slots_per_day=6, days_for_exams=10)
         
         if len(result) == 3:
-            instance, oracle, mock_constraints = result
-            print(f"  Received {len(mock_constraints)} mock constraints from benchmark")
-            return instance, oracle, mock_constraints
+            instance, oracle, overfitted_constraints = result
+            print(f"  Received {len(overfitted_constraints)} overfitted constraints from benchmark")
+            return instance, oracle, overfitted_constraints
         else:
             instance, oracle = result
             return instance, oracle
@@ -113,9 +113,9 @@ def construct_instance(benchmark_name):
                                            slots_per_day=8, days_for_exams=12)
         
         if len(result) == 3:
-            instance, oracle, mock_constraints = result
-            print(f"  Received {len(mock_constraints)} mock constraints from benchmark")
-            return instance, oracle, mock_constraints
+            instance, oracle, overfitted_constraints = result
+            print(f"  Received {len(overfitted_constraints)} overfitted constraints from benchmark")
+            return instance, oracle, overfitted_constraints
         else:
             instance, oracle = result
             return instance, oracle
@@ -126,9 +126,9 @@ def construct_instance(benchmark_name):
                            slots_per_day=9, days_for_exams=14)
         
         if len(result) == 3:
-            instance, oracle, mock_constraints = result
-            print(f"  Received {len(mock_constraints)} mock constraints from benchmark")
-            return instance, oracle, mock_constraints
+            instance, oracle, overfitted_constraints = result
+            print(f"  Received {len(overfitted_constraints)} overfitted constraints from benchmark")
+            return instance, oracle, overfitted_constraints
         else:
             instance, oracle = result
             return instance, oracle
@@ -138,9 +138,9 @@ def construct_instance(benchmark_name):
         result = nr_global()
         
         if len(result) == 3:
-            instance, oracle, mock_constraints = result
-            print(f"  Received {len(mock_constraints)} mock constraints from benchmark")
-            return instance, oracle, mock_constraints
+            instance, oracle, overfitted_constraints = result
+            print(f"  Received {len(overfitted_constraints)} overfitted constraints from benchmark")
+            return instance, oracle, overfitted_constraints
         else:
             instance, oracle = result
             return instance, oracle
@@ -556,12 +556,12 @@ def run_phase1(benchmark_name, output_dir='phase1_output', num_examples=5, num_o
     
     
     if len(result) == 3:
-        instance, oracle, mock_constraints_from_benchmark = result
-        print(f"Using {len(mock_constraints_from_benchmark)} mock constraints from benchmark")
+        instance, oracle, overfitted_constraints_from_benchmark = result
+        print(f"Using {len(overfitted_constraints_from_benchmark)} overfitted constraints from benchmark")
     else:
         instance, oracle = result
-        mock_constraints_from_benchmark = None
-        print("No mock constraints provided, will generate random overfitted constraints")
+        overfitted_constraints_from_benchmark = None
+        print("No overfitted constraints provided, will generate random overfitted constraints")
 
     oracle.variables_list = cpm_array(instance.X)
 
@@ -605,29 +605,29 @@ def run_phase1(benchmark_name, output_dir='phase1_output', num_examples=5, num_o
     all_target_constraints = detected_alldiffs + missing_targets
     print(f"\nComplete target coverage: {len(detected_alldiffs)} detected + {len(missing_targets)} appended = {len(all_target_constraints)} total target constraints")
 
-    if mock_constraints_from_benchmark is not None and len(mock_constraints_from_benchmark) > 0:
+    if overfitted_constraints_from_benchmark is not None and len(overfitted_constraints_from_benchmark) > 0:
 
-        print(f"\n[MOCK] Received {len(mock_constraints_from_benchmark)} mock constraints from benchmark")
+        print(f"\n[MOCK] Received {len(overfitted_constraints_from_benchmark)} overfitted constraints from benchmark")
         
-        alldiff_mocks = []
-        other_mocks = []
-        for c in mock_constraints_from_benchmark:
+        alldiff_overfitteds = []
+        other_overfitteds = []
+        for c in overfitted_constraints_from_benchmark:
 
             if isinstance(c, AllDifferent) or (hasattr(c, 'name') and 'alldifferent' in str(c.name).lower()):
-                alldiff_mocks.append(c)
+                alldiff_overfitteds.append(c)
             else:
-                other_mocks.append(c)
+                other_overfitteds.append(c)
         
-        if other_mocks:
-            print(f"       Filtering: Keeping {len(alldiff_mocks)} AllDifferent, discarding {len(other_mocks)} other types")
+        if other_overfitteds:
+            print(f"       Filtering: Keeping {len(alldiff_overfitteds)} AllDifferent, discarding {len(other_overfitteds)} other types")
             print(f"       Discarded types:")
-            for i, c in enumerate(other_mocks[:5], 1):  
+            for i, c in enumerate(other_overfitteds[:5], 1):  
                 print(f"         - {c}")
-            if len(other_mocks) > 5:
-                print(f"         ... and {len(other_mocks) - 5} more")
+            if len(other_overfitteds) > 5:
+                print(f"         ... and {len(other_overfitteds) - 5} more")
         
-        overfitted_constraints = alldiff_mocks
-        print(f"\n[MOCK] Using {len(overfitted_constraints)} AllDifferent mock constraints from benchmark")
+        overfitted_constraints = alldiff_overfitteds
+        print(f"\n[MOCK] Using {len(overfitted_constraints)} AllDifferent overfitted constraints from benchmark")
         for i, c in enumerate(overfitted_constraints, 1):
             print(f"       Mock {i}: {c}")
     else:
@@ -704,7 +704,7 @@ def run_phase1(benchmark_name, output_dir='phase1_output', num_examples=5, num_o
             'num_target_alldiffs_dedup': dedup_target_count,  
             'num_overfitted_alldiffs_dedup': dedup_overfitted_count,  
             'num_duplicates_removed': duplicates_removed,
-            'use_mock_constraints': mock_constraints_from_benchmark is not None,
+            'use_overfitted_constraints': overfitted_constraints_from_benchmark is not None,
             'num_bias_initial': len(B_fixed),
             'num_bias_pruned': len(B_fixed_pruned),
             'target_alldiff_count': len(target_alldiffs),
@@ -730,7 +730,7 @@ def run_phase1(benchmark_name, output_dir='phase1_output', num_examples=5, num_o
     print(f"    - Detected by pattern: {len(detected_alldiffs)}")
     print(f"    - Appended (missed): {len(missing_targets)}")
     print(f"  Overfitted constraints: {len(overfitted_constraints)}")
-    print(f"    - Source: {'Mock from benchmark' if mock_constraints_from_benchmark else 'Random generation'}")
+    print(f"    - Source: {'Mock from benchmark' if overfitted_constraints_from_benchmark else 'Random generation'}")
     print(f"  Total CG: {len(CG)} (TARGET COVERAGE: 100%)")
     print(f"  Binary bias (initial): {len(B_fixed)}")
     print(f"  Binary bias (pruned): {len(B_fixed_pruned)}")

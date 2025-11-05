@@ -42,7 +42,7 @@ def construct_examtt_variant1(nsemesters=6, courses_per_semester=5, slots_per_da
 
 
 
-    mock_constraints = []
+    overfitted_constraints = []
 
 
 
@@ -53,9 +53,9 @@ def construct_examtt_variant1(nsemesters=6, courses_per_semester=5, slots_per_da
                 if sem < nsemesters and course < courses_per_semester:
                     non_adj_vars.append(variables[sem, course])
         if len(non_adj_vars) >= 9:
-            mock_c1 = cp.AllDifferent(non_adj_vars)
-            mock_constraints.append(mock_c1)
-            model += mock_c1
+            overfitted_c1 = cp.AllDifferent(non_adj_vars)
+            overfitted_constraints.append(overfitted_c1)
+            model += overfitted_c1
 
 
     if nsemesters >= 5:
@@ -65,16 +65,16 @@ def construct_examtt_variant1(nsemesters=6, courses_per_semester=5, slots_per_da
         odd_combined = []
         for sem in odd_sems:
             odd_combined.extend(list(sem))
-        mock_c2 = cp.AllDifferent(odd_combined[:min(12, len(odd_combined))])
-        mock_constraints.append(mock_c2)
-        model += mock_c2
+        overfitted_c2 = cp.AllDifferent(odd_combined[:min(12, len(odd_combined))])
+        overfitted_constraints.append(overfitted_c2)
+        model += overfitted_c2
 
 
     if nsemesters >= 5 and courses_per_semester >= 2:
         first_two_cols = variables[:, :2].flatten()
-        mock_c3 = cp.AllDifferent(first_two_cols)
-        mock_constraints.append(mock_c3)
-        model += mock_c3
+        overfitted_c3 = cp.AllDifferent(first_two_cols)
+        overfitted_constraints.append(overfitted_c3)
+        model += overfitted_c3
 
 
     if nsemesters >= 5:
@@ -82,25 +82,25 @@ def construct_examtt_variant1(nsemesters=6, courses_per_semester=5, slots_per_da
         for sem in [0, 2, 4]:
             if sem < nsemesters:
                 even_sem_vars.extend(list(variables[sem, :].flatten()))
-        mock_c4 = cp.AllDifferent(even_sem_vars)
-        mock_constraints.append(mock_c4)
-        model += mock_c4
+        overfitted_c4 = cp.AllDifferent(even_sem_vars)
+        overfitted_constraints.append(overfitted_c4)
+        model += overfitted_c4
 
 
     if nsemesters >= 4 and courses_per_semester >= 3:
         last_three_cols = variables[:4, -3:].flatten()
-        mock_c5 = cp.AllDifferent(last_three_cols)
-        mock_constraints.append(mock_c5)
-        model += mock_c5
+        overfitted_c5 = cp.AllDifferent(last_three_cols)
+        overfitted_constraints.append(overfitted_c5)
+        model += overfitted_c5
 
     if nsemesters >= 5 and courses_per_semester >= 5:
         diagonal = [variables[i, i] for i in range(min(5, nsemesters, courses_per_semester))]
         anti_diag = [variables[i, courses_per_semester - 1 - i] 
                      for i in range(min(5, nsemesters, courses_per_semester))]
         combined = diagonal + anti_diag
-        mock_c6 = cp.AllDifferent(combined)
-        mock_constraints.append(mock_c6)
-        model += mock_c6
+        overfitted_c6 = cp.AllDifferent(combined)
+        overfitted_constraints.append(overfitted_c6)
+        model += overfitted_c6
 
 
     if nsemesters >= 5 and courses_per_semester >= 3:
@@ -115,9 +115,9 @@ def construct_examtt_variant1(nsemesters=6, courses_per_semester=5, slots_per_da
                     if 0 <= course_idx < courses_per_semester:
                         middle_block.append(variables[sem_idx, course_idx])
         if len(middle_block) >= 7:
-            mock_c7 = cp.AllDifferent(middle_block)
-            mock_constraints.append(mock_c7)
-            model += mock_c7
+            overfitted_c7 = cp.AllDifferent(middle_block)
+            overfitted_constraints.append(overfitted_c7)
+            model += overfitted_c7
 
 
     if nsemesters >= 6 and courses_per_semester >= 4:
@@ -130,9 +130,9 @@ def construct_examtt_variant1(nsemesters=6, courses_per_semester=5, slots_per_da
                 if sem < nsemesters and course < courses_per_semester:
                     checkerboard.append(variables[sem, course])
         if len(checkerboard) >= 8:
-            mock_c8 = cp.AllDifferent(checkerboard)
-            mock_constraints.append(mock_c8)
-            model += mock_c8
+            overfitted_c8 = cp.AllDifferent(checkerboard)
+            overfitted_constraints.append(overfitted_c8)
+            model += overfitted_c8
 
     AV = absvar(2)
 
@@ -158,7 +158,7 @@ def construct_examtt_variant1(nsemesters=6, courses_per_semester=5, slots_per_da
 
     oracle = ConstraintOracle(C_T)
 
-    return instance, oracle, mock_constraints
+    return instance, oracle, overfitted_constraints
 
 
 def construct_examtt_variant2(nsemesters=8, courses_per_semester=7, slots_per_day=8, days_for_exams=12):
@@ -194,71 +194,71 @@ def construct_examtt_variant2(nsemesters=8, courses_per_semester=7, slots_per_da
     C_T = list(model.constraints)
 
 
-    mock_constraints = []
+    overfitted_constraints = []
 
     if nsemesters >= 3:
         first_three_sems = variables[:3, :].flatten()
         first_three_days = [day_of_exam(exam, slots_per_day) for exam in first_three_sems]
-        mock_c1 = cp.AllDifferent(first_three_days)
-        mock_constraints.append(mock_c1)
-        model += mock_c1
+        overfitted_c1 = cp.AllDifferent(first_three_days)
+        overfitted_constraints.append(overfitted_c1)
+        model += overfitted_c1
 
     if nsemesters >= 4 and courses_per_semester >= 2:
         first_four = variables[:4, :].flatten()
         time_slots = [exam % slots_per_day for exam in first_four]
-        mock_c2 = cp.AllDifferent(time_slots[:min(slots_per_day, len(time_slots))])
-        mock_constraints.append(mock_c2)
-        model += mock_c2
+        overfitted_c2 = cp.AllDifferent(time_slots[:min(slots_per_day, len(time_slots))])
+        overfitted_constraints.append(overfitted_c2)
+        model += overfitted_c2
 
     if nsemesters >= 5 and courses_per_semester >= 2:
         first_two_cols = variables[:, :2].flatten()
-        mock_c3 = cp.AllDifferent(first_two_cols[:min(15, len(first_two_cols))])
-        mock_constraints.append(mock_c3)
-        model += mock_c3
+        overfitted_c3 = cp.AllDifferent(first_two_cols[:min(15, len(first_two_cols))])
+        overfitted_constraints.append(overfitted_c3)
+        model += overfitted_c3
 
     if nsemesters >= 5 and courses_per_semester >= 5:
         diagonal = [variables[i, i] for i in range(min(5, nsemesters, courses_per_semester))]
-        mock_c4 = cp.AllDifferent(diagonal)
-        mock_constraints.append(mock_c4)
-        model += mock_c4
+        overfitted_c4 = cp.AllDifferent(diagonal)
+        overfitted_constraints.append(overfitted_c4)
+        model += overfitted_c4
 
     if nsemesters >= 5 and courses_per_semester >= 5:
         anti_diag = [variables[i, courses_per_semester - 1 - i] 
                      for i in range(min(5, nsemesters, courses_per_semester))]
-        mock_c5 = cp.AllDifferent(anti_diag)
-        mock_constraints.append(mock_c5)
-        model += mock_c5
+        overfitted_c5 = cp.AllDifferent(anti_diag)
+        overfitted_constraints.append(overfitted_c5)
+        model += overfitted_c5
 
     if nsemesters >= 6 and courses_per_semester >= 3:
         even_subset = variables[::2, :3].flatten()
-        mock_c6 = cp.AllDifferent(even_subset[:min(12, len(even_subset))])
-        mock_constraints.append(mock_c6)
-        model += mock_c6
+        overfitted_c6 = cp.AllDifferent(even_subset[:min(12, len(even_subset))])
+        overfitted_constraints.append(overfitted_c6)
+        model += overfitted_c6
 
     if nsemesters >= 5 and courses_per_semester >= 3:
         odd_subset = variables[1::2, -3:].flatten()
-        mock_c7 = cp.AllDifferent(odd_subset[:min(12, len(odd_subset))])
-        mock_constraints.append(mock_c7)
-        model += mock_c7
+        overfitted_c7 = cp.AllDifferent(odd_subset[:min(12, len(odd_subset))])
+        overfitted_constraints.append(overfitted_c7)
+        model += overfitted_c7
 
     if nsemesters >= 6 and courses_per_semester >= 1:
         first_col = [variables[sem, 0] for sem in range(min(6, nsemesters))]
-        mock_c8 = cp.AllDifferent(first_col)
-        mock_constraints.append(mock_c8)
-        model += mock_c8
+        overfitted_c8 = cp.AllDifferent(first_col)
+        overfitted_constraints.append(overfitted_c8)
+        model += overfitted_c8
 
     if nsemesters >= 5 and courses_per_semester >= 2:
         last_col = [variables[sem, -1] for sem in range(min(5, nsemesters))]
-        mock_c9 = cp.AllDifferent(last_col)
-        mock_constraints.append(mock_c9)
-        model += mock_c9
+        overfitted_c9 = cp.AllDifferent(last_col)
+        overfitted_constraints.append(overfitted_c9)
+        model += overfitted_c9
 
     if nsemesters >= 6 and courses_per_semester >= 3:
         mid_idx = courses_per_semester // 2
         middle_col = [variables[sem, mid_idx] for sem in range(min(6, nsemesters))]
-        mock_c10 = cp.AllDifferent(middle_col)
-        mock_constraints.append(mock_c10)
-        model += mock_c10
+        overfitted_c10 = cp.AllDifferent(middle_col)
+        overfitted_constraints.append(overfitted_c10)
+        model += overfitted_c10
 
     AV = absvar(2)
 
@@ -284,5 +284,5 @@ def construct_examtt_variant2(nsemesters=8, courses_per_semester=7, slots_per_da
 
     oracle = ConstraintOracle(C_T)
 
-    return instance, oracle, mock_constraints
+    return instance, oracle, overfitted_constraints
 

@@ -57,7 +57,7 @@ def construct_sudoku_greater_than(block_size_row, block_size_col, grid_size):
     C_T = list(set(toplevel_list(model.constraints)))
 
 
-    mock_constraints = []
+    overfitted_constraints = []
 
 
 
@@ -127,5 +127,5 @@ def construct_sudoku_greater_than(block_size_row, block_size_col, grid_size):
 
     oracle = ConstraintOracle(C_T)
 
-    return instance, oracle, mock_constraints
+    return instance, oracle, overfitted_constraints
 

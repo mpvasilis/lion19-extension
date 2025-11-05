@@ -2,14 +2,14 @@
 Solution Variance Experiments - COP vs LION Comparison
 =======================================================
 This script runs experiments with varying numbers of solutions and inversely 
-proportional mock constraints, comparing both COP and LION approaches.
-As the number of solutions increases, the number of mock constraints decreases.
+proportional overfitted constraints, comparing both COP and LION approaches.
+As the number of solutions increases, the number of overfitted constraints decreases.
 
 Configurations:
-- 2 solutions  -> 50 mock constraints
-- 5 solutions  -> 20 mock constraints  
-- 10 solutions -> 10 mock constraints
-- 50 solutions -> 2 mock constraints
+- 2 solutions  -> 50 overfitted constraints
+- 5 solutions  -> 20 overfitted constraints  
+- 10 solutions -> 10 overfitted constraints
+- 50 solutions -> 2 overfitted constraints
 
 Each configuration is tested with both:
 - COP approach (main_alldiff_cop.py)
@@ -77,7 +77,7 @@ def run_phase1_with_timing(experiment, num_examples, num_overfitted, output_dir=
     """Run Phase 1 with timing and return the time taken."""
     
     # Create custom output directory for this configuration
-    config_output_dir = f"{output_dir}/{experiment}_sol{num_examples}_mock{num_overfitted}"
+    config_output_dir = f"{output_dir}/{experiment}_sol{num_examples}_overfitted{num_overfitted}"
     os.makedirs(config_output_dir, exist_ok=True)
     
     cmd = [
@@ -90,7 +90,7 @@ def run_phase1_with_timing(experiment, num_examples, num_overfitted, output_dir=
     
     start_time = time.time()
     success, output = run_command(cmd, 
-        f"Phase 1: {experiment} | Solutions={num_examples}, Mocks={num_overfitted}")
+        f"Phase 1: {experiment} | Solutions={num_examples}, overfitted={num_overfitted}")
     end_time = time.time()
     
     elapsed_time = end_time - start_time
@@ -295,10 +295,10 @@ def extract_metrics(benchmark_name, num_solutions, phase1_pickle_path, phase1_ti
     return metrics
 
 
-def calculate_mock_constraints(num_solutions):
+def calculate_overfitted_constraints(num_solutions):
     """
-    Calculate the number of mock constraints inversely proportional to solutions.
-    Formula: More solutions -> Fewer mock constraints
+    Calculate the number of overfitted constraints inversely proportional to solutions.
+    Formula: More solutions -> Fewer overfitted constraints
     """
     # Inverse relationship mapping
     mapping = {
@@ -317,17 +317,17 @@ def process_benchmark_config(benchmark, num_solutions, approaches):
     Runs Phase 1 once, then both COP and LION approaches.
     Returns list of metrics collected.
     """
-    num_mocks = calculate_mock_constraints(num_solutions)
+    num_overfitteds = calculate_overfitted_constraints(num_solutions)
     
     print(f"\n{'='*80}")
-    print(f"[THREAD] Processing: {benchmark} | Solutions={num_solutions}, Mocks={num_mocks}")
+    print(f"[THREAD] Processing: {benchmark} | Solutions={num_solutions}, overfitted={num_overfitteds}")
     print(f"{'='*80}\n")
     
     config_metrics = []
     
     # Run Phase 1 once (shared for both approaches)
     phase1_success, phase1_pickle, phase1_time = run_phase1_with_timing(
-        benchmark, num_solutions, num_mocks
+        benchmark, num_solutions, num_overfitteds
     )
     
     if not phase1_success:
@@ -610,8 +610,8 @@ def main():
         'metrics': all_metrics,
         'total_benchmarks': len(benchmarks),
         'solution_configurations': solution_configs,
-        'mock_constraints_mapping': {
-            str(sol): calculate_mock_constraints(sol) for sol in solution_configs
+        'overfitted_constraints_mapping': {
+            str(sol): calculate_overfitted_constraints(sol) for sol in solution_configs
         },
         'parallel_execution': {
             'max_workers': 4,
@@ -624,11 +624,9 @@ def main():
     
     print(f"[SAVED] Detailed JSON saved to: {json_path}")
     
-    # Calculate statistics
     total_expected_configs = len(benchmarks) * len(solution_configs) * len(approaches)
     successful_configs = len(all_metrics)
     
-    # Count COP vs LION results
     cop_results = [m for m in all_metrics if m['Approach'] == 'COP']
     lion_results = [m for m in all_metrics if m['Approach'] == 'LION']
     
