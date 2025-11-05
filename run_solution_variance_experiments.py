@@ -365,6 +365,44 @@ def process_benchmark_config(benchmark, num_solutions, approaches):
     return config_metrics
 
 
+def append_metrics_to_csv(metrics_list, csv_path, metrics_lock):
+    """Append metrics to CSV file in a thread-safe manner."""
+    if not metrics_list:
+        return
+    
+    with metrics_lock:
+        # Check if file exists to determine if we need to write headers
+        file_exists = os.path.exists(csv_path)
+        
+        with open(csv_path, 'a') as f:
+            # Write header if file doesn't exist
+            if not file_exists:
+                f.write("Prob.,Approach,Sols,StartC,InvC,CT,Bias,ViolQ,MQuQ,TQ,ALQ,PAQ,")
+                f.write("P1T(s),VT(s),MQuT(s),TT(s),ALT(s),PAT(s),")
+                f.write("precision,recall,s_precision,s_recall\n")
+            
+            # Write data rows
+            for m in metrics_list:
+                f.write(f"{m['Prob.']},{m['Approach']},{m['Sols']},{m['StartC']},{m['InvC']},")
+                f.write(f"{m['CT']},{m['Bias']},{m['ViolQ']},{m['MQuQ']},{m['TQ']},")
+                f.write(f"{m['ALQ']},{m['PAQ']},")
+                f.write(f"{m['P1T(s)']},{m['VT(s)']},{m['MQuT(s)']},{m['TT(s)']},")
+                f.write(f"{m['ALT(s)']},{m['PAT(s)']},")
+                f.write(f"{m['precision']},{m['recall']},{m['s_precision']},{m['s_recall']}\n")
+
+
+def update_progress_file(completed, total, progress_path, metrics_lock):
+    """Update progress tracking file."""
+    with metrics_lock:
+        with open(progress_path, 'w') as f:
+            f.write(f"Experiment Progress\n")
+            f.write(f"{'='*60}\n")
+            f.write(f"Completed: {completed}/{total} tasks\n")
+            f.write(f"Progress: {100*completed/total:.1f}%\n")
+            f.write(f"Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write(f"{'='*60}\n")
+
+
 def main():
     """Run the complete solution variance experiment with parallel execution."""
     
@@ -402,6 +440,22 @@ def main():
     all_metrics = []
     metrics_lock = Lock()
     
+    # Setup output directory and intermediate results files
+    output_dir = 'solution_variance_output'
+    os.makedirs(output_dir, exist_ok=True)
+    
+    intermediate_csv_path = f"{output_dir}/intermediate_results.csv"
+    progress_path = f"{output_dir}/progress.txt"
+    
+    # Initialize files (create with headers)
+    with open(intermediate_csv_path, 'w') as f:
+        f.write("Prob.,Approach,Sols,StartC,InvC,CT,Bias,ViolQ,MQuQ,TQ,ALQ,PAQ,")
+        f.write("P1T(s),VT(s),MQuT(s),TT(s),ALT(s),PAT(s),")
+        f.write("precision,recall,s_precision,s_recall\n")
+    
+    print(f"[INFO] Intermediate results will be saved to: {intermediate_csv_path}")
+    print(f"[INFO] Progress tracking file: {progress_path}\n")
+    
     # Create list of all tasks (benchmark, solution_config combinations)
     tasks = []
     for benchmark in benchmarks:
@@ -411,6 +465,9 @@ def main():
     print(f"Total tasks to process: {len(tasks)}")
     print(f"Each task will run Phase 1 + COP (Phase 2+3) + LION (Phase 2+3)")
     print(f"Processing with 4 parallel threads...\n")
+    
+    # Initialize progress tracking
+    update_progress_file(0, len(tasks), progress_path, metrics_lock)
     
     # Process tasks in parallel using ThreadPoolExecutor
     completed_tasks = 0
@@ -433,15 +490,25 @@ def main():
                 with metrics_lock:
                     all_metrics.extend(config_metrics)
                 
+                # Write intermediate results immediately
+                append_metrics_to_csv(config_metrics, intermediate_csv_path, metrics_lock)
+                
+                # Update progress tracking
+                update_progress_file(completed_tasks, len(tasks), progress_path, metrics_lock)
+                
                 print(f"\n{'='*80}")
                 print(f"[PROGRESS] Completed {completed_tasks}/{len(tasks)}: {benchmark} with {num_sols} solutions")
                 print(f"[PROGRESS] Collected {len(config_metrics)} metric sets from this task")
+                print(f"[PROGRESS] Results appended to: {intermediate_csv_path}")
                 print(f"{'='*80}\n")
                 
             except Exception as e:
                 print(f"\n[ERROR] Task failed for {benchmark} with {num_sols} solutions: {e}")
                 import traceback
                 traceback.print_exc()
+                
+                # Still update progress even on failure
+                update_progress_file(completed_tasks, len(tasks), progress_path, metrics_lock)
     
     # All tasks completed
     print(f"\n{'='*80}")
@@ -455,11 +522,11 @@ def main():
     print(f"EXPERIMENT SUMMARY")
     print(f"{'='*80}\n")
     
-    output_dir = 'solution_variance_output'
-    os.makedirs(output_dir, exist_ok=True)
-    
     if not all_metrics:
         print("[WARNING] No metrics collected. Check for errors in pipeline execution.")
+    
+    print(f"\n[INFO] Intermediate results during execution: {intermediate_csv_path}")
+    print(f"[INFO] Generating final summary reports...\n")
     
     # Generate formatted text report (matching HCAR format)
     report_path = f"{output_dir}/variance_results.txt"
@@ -639,6 +706,17 @@ def main():
     print(f"  - LION approach: {len(lion_results)} successful")
     if total_expected_configs > 0:
         print(f"Success rate: {100*successful_configs/total_expected_configs:.1f}%")
+    print(f"\n{'='*80}")
+    print(f"OUTPUT FILES GENERATED")
+    print(f"{'='*80}")
+    print(f"Real-time monitoring (updated during execution):")
+    print(f"  - {intermediate_csv_path}")
+    print(f"  - {progress_path}")
+    print(f"\nFinal summary reports:")
+    print(f"  - {report_path}")
+    print(f"  - {csv_path}")
+    print(f"  - {comparison_path}")
+    print(f"  - {json_path}")
     print(f"\nCompleted at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"{'='*80}\n")
 
