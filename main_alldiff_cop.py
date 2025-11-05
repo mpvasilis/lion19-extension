@@ -90,6 +90,42 @@ def display_sudoku_grid(variables, title="Sudoku Grid", debug=False):
     print(f"  Filled cells: {filled}/81")
 
 
+def synchronise_assignments(solver_vars, oracle_vars):
+    """
+    Synchronize variable assignments from solver to oracle.
+    Maps values by variable name.
+    """
+    value_map = {}
+    
+    # Collect values from solver variables
+    for var in solver_vars:
+        name = getattr(var, "name", None)
+        if name is None:
+            continue
+        
+        value = None
+        if callable(getattr(var, "value", None)):
+            value = var.value()
+        if value is None and hasattr(var, "_value"):
+            value = getattr(var, "_value")
+        
+        if value is not None:
+            value_map[str(name)] = value
+    
+    # Apply values to oracle variables
+    for ovar in oracle_vars:
+        name = getattr(ovar, "name", None)
+        if name is None:
+            continue
+        
+        value = value_map.get(str(name))
+        if value is None:
+            continue
+        
+        if hasattr(ovar, "_value"):
+            ovar._value = value
+
+
 def extract_alldifferent_constraints(oracle):
     
     alldiff_constraints = []
@@ -112,7 +148,7 @@ def update_supporting_evidence(P_c, alpha):
     return P_c + (1 - P_c) * (1 - alpha)
 
 
-def generate_violation_query(CG, C_validated, probabilities, all_variables, oracle=None, B_fixed=None):
+def generate_violation_query(CG, C_validated, probabilities, all_variables, oracle=None):
     
     import cpmpy as cp
     import time
@@ -145,26 +181,6 @@ def generate_violation_query(CG, C_validated, probabilities, all_variables, orac
 
     for c in C_validated:
         model += c
-    
-    # Add relevant fixed-arity bias constraints from Phase 1
-    if B_fixed is not None and len(B_fixed) > 0:
-        # Get variables involved in the candidate constraints
-        decomposed_cg = []
-        for c in CG:
-            if isinstance(c, AllDifferent):
-                decomposed_cg.extend(c.decompose())
-            else:
-                decomposed_cg.append(c)
-        
-        S = get_variables(decomposed_cg)
-        B_fixed_subset = get_con_subset(B_fixed, S)
-        
-        if B_fixed_subset:
-            print(f"  Adding {len(B_fixed_subset)}/{len(B_fixed)} relevant B_fixed constraints from Phase 1")
-            for c in B_fixed_subset:
-                model += c
-        else:
-            print(f"  No relevant B_fixed constraints found for current candidates")
 
     gamma = {str(c): cp.boolvar(name=f"gamma_{i}") for i, c in enumerate(CG)}
 
@@ -203,21 +219,24 @@ def generate_violation_query(CG, C_validated, probabilities, all_variables, orac
     
     if result:
         print(f"  Solved in {solve_time:.2f}s - found violation query")
-        Y = get_variables(model.constraints)
-
-        values_set = sum(1 for v in Y if v.value() is not None)
-        print(f"  Variables with values: {values_set}/{len(Y)}")
         
-        # Map values to original variables if provided
+        # Since we added all_variables to the model first, they should have values directly
+        # But let's also get all variables from the model to be safe
+        model_vars = get_variables(model.constraints)
+        
+        values_set = sum(1 for v in model_vars if v.value() is not None)
+        print(f"  Variables with values: {values_set}/{len(model_vars)}")
+        
+        # Create a comprehensive value mapping
+        value_map = {}
+        for v in model_vars:
+            if hasattr(v, 'name') and v.value() is not None:
+                value_map[str(v.name)] = v.value()
+        
+        # Apply values to all_variables to ensure consistency
         if all_variables is not None:
             print(f"  Mapping values to {len(all_variables)} original variables")
-            # Create a mapping by variable name
-            value_map = {}
-            for v in Y:
-                if hasattr(v, 'name') and v.value() is not None:
-                    value_map[str(v.name)] = v.value()
-            
-            # Set values on original variables
+            mapped_count = 0
             for orig_var in all_variables:
                 if hasattr(orig_var, 'name'):
                     var_name = str(orig_var.name)
@@ -225,12 +244,29 @@ def generate_violation_query(CG, C_validated, probabilities, all_variables, orac
                         # Set the value on the original variable
                         if hasattr(orig_var, '_value'):
                             orig_var._value = value_map[var_name]
+                        mapped_count += 1
+            print(f"  Successfully mapped {mapped_count}/{len(all_variables)} variables")
             
             Y = all_variables
+        else:
+            Y = model_vars
 
+        # Check violations using get_kappa
         Viol_e = get_kappa(CG, Y)
         print(f"  Violating {len(Viol_e)}/{len(CG)} constraints")
-
+        
+        # Double-check: verify gamma values match violations
+        gamma_violations = []
+        for i, c in enumerate(CG):
+            gi = gamma[str(c)].value()
+            if gi:
+                gamma_violations.append(c)
+        
+        if len(gamma_violations) != len(Viol_e):
+            print(f"  WARNING: Mismatch detected!")
+            print(f"    Gamma indicates {len(gamma_violations)} violations")
+            print(f"    get_kappa found {len(Viol_e)} violations")
+            print(f"  This may indicate variable synchronization issues.")
         
         return Y, Viol_e, "SAT"
     else:
@@ -241,7 +277,7 @@ def generate_violation_query(CG, C_validated, probabilities, all_variables, orac
 
 def cop_refinement_recursive(CG_cand, C_validated, oracle, probabilities, all_variables,
                              alpha, theta_max, theta_min, max_queries, timeout, 
-                             recursion_depth=0, experiment_name="", B_fixed=None):
+                             recursion_depth=0, experiment_name=""):
     """
     Recursive COP-based constraint refinement.
     
@@ -277,7 +313,6 @@ def cop_refinement_recursive(CG_cand, C_validated, oracle, probabilities, all_va
         timeout: Time budget in seconds
         recursion_depth: Current recursion depth (for logging/indentation)
         experiment_name: Name of experiment (for special handling like sudoku display)
-        B_fixed: Fixed-arity bias constraints from Phase 1 (optional)
     
     Returns:
         C_validated: List of validated constraints
@@ -331,7 +366,7 @@ def cop_refinement_recursive(CG_cand, C_validated, oracle, probabilities, all_va
         
         # Generate violation query
         print(f"{indent}[QUERY] Generating violation query...")
-        Y, Viol_e, status = generate_violation_query(CG, C_val, probs, all_variables, oracle, B_fixed)
+        Y, Viol_e, status = generate_violation_query(CG, C_val, probs, all_variables, oracle)
         
         if status == "UNSAT":
             consecutive_unsat += 1
@@ -371,7 +406,12 @@ def cop_refinement_recursive(CG_cand, C_validated, oracle, probabilities, all_va
         
         # Ask oracle
         print(f"{indent}[ORACLE] Asking...")
-        answer = oracle.answer_membership_query(Y)
+        # Synchronize solver variables to oracle variables before querying
+        if hasattr(oracle, 'variables_list') and oracle.variables_list is not None:
+            synchronise_assignments(Y, oracle.variables_list)
+            answer = oracle.answer_membership_query(oracle.variables_list)
+        else:
+            answer = oracle.answer_membership_query(Y)
         queries_used += 1
         
         if answer == True:
@@ -432,8 +472,7 @@ def cop_refinement_recursive(CG_cand, C_validated, oracle, probabilities, all_va
                         max_queries=recursive_budget,
                         timeout=recursive_timeout,
                         recursion_depth=recursion_depth + 1,
-                        experiment_name=experiment_name,
-                        B_fixed=B_fixed
+                        experiment_name=experiment_name
                     )
                 
                 queries_used += queries_recursive
@@ -473,7 +512,7 @@ def cop_refinement_recursive(CG_cand, C_validated, oracle, probabilities, all_va
 
 def cop_based_refinement(experiment_name, oracle, candidate_constraints, initial_probabilities,
                          variables, alpha=0.42, theta_max=0.9, theta_min=0.1, 
-                         max_queries=500, timeout=600, B_fixed=None):
+                         max_queries=500, timeout=600):
     """
     Wrapper function for the recursive COP-based refinement.
     
@@ -503,8 +542,7 @@ def cop_based_refinement(experiment_name, oracle, candidate_constraints, initial
         max_queries=max_queries,
         timeout=timeout,
         recursion_depth=0,
-        experiment_name=experiment_name,
-        B_fixed=B_fixed
+        experiment_name=experiment_name
     )
     
     end_time = time.time()
@@ -714,34 +752,37 @@ if __name__ == "__main__":
 
     oracle.variables_list = cpm_array(instance.X)
 
-    phase1_data = None
-    B_fixed = None
+    # ALWAYS extract CG fresh from the oracle to ensure variable consistency
+    # Phase 1 pickle contains constraints with old/pickled variables that don't match current instance
+    CG = extract_alldifferent_constraints(oracle)
+    print(f"\nExtracted {len(CG)} AllDifferent constraints from oracle")
+    
+    phase1_data = None  
     if args.phase1_pickle:
-
         phase1_data = load_phase1_data(args.phase1_pickle)
-        CG = phase1_data['CG']
         
-        # Extract B_fixed if available
-        if 'B_fixed' in phase1_data:
-            B_fixed = phase1_data['B_fixed']
-            print(f"\n Loaded B_fixed: {len(B_fixed)} fixed-arity bias constraints")
-        else:
-            print(f"\n No B_fixed found in Phase 1 data")
-
+        # Use probabilities from Phase 1 if available
         if 'initial_probabilities' in phase1_data:
-            probabilities = phase1_data['initial_probabilities']
+            # Map old probabilities to new constraints by string representation
+            old_probs = phase1_data['initial_probabilities']
+            probabilities = {}
+            
+            # Create mapping from constraint string to probability
+            old_prob_map = {str(c): p for c, p in old_probs.items()}
+            
+            # Apply to new constraints
+            for c in CG:
+                c_str = str(c)
+                if c_str in old_prob_map:
+                    probabilities[c] = old_prob_map[c_str]
+                else:
+                    probabilities[c] = args.prior
+            
+            print(f"Mapped {len(probabilities)} probabilities from Phase 1")
         else:
-
             probabilities = initialize_probabilities(CG, prior=args.prior)
-            print(f"\n No initial_probabilities in pickle, using uniform prior={args.prior}")
+            print(f"No initial_probabilities in pickle, using uniform prior={args.prior}")
     else:
-
-        CG = extract_alldifferent_constraints(oracle)
-        
-        # print(f"\nExtracted {len(CG)} AllDifferent constraints from oracle:")
-        # for i, c in enumerate(CG, 1):
-        #     print(f"  {i}. {c}")
-
         probabilities = initialize_probabilities(CG, prior=args.prior)
     
     if len(CG) == 0:
@@ -758,8 +799,7 @@ if __name__ == "__main__":
         theta_max=args.theta_max,
         theta_min=args.theta_min,
         max_queries=args.max_queries,
-        timeout=args.timeout,
-        B_fixed=B_fixed
+        timeout=args.timeout
     )
 
     print(f"\n{'='*60}")
