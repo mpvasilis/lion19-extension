@@ -133,7 +133,39 @@ def compute_solution_metrics(learned_model, learned_constraints, target_constrai
 
 def load_phase2_data(pickle_path):
     
+    import os
+    
     print(f"Loading Phase 2 data from: {pickle_path}")
+    
+    # Check if file exists
+    if not os.path.exists(pickle_path):
+        print(f"\n[ERROR] Phase 2 pickle file not found: {pickle_path}")
+        
+        # Try to find available pickle files
+        pickle_dir = os.path.dirname(pickle_path) or 'phase2_output'
+        if os.path.exists(pickle_dir):
+            available_pickles = [f for f in os.listdir(pickle_dir) if f.endswith('.pkl')]
+            if available_pickles:
+                print(f"\nAvailable Phase 2 pickle files in {pickle_dir}/:")
+                for pkl in sorted(available_pickles):
+                    print(f"  - {pkl}")
+                
+                # Try to suggest the correct file based on experiment name
+                basename = os.path.basename(pickle_path)
+                if basename in available_pickles:
+                    print(f"\n[HINT] Found matching file: {os.path.join(pickle_dir, basename)}")
+                    print(f"       Use: --phase2_pickle {os.path.join(pickle_dir, basename)}")
+            else:
+                print(f"\n[INFO] No pickle files found in {pickle_dir}/")
+                print(f"       You may need to run Phase 2 first using:")
+                print(f"       python run_phase2_experiments.py")
+        else:
+            print(f"\n[INFO] Directory {pickle_dir}/ does not exist")
+            print(f"       You need to run Phase 2 first using:")
+            print(f"       python run_phase2_experiments.py")
+        
+        sys.exit(1)
+    
     with open(pickle_path, 'rb') as f:
         data = pickle.load(f)
     
@@ -617,14 +649,20 @@ def run_phase3(experiment_name, phase2_pickle_path, max_queries=1000, timeout=60
 
 if __name__ == "__main__":
     import argparse
+    import os
     
     parser = argparse.ArgumentParser(description='Run Phase 3: Active Learning with MQuAcq-2')
     parser.add_argument('--experiment', type=str, default="sudoku", help='Experiment name')
-    parser.add_argument('--phase2_pickle', type=str, default="phase2_output/sudoku_phase2.pkl", help='Path to Phase 2 pickle file')
+    parser.add_argument('--phase2_pickle', type=str, default=None, help='Path to Phase 2 pickle file (auto-constructed if not provided)')
     parser.add_argument('--max_queries', type=int, default=1000, help='Maximum queries for MQuAcq-2')
     parser.add_argument('--timeout', type=int, default=600, help='Timeout in seconds')
     
     args = parser.parse_args()
+    
+    # Auto-construct phase2_pickle path if not provided
+    if args.phase2_pickle is None:
+        args.phase2_pickle = f"phase2_output/{args.experiment}_phase2.pkl"
+        print(f"[INFO] Auto-constructed Phase 2 pickle path: {args.phase2_pickle}")
     
     run_phase3(
         experiment_name=args.experiment,
