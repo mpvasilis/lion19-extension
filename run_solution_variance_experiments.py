@@ -422,11 +422,11 @@ def main():
     benchmarks = [
         'sudoku',
         'sudoku_gt',
-        'latin_square',
-        'graph_coloring_register',
-        'examtt_v1',
-        'examtt_v2',
-        'nurse',
+        # 'latin_square',
+        # 'graph_coloring_register',
+        # 'examtt_v1',
+        # 'examtt_v2',
+        # 'nurse',
         # 'jsudoku',
     ]
     
