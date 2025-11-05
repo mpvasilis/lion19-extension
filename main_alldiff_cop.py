@@ -134,12 +134,12 @@ def generate_violation_query(CG, C_validated, probabilities, all_variables, orac
         
         print(f"  Oracle breakdown: {alldiff_count} AllDifferent, {len(non_alldiff_constraints)} non-AllDifferent")
         
-        # if non_alldiff_constraints:
-        #     print(f"  Adding {len(non_alldiff_constraints)} non-AllDifferent constraints as hard constraints")
-        #     for c in non_alldiff_constraints:
-        #         model += c
-        # else:
-        #     print(f"  Warning: No non-AllDifferent constraints found in oracle!")
+        if non_alldiff_constraints:
+            print(f"  Adding {len(non_alldiff_constraints)} non-AllDifferent constraints as hard constraints")
+            for c in non_alldiff_constraints:
+                model += c
+        else:
+            print(f"  Warning: No non-AllDifferent constraints found in oracle!")
     else:
         print(f"  WARNING: No oracle provided to generate_violation_query!")
 
