@@ -431,10 +431,10 @@ def main():
     ]
     
     # Define solution variance configurations
-    solution_configs = [2, 5, 10, 50]
+    solution_configs = [2, 5]
     
     # Define approaches to compare
-    approaches = ['cop', 'lion']
+    approaches = ['cop']
     
     # Storage for collected metrics (thread-safe)
     all_metrics = []

@@ -11,7 +11,8 @@ class ResilientMQuAcq2(MQuAcq2):
     
     def __init__(self, ca_env=None, **kwargs):
         super().__init__(ca_env, **kwargs)
-        self.skipped_scopes = []  
+        self.skipped_scopes = []
+        self.invalid_cl_constraints = []  
     
     def learn(self, instance, oracle=None, verbose=0, X=None, metrics=None):
         
@@ -90,7 +91,16 @@ class ResilientMQuAcq2(MQuAcq2):
                     NScopes.add(tuple(scope))
                     
                     if self.perform_analyzeAndLearn:
-                        NScopes = NScopes.union(self.analyze_and_learn(Y))
+                        try:
+                            # Validate CL before calling analyze_and_learn
+                            self._validate_cl_for_mquacq2()
+                            NScopes = NScopes.union(self.analyze_and_learn(Y))
+                        except IndexError as e:
+                            # Handle the case where find_neighbours fails due to invalid scope
+                            print(f"\n[WARNING] analyze_and_learn failed: {e}")
+                            print(f"  This may be due to constraints with invalid scopes in CL")
+                            print(f"  Continuing without analyze_and_learn for this iteration...")
+                            # Don't propagate the error, just continue without analyze_and_learn
                     
                     Y = [y2 for y2 in Y if not any(y2 in set(nscope) for nscope in NScopes)]
                     
@@ -101,10 +111,46 @@ class ResilientMQuAcq2(MQuAcq2):
         
         return self._perform_analyzeAndLearn
     
+    def _validate_cl_for_mquacq2(self):
+        """
+        Validate all constraints in CL have proper scopes that can be handled by MQuAcq-2.
+        Remove any constraints with invalid scopes (unary or with transformed variables).
+        """
+        from utils import get_scope
+        
+        valid_cl = []
+        for c in self.env.instance.cl:
+            try:
+                scope = get_scope(c)
+                
+                # Check if all variables in scope are in instance.X
+                scope_hashes = [hash(v) for v in scope]
+                all_in_X = all(h in self.hashX for h in scope_hashes)
+                
+                if len(scope) < 2:
+                    print(f"  [VALIDATION] Removing constraint with invalid scope (arity {len(scope)}): {c}")
+                    self.invalid_cl_constraints.append(c)
+                elif not all_in_X:
+                    print(f"  [VALIDATION] Removing constraint with variables not in instance.X: {c}")
+                    self.invalid_cl_constraints.append(c)
+                else:
+                    valid_cl.append(c)
+            except Exception as e:
+                print(f"  [VALIDATION] Failed to validate constraint {c}: {e}")
+                self.invalid_cl_constraints.append(c)
+        
+        # Update the CL with only valid constraints
+        if len(valid_cl) < len(self.env.instance.cl):
+            removed_count = len(self.env.instance.cl) - len(valid_cl)
+            print(f"  [VALIDATION] Removed {removed_count} invalid constraints from CL")
+            self.env.instance.cl = valid_cl
+    
     def get_resilience_report(self):
         
         return {
             'skipped_scopes_count': len(self.skipped_scopes),
-            'skipped_scopes': self.skipped_scopes
+            'skipped_scopes': self.skipped_scopes,
+            'invalid_cl_constraints_count': len(self.invalid_cl_constraints),
+            'invalid_cl_constraints': [str(c) for c in self.invalid_cl_constraints]
         }
 

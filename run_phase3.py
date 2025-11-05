@@ -194,6 +194,13 @@ def decompose_global_constraints(global_constraints):
     
     for c in global_constraints:
         if hasattr(c, 'name') and c.name == "alldifferent":
+            # Check if the constraint contains division or other transformations
+            c_str = str(c)
+            if '//' in c_str or '/' in c_str or '*' in c_str or '+' in c_str or '%' in c_str:
+                print(f"  Skipping constraint with transformations (not decomposable for MQuAcq-2): {c}")
+                # Don't add this constraint - it can't be properly handled by MQuAcq-2
+                continue
+            
             decomposed = c.decompose()
             if decomposed and len(decomposed) > 0:
                 binary_constraints.extend(decomposed[0])
@@ -223,10 +230,34 @@ def decompose_global_constraints(global_constraints):
         print(f"  Removed {duplicates_removed} duplicate constraints from CL_init")
         print(f"  Final CL_init size: {len(unique_constraints)} unique constraints")
     
-    return unique_constraints
+    # Validate all constraints have proper scopes
+    from utils import get_scope
+    validated_constraints = []
+    skipped_count = 0
+    
+    for c in unique_constraints:
+        try:
+            scope = get_scope(c)
+            # For MQuAcq-2, we need binary constraints (arity >= 2) or we can keep global constraints
+            if len(scope) >= 2 or 'sum' in str(c).lower() or 'count' in str(c).lower():
+                validated_constraints.append(c)
+            else:
+                print(f"  [WARNING] Skipping constraint with invalid scope (arity {len(scope)}): {c}")
+                skipped_count += 1
+        except Exception as e:
+            print(f"  [WARNING] Failed to extract scope for constraint {c}: {e}")
+            skipped_count += 1
+    
+    if skipped_count > 0:
+        print(f"  Removed {skipped_count} constraints with invalid scopes")
+        print(f"  Final validated CL_init size: {len(validated_constraints)} constraints")
+    
+    return validated_constraints
 
 
 def prune_bias_with_globals(bias_fixed, global_constraints):
+    
+    from utils import get_scope
     
     pruned_bias = []
     contradictions_removed = 0
@@ -234,6 +265,11 @@ def prune_bias_with_globals(bias_fixed, global_constraints):
     implied_binaries = []
     for gc in global_constraints:
         if hasattr(gc, 'name') and gc.name == "alldifferent":
+            # Skip constraints with transformations
+            gc_str = str(gc)
+            if '//' in gc_str or '/' in gc_str or '*' in gc_str or '+' in gc_str or '%' in gc_str:
+                continue
+            
             decomposed = gc.decompose()
             if decomposed and len(decomposed) > 0:
                 implied_binaries.extend(decomposed[0])
@@ -255,9 +291,30 @@ def prune_bias_with_globals(bias_fixed, global_constraints):
             pruned_bias.append(b)
     
     print(f"  Removed {contradictions_removed} constraints from bias (already implied by globals)")
-    print(f"  Pruned bias size: {len(pruned_bias)}")
     
-    return pruned_bias
+    # Validate bias constraints have proper scopes
+    validated_bias = []
+    invalid_bias_count = 0
+    
+    for b in pruned_bias:
+        try:
+            scope = get_scope(b)
+            # Check if scope has valid size (at least 2 for binary)
+            if len(scope) >= 2:
+                validated_bias.append(b)
+            else:
+                print(f"  [WARNING] Removing bias constraint with invalid scope (arity {len(scope)}): {b}")
+                invalid_bias_count += 1
+        except Exception as e:
+            print(f"  [WARNING] Failed to validate bias constraint {b}: {e}")
+            invalid_bias_count += 1
+    
+    if invalid_bias_count > 0:
+        print(f"  Removed {invalid_bias_count} bias constraints with invalid scopes")
+    
+    print(f"  Final pruned bias size: {len(validated_bias)}")
+    
+    return validated_bias
 
 
 def run_phase3(experiment_name, phase2_pickle_path, max_queries=1000, timeout=600):
@@ -357,6 +414,7 @@ def run_phase3(experiment_name, phase2_pickle_path, max_queries=1000, timeout=60
         print(f"  FindC collapse warnings: {findc_report['collapse_warnings']}")
         print(f"  FindC unresolved scopes: {findc_report['unresolved_scopes']}")
         print(f"  MQuAcq2 skipped scopes: {mquacq_report['skipped_scopes_count']}")
+        print(f"  MQuAcq2 invalid CL constraints: {mquacq_report.get('invalid_cl_constraints_count', 0)}")
         
         if findc_report['unresolved_details']:
             print(f"  Unresolved scope details:")
