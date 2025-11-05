@@ -112,7 +112,7 @@ def update_supporting_evidence(P_c, alpha):
     return P_c + (1 - P_c) * (1 - alpha)
 
 
-def generate_violation_query(CG, C_validated, probabilities, all_variables, oracle=None):
+def generate_violation_query(CG, C_validated, probabilities, all_variables, oracle=None, B_fixed=None):
     
     import cpmpy as cp
     import time
@@ -134,17 +134,37 @@ def generate_violation_query(CG, C_validated, probabilities, all_variables, orac
         
         print(f"  Oracle breakdown: {alldiff_count} AllDifferent, {len(non_alldiff_constraints)} non-AllDifferent")
         
-        if non_alldiff_constraints:
-            print(f"  Adding {len(non_alldiff_constraints)} non-AllDifferent constraints as hard constraints")
-            for c in non_alldiff_constraints:
-                model += c
-        else:
-            print(f"  Warning: No non-AllDifferent constraints found in oracle!")
+        # if non_alldiff_constraints:
+        #     print(f"  Adding {len(non_alldiff_constraints)} non-AllDifferent constraints as hard constraints")
+        #     for c in non_alldiff_constraints:
+        #         model += c
+        # else:
+        #     print(f"  Warning: No non-AllDifferent constraints found in oracle!")
     else:
         print(f"  WARNING: No oracle provided to generate_violation_query!")
 
     for c in C_validated:
         model += c
+    
+    # Add relevant fixed-arity bias constraints from Phase 1
+    if B_fixed is not None and len(B_fixed) > 0:
+        # Get variables involved in the candidate constraints
+        decomposed_cg = []
+        for c in CG:
+            if isinstance(c, AllDifferent):
+                decomposed_cg.extend(c.decompose())
+            else:
+                decomposed_cg.append(c)
+        
+        S = get_variables(decomposed_cg)
+        B_fixed_subset = get_con_subset(B_fixed, S)
+        
+        if B_fixed_subset:
+            print(f"  Adding {len(B_fixed_subset)}/{len(B_fixed)} relevant B_fixed constraints from Phase 1")
+            for c in B_fixed_subset:
+                model += c
+        else:
+            print(f"  No relevant B_fixed constraints found for current candidates")
 
     gamma = {str(c): cp.boolvar(name=f"gamma_{i}") for i, c in enumerate(CG)}
 
@@ -221,7 +241,7 @@ def generate_violation_query(CG, C_validated, probabilities, all_variables, orac
 
 def cop_refinement_recursive(CG_cand, C_validated, oracle, probabilities, all_variables,
                              alpha, theta_max, theta_min, max_queries, timeout, 
-                             recursion_depth=0, experiment_name=""):
+                             recursion_depth=0, experiment_name="", B_fixed=None):
     """
     Recursive COP-based constraint refinement.
     
@@ -257,6 +277,7 @@ def cop_refinement_recursive(CG_cand, C_validated, oracle, probabilities, all_va
         timeout: Time budget in seconds
         recursion_depth: Current recursion depth (for logging/indentation)
         experiment_name: Name of experiment (for special handling like sudoku display)
+        B_fixed: Fixed-arity bias constraints from Phase 1 (optional)
     
     Returns:
         C_validated: List of validated constraints
@@ -310,7 +331,7 @@ def cop_refinement_recursive(CG_cand, C_validated, oracle, probabilities, all_va
         
         # Generate violation query
         print(f"{indent}[QUERY] Generating violation query...")
-        Y, Viol_e, status = generate_violation_query(CG, C_val, probs, all_variables, oracle)
+        Y, Viol_e, status = generate_violation_query(CG, C_val, probs, all_variables, oracle, B_fixed)
         
         if status == "UNSAT":
             consecutive_unsat += 1
@@ -411,7 +432,8 @@ def cop_refinement_recursive(CG_cand, C_validated, oracle, probabilities, all_va
                         max_queries=recursive_budget,
                         timeout=recursive_timeout,
                         recursion_depth=recursion_depth + 1,
-                        experiment_name=experiment_name
+                        experiment_name=experiment_name,
+                        B_fixed=B_fixed
                     )
                 
                 queries_used += queries_recursive
@@ -451,7 +473,7 @@ def cop_refinement_recursive(CG_cand, C_validated, oracle, probabilities, all_va
 
 def cop_based_refinement(experiment_name, oracle, candidate_constraints, initial_probabilities,
                          variables, alpha=0.42, theta_max=0.9, theta_min=0.1, 
-                         max_queries=500, timeout=600):
+                         max_queries=500, timeout=600, B_fixed=None):
     """
     Wrapper function for the recursive COP-based refinement.
     
@@ -481,7 +503,8 @@ def cop_based_refinement(experiment_name, oracle, candidate_constraints, initial
         max_queries=max_queries,
         timeout=timeout,
         recursion_depth=0,
-        experiment_name=experiment_name
+        experiment_name=experiment_name,
+        B_fixed=B_fixed
     )
     
     end_time = time.time()
@@ -691,11 +714,19 @@ if __name__ == "__main__":
 
     oracle.variables_list = cpm_array(instance.X)
 
-    phase1_data = None  
+    phase1_data = None
+    B_fixed = None
     if args.phase1_pickle:
 
         phase1_data = load_phase1_data(args.phase1_pickle)
         CG = phase1_data['CG']
+        
+        # Extract B_fixed if available
+        if 'B_fixed' in phase1_data:
+            B_fixed = phase1_data['B_fixed']
+            print(f"\n Loaded B_fixed: {len(B_fixed)} fixed-arity bias constraints")
+        else:
+            print(f"\n No B_fixed found in Phase 1 data")
 
         if 'initial_probabilities' in phase1_data:
             probabilities = phase1_data['initial_probabilities']
@@ -727,7 +758,8 @@ if __name__ == "__main__":
         theta_max=args.theta_max,
         theta_min=args.theta_min,
         max_queries=args.max_queries,
-        timeout=args.timeout
+        timeout=args.timeout,
+        B_fixed=B_fixed
     )
 
     print(f"\n{'='*60}")
