@@ -164,7 +164,11 @@ def run_phase3(experiment, phase2_pickle, approach='cop'):
         '--phase2_pickle', phase2_pickle
     ]
     
-    success, _ = run_command(cmd, f"Phase 3 ({approach.upper()}): {experiment}")
+    try:
+        success, _ = run_command(cmd, f"Phase 3 ({approach.upper()}): {experiment}")
+    except Exception as e:
+        print(f"\n[ERROR] Phase 3 command execution failed: {e}")
+        return False
     
     if success:
         # Phase 3 outputs to "phase3_output" directory by default
@@ -348,19 +352,30 @@ def process_benchmark_config(benchmark, num_solutions, approaches):
             continue
         
         # Run Phase 3 with the specified approach
-        phase3_success = run_phase3(benchmark, phase2_pickle, approach=approach)
-        
-        if not phase3_success:
-            print(f"\n[THREAD ERROR] Phase 3 ({approach.upper()}) failed for {benchmark}")
+        try:
+            phase3_success = run_phase3(benchmark, phase2_pickle, approach=approach)
+            
+            if not phase3_success:
+                print(f"\n[THREAD ERROR] Phase 3 ({approach.upper()}) failed for {benchmark}")
+                continue
+        except Exception as e:
+            print(f"\n[THREAD EXCEPTION] Phase 3 ({approach.upper()}) crashed for {benchmark}: {e}")
+            import traceback
+            traceback.print_exc()
             continue
         
         # Extract metrics if all phases succeeded
-        metrics = extract_metrics(benchmark, num_solutions, phase1_pickle, phase1_time, approach=approach)
-        if metrics:
-            config_metrics.append(metrics)
-            print(f"\n[THREAD SUCCESS] Extracted metrics for {benchmark} | Solutions={num_solutions} | {approach.upper()}")
-        else:
-            print(f"\n[THREAD WARNING] Could not extract metrics for {benchmark} | Solutions={num_solutions} | {approach.upper()}")
+        try:
+            metrics = extract_metrics(benchmark, num_solutions, phase1_pickle, phase1_time, approach=approach)
+            if metrics:
+                config_metrics.append(metrics)
+                print(f"\n[THREAD SUCCESS] Extracted metrics for {benchmark} | Solutions={num_solutions} | {approach.upper()}")
+            else:
+                print(f"\n[THREAD WARNING] Could not extract metrics for {benchmark} | Solutions={num_solutions} | {approach.upper()}")
+        except Exception as e:
+            print(f"\n[THREAD ERROR] Failed to extract metrics for {benchmark} | Solutions={num_solutions} | {approach.upper()}: {e}")
+            import traceback
+            traceback.print_exc()
     
     return config_metrics
 
@@ -431,10 +446,10 @@ def main():
     ]
     
     # Define solution variance configurations
-    solution_configs = [2, 5]
+    solution_configs = [2, 5, 10, 50]
     
     # Define approaches to compare
-    approaches = ['cop']
+    approaches = ['cop', 'lion']
     
     # Storage for collected metrics (thread-safe)
     all_metrics = []

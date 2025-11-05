@@ -409,21 +409,52 @@ def run_phase3(experiment_name, phase2_pickle_path, max_queries=1000, timeout=60
     print(f"Pruned bias: {len(B_pruned)}")
 
     variables_for_mquacq = get_variables(CL_init + B_pruned)
+    
+    # Final validation: Check for any problematic constraints before creating instance
+    print(f"\n[VALIDATION] Pre-flight check of constraints...")
+    from utils import get_scope
+    
+    final_CL = []
+    final_bias = []
+    
+    for c in CL_init:
+        try:
+            scope = get_scope(c)
+            if len(scope) >= 2:
+                final_CL.append(c)
+            else:
+                print(f"  [WARNING] Removing CL constraint with arity {len(scope)}: {c}")
+        except Exception as e:
+            print(f"  [WARNING] Cannot process CL constraint {c}: {e}")
+    
+    for c in B_pruned:
+        try:
+            scope = get_scope(c)
+            if len(scope) >= 2:
+                final_bias.append(c)
+            else:
+                print(f"  [WARNING] Removing bias constraint with arity {len(scope)}: {c}")
+        except Exception as e:
+            print(f"  [WARNING] Cannot process bias constraint {c}: {e}")
+    
+    print(f"[VALIDATION] After pre-flight: CL={len(final_CL)}, Bias={len(final_bias)}")
+    
     mquacq_instance = ProblemInstance(
         variables=cpm_array(variables_for_mquacq),
-        init_cl=CL_init,
+        init_cl=final_CL,
         name=f"{experiment_name}_phase3",
-        bias=B_pruned
+        bias=final_bias
     )
     
-    print(f"Created MQuAcq-2 instance:")
+    print(f"\nCreated MQuAcq-2 instance:")
     print(f"  Variables: {len(mquacq_instance.variables)}")
     print(f"  Initial CL: {len(mquacq_instance.cl)}")
     print(f"  Bias: {len(mquacq_instance.bias)}")
     
     print(f"\n[INFO] Using MQuAcq-2 to handle imperfect bias")
+    from resilient_pqgen import ResilientPQGen
     resilient_findc = ResilientFindC(time_limit=1)  # Set FindC solver timeout to 5 seconds
-    qgen = PQGen(time_limit=2)  # Set query generator solver timeout to 5 seconds
+    qgen = ResilientPQGen(time_limit=2)  # Use resilient query generator
     custom_env = ActiveCAEnv(qgen=qgen, findc=resilient_findc)
     ca_system = ResilientMQuAcq2(ca_env=custom_env)
     
