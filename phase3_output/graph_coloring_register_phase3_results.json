@@ -1,0 +1,83 @@
+{
+  "experiment": "graph_coloring_register",
+  "timestamp": "2025-10-29T21:47:11.229988",
+  "phase1": {
+    "queries": 0,
+    "time": 0,
+    "E_plus_size": 50,
+    "B_fixed_size": 50
+  },
+  "phase2": {
+    "queries": 32,
+    "time": 1.1108896732330322,
+    "validated_globals": 8,
+    "validated_globals_list": [
+      "alldifferent(register[6],register[7],register[8])",
+      "alldifferent(register[3],register[4],register[5])",
+      "alldifferent(register[8],register[9],register[10],register[11])",
+      "alldifferent(register[2],register[5],register[8],register[11])",
+      "alldifferent(register[4],register[5],register[6],register[7])",
+      "alldifferent(register[1],register[2],register[3],register[4])",
+      "alldifferent(register[0],register[9],register[10])",
+      "alldifferent(register[0],register[1],register[2])"
+    ]
+  },
+  "phase3": {
+    "queries": 28,
+    "time": 0.5403130054473877,
+    "initial_cl": 30,
+    "pruned_bias": 20,
+    "final_model_size": 36,
+    "resilience": {
+      "findc": {
+        "collapse_warnings": 2,
+        "unresolved_scopes": 2,
+        "unresolved_details": [
+          {
+            "scope": "[register[1], register[4]]",
+            "target": "[(register[1]) != (register[4])]"
+          },
+          {
+            "scope": "[register[10], register[4]]",
+            "target": "[]"
+          }
+        ]
+      },
+      "mquacq2": {
+        "skipped_scopes_count": 2,
+        "skipped_scopes": [
+          "[register[1], register[4]]",
+          "[register[10], register[4]]"
+        ]
+      },
+      "total_issues": 4
+    }
+  },
+  "total": {
+    "queries": 60,
+    "time": 1.65120267868042
+  },
+  "evaluation": {
+    "constraint_level": {
+      "target_size": 30,
+      "learned_size": 36,
+      "correct": 30,
+      "missing": 0,
+      "spurious": 6,
+      "precision": 0.8333333333333334,
+      "recall": 1.0,
+      "f1": 0.9090909090909091
+    },
+    "solution_level": {
+      "s_precision": 0.0,
+      "s_recall": 0.0,
+      "s_f1": 0.0,
+      "learned_solutions": 1,
+      "target_solutions": 2,
+      "intersection_solutions": 0,
+      "is_complete": false,
+      "learned_incomplete": true,
+      "target_incomplete": true
+    }
+  }
+}

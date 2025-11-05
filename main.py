@@ -46,24 +46,21 @@ def active_learning_system(
     start_time = time.time()
     total_queries = 0
     total_subsets_added = 0
-    feature_evaluation_queries = 0  # Track feature evaluation calls during phase 2
+    feature_evaluation_queries = 0  
 
-    constraint_tree = {}  #constraint to its parent
-    constraint_children = {}  #constraint to its children
-    constraint_level = {}  #constraint to its level
+    constraint_tree = {}  
+    constraint_children = {}  
+    constraint_level = {}  
 
     def register_subset(parent_constraint, subset_constraint):
-        #set parent-child relationship
+
         constraint_tree[subset_constraint] = parent_constraint
-        
-        #initialize children list if needed
+
         if parent_constraint not in constraint_children:
             constraint_children[parent_constraint] = []
-        
-        #add child to parent's children list
+
         constraint_children[parent_constraint].append(subset_constraint)
-        
-        #set level (depth in tree)
+
         if parent_constraint in constraint_level:
             constraint_level[subset_constraint] = constraint_level[parent_constraint] + 1
         else:
@@ -71,20 +68,19 @@ def active_learning_system(
             constraint_level[subset_constraint] = 1
     
     def remove_constraint_family(constraint, reason="accepted"):
-        #remove a constraint and all its descendants from bias
+
         constraints_to_remove = set()
         
         if reason == "accepted":
-            #if a subset is accepted, remove its siblings and their descendants
+
             if constraint in constraint_tree:
                 parent = constraint_tree[constraint]
-                #get all siblings (including self)
+
                 siblings = constraint_children.get(parent, [])
-                
-                #add all siblings to removal list
+
                 for sibling in siblings:
                     constraints_to_remove.add(sibling)
-                    #add all descendants of each sibling
+
                     stack = [sibling]
                     while stack:
                         current = stack.pop()
@@ -94,8 +90,8 @@ def active_learning_system(
                             stack.extend(children)
         
         elif reason == "rejected":
-            # When a constraint is rejected, do NOT remove its descendants
-            # We need to explore the subsets further
+
+
             pass
         
         constraints_removed = 0
@@ -112,60 +108,52 @@ def active_learning_system(
         
         return constraints_removed
 
-    # Add weighted budget allocation based on constraint complexity
     def calculate_constraint_weight(constraint):
-        # Get probability and depth
+
         prob = bias_proba.get(constraint, 0.5)
         depth = constraint_level.get(constraint, 0)
-        
-        # Calculate weight using the simplified formula
-        # Highest weight to uncertain constraints (P(c) ≈ 0.5) and shallower constraints
-        uncertainty_score = 1.0 - abs(prob - 0.5)  # Highest at prob=0.5
-        depth_penalty = max(0.5, 1.0 - 0.1 * depth)  # Slightly penalize deeper levels
+
+
+        uncertainty_score = 1.0 - abs(prob - 0.5)  
+        depth_penalty = max(0.5, 1.0 - 0.1 * depth)  
         
         return uncertainty_score * depth_penalty
 
-    # Function to allocate budgets proportionally
     def allocate_budgets(constraints, total_budget):
         if not constraints:
             return {}
-        
-        # Calculate weights for all constraints
+
         weights = {c: calculate_constraint_weight(c) for c in constraints}
         total_weight = sum(weights.values())
         
         if total_weight <= 0 or total_budget <= 0:
-            # If no meaningful weights or no budget, distribute evenly
+
             budget_per_constraint = max(1, total_budget // len(constraints))
             return {c: budget_per_constraint for c in constraints}
-        
-        # Allocate proportionally based on weights
+
         allocations = {}
         for c in constraints:
             allocations[c] = max(1, int(total_budget * weights[c] / total_weight))
-        
-        # Distribute any leftover due to integer division
+
         leftover = total_budget - sum(allocations.values())
         if leftover > 0:
-            # Sort by weight to give priority to more important constraints
+
             sorted_constraints = sorted(constraints, key=lambda c: weights[c], reverse=True)
             for i in range(leftover):
                 allocations[sorted_constraints[i % len(sorted_constraints)]] += 1
         
         return allocations
 
-    # Initialize learned constraints with passive learning results if provided
     learned_constraints =  []
 
     bias_constraints = []
     bias_proba = {}
 
-    # If we have initial valid constraints from passive learning, add them to learned constraints
     if initial_valid_constraints:
         print(f"\n=== Starting with {len(initial_valid_constraints)} constraints from passive learning ===")
         for constraint in initial_valid_constraints:
-            if constraint is not None:  # Filter out None constraints
-                # Filter out simple variable assignments - only keep global constraints
+            if constraint is not None:  
+
                 constraint_str = str(constraint).lower()
                 is_simple_assignment = (
                     " == " in str(constraint) and 
@@ -181,8 +169,7 @@ def active_learning_system(
 
         
         print(f"  Loaded {len(learned_constraints)} valid global constraints (filtered out simple assignments)")
-        
-        # Add the filtered constraints to global_constraints for further processing
+
         for constraint in learned_constraints:
             if constraint not in global_constraints:
                 global_constraints.append(constraint)
@@ -206,12 +193,11 @@ def active_learning_system(
         print(gc)
         constraint = gc
         if "sum" in str(constraint).lower() or "alldifferent" in str(constraint).lower() or "count" in str(constraint).lower():
-            # Skip constraints that are already in learned constraints from passive learning
-            # if initial_valid_constraints and constraint in initial_valid_constraints:
-            #     print(f"Skipping constraint already learned from passive learning: {constraint}")
-            #     continue
-                
-            #print("constraint: ", constraint)
+
+
+
+
+
             bias_constraints.append(constraint)
             prob = 0.5
             if xgb_clf is not None and feature_cols is not None:
@@ -222,9 +208,9 @@ def active_learning_system(
                     if cat_cols:
                         feat_df = pd.get_dummies(feat_df, columns=cat_cols)
                     feat_df = feat_df.reindex(columns=feature_cols, fill_value=0)
-                    # print("feat_df: ", feat_df)
+
                     prob = float(xgb_clf.predict_proba(feat_df)[0][1])
-                    feature_evaluation_queries += 1  # Count feature evaluation
+                    feature_evaluation_queries += 1  
                     if prob < 0.9:
                         prob = random.uniform(0.90, 0.95)
                 except Exception as e:
@@ -233,7 +219,7 @@ def active_learning_system(
             else:
                 prob = 0.99
             bias_proba[constraint] = prob
-            # Root constraints have level 0
+
             constraint_level[constraint] = 0
 
     if initial_bias_constraints:
@@ -272,14 +258,13 @@ def active_learning_system(
         'violated': 0
     }
 
-    # pickle_file = f"{experiment}_passive_constraints.pkl"
-    # if os.path.exists(pickle_file):
-    #     with open(pickle_file, 'rb') as pf:
-    #         extended_constraints = pickle.load(pf)
-    #     constraints_to_remove = []
-    # else:
-    #     extended_constraints = []
-    #     constraints_to_remove = []
+
+
+
+
+
+
+
     extended_constraints = []
     constraints_to_remove = []
     synthetic_constraints_count = 0
@@ -314,12 +299,12 @@ def active_learning_system(
                         feat_df['is_row'] = 0
                         
                         prob = float(xgb_clf.predict_proba(feat_df)[0][1])
-                        feature_evaluation_queries += 1  # Count feature evaluation
+                        feature_evaluation_queries += 1  
                     except Exception as e:
                         print(f"Error predicting probability for extended constraint {new_constraint}: {e}")
                         prob = 0.1
-                # if prob > 0.6:
-                #     prob = random.uniform(0.1, 0.3)
+
+
                 if prob > 0.9:
                     prob = random.uniform(0.5, 0.7)
                 bias_proba[new_constraint] = prob
@@ -329,17 +314,15 @@ def active_learning_system(
                 print(f"Reached maximum synthetic constraints limit ({max_synthetic_constraints}). Skipping further AllDifferent constraint generation.")
 
 
-                # if len(available_vars) >= 2:
-                #     random_indices = random.sample(range(len(available_vars)), 2)
-                #     new_vars = vars_in_constraint + [available_vars[random_indices[0]], available_vars[random_indices[1]]]
-                #     new_constraint = AllDifferent(new_vars)
-                #     extended_constraints.append(new_constraint)
-                #     bias_proba[new_constraint] = 0.5
+
+
+
+
             else:
-                # print("Not enough variables to extend AllDifferent constraint")
-                # print(f"Available variables: {available_vars}")
-                # print(f"Variables in constraint: {vars_in_constraint}")
-                # print("constraint: ", constraint)
+
+
+
+
                 pass
 
 
@@ -362,12 +345,12 @@ def active_learning_system(
                             feat_df = pd.get_dummies(feat_df, columns=cat_cols)
                         feat_df = feat_df.reindex(columns=feature_cols, fill_value=0)
                         prob = float(xgb_clf.predict_proba(feat_df)[0][1])
-                        feature_evaluation_queries += 1  # Count feature evaluation
+                        feature_evaluation_queries += 1  
                     except Exception as e:
                         print(f"Error predicting probability for extended constraint {new_constraint}: {e}")
                         prob = 0.1
-                # if prob > 0.6:
-                #     prob = random.uniform(0.1, 0.3)
+
+
                 bias_proba[new_constraint] = prob
                 constraints_to_remove.append(constraint)
                 register_subset(constraint, new_constraint)
@@ -391,30 +374,29 @@ def active_learning_system(
                             feat_df = pd.get_dummies(feat_df, columns=cat_cols)
                         feat_df = feat_df.reindex(columns=feature_cols, fill_value=0)
                         prob = float(xgb_clf.predict_proba(feat_df)[0][1])
-                        feature_evaluation_queries += 1  # Count feature evaluation
+                        feature_evaluation_queries += 1  
                     except Exception as e:
                         print(f"Error predicting probability for extended constraint {new_constraint}: {e}")
                         prob = 0.1
-                # if prob > 0.6:
-                #     prob = random.uniform(0.1, 0.3)
+
+
                 bias_proba[new_constraint] = prob
                 constraints_to_remove.append(constraint)
                 register_subset(constraint, new_constraint)
                 print("extended constraint: ", new_constraint)
 
             else:
-                # print("Not enough variables to extend sum constraint")
-                # print(f"Available variables: {available_vars}")
-                # print(f"Variables in constraint: {vars_in_constraint}")
-                # print("constraint: ", constraint)
+
+
+
+
                 pass
 
-                    # if len(available_vars) >= 2:
-                    #     random_indices = random.sample(range(len(available_vars)), 2)
-                    #     new_sum = cpmsum(sum_terms + [available_vars[random_indices[0]], available_vars[random_indices[1]]])
-                    #     new_constraint = (new_sum == 0)
-                    #     extended_constraints.append(new_constraint)
-                    #     bias_proba[new_constraint] = 0.2
+
+
+
+
+
 
 
     for constraint in extended_constraints:
@@ -452,7 +434,6 @@ def active_learning_system(
             print(f"  Level: {constraint_level[c]}")
     print("=====================================\n")
 
-    # Phase 2 termination: Stop after constraint generation if phase2_only is True
    
 
     constraint_learning_history = {c: {'queries': [], 'prob_changes': []} for c in bias_constraints}
@@ -627,8 +608,7 @@ def active_learning_system(
             else:
                 constraint_budgets[min_prob_constraint] = 20
                 remaining_constraint_budget = 20
-            
-            # Limit the depth of subset generation to prevent infinite recursion
+
             max_allowed_depth = 3
             if constraint_level.get(min_prob_constraint, 0) >= max_allowed_depth:
                 print(f"⚠️ Maximum subset depth reached ({max_allowed_depth}). Not generating more subsets.")
@@ -638,50 +618,44 @@ def active_learning_system(
                 if min_prob_constraint in bias_proba:
                     bias_proba.pop(min_prob_constraint)
                 continue
-            
-            # Calculate budget for subsets based on parent's remaining budget without artificial minimums
+
             remaining_parent_budget = remaining_constraint_budget
-            
-            # Select subset indices based on constraint type
+
             original_scope = get_variables(min_prob_constraint)
             subset_indices = []
             constraint_type = str(min_prob_constraint).lower()
-            
-            # Determine how many subsets to generate based on constraint type and complexity
+
             if "alldifferent" in constraint_type:
-                # For AllDifferent, select strategic indices
+
                 num_possible_subsets = min(max(2, len(original_scope) // 2), 5)
-                # Select indices strategically - focus on removing variables from beginning and end
+
                 if len(original_scope) >= 3:
                     subset_indices = [0, len(original_scope) // 2, len(original_scope) - 1]
-                    # Add additional indices if we want more subsets
+
                     if num_possible_subsets > 3 and len(original_scope) > 4:
                         subset_indices.append(len(original_scope) // 3)
                     if num_possible_subsets > 4 and len(original_scope) > 5:
                         subset_indices.append(2 * len(original_scope) // 3)
             else:
-                # For other constraints, use standard approach
+
                 num_possible_subsets = 3
                 if len(original_scope) >= 3:
                     subset_indices = [0, len(original_scope) // 2, len(original_scope) - 1]
-            
-            # Estimate learning efficiency from history
+
             avg_queries_per_constraint = 0
             if min_prob_constraint in constraint_learning_history:
                 if len(constraint_learning_history[min_prob_constraint]['queries']) > 0:
                     avg_queries = sum(constraint_learning_history[min_prob_constraint]['queries']) / len(constraint_learning_history[min_prob_constraint]['queries'])
                 avg_prob_change = sum(constraint_learning_history[min_prob_constraint]['prob_changes']) / len(constraint_learning_history[min_prob_constraint]['prob_changes'])
                 
-                efficiency = avg_prob_change / (avg_queries + 1e-10)  # Avoid division by zero
+                efficiency = avg_prob_change / (avg_queries + 1e-10)  
                 scaling_factor = 1.0 + min(0.5, max(-0.5, (efficiency - 0.05) * 5))
             else:
                 scaling_factor = 1.0
-            
-            # Calculate budgets - no hardcoded minimums
+
             base_subset_budget = int((remaining_parent_budget // max(1, num_possible_subsets)) * scaling_factor)
-            # We won't use extra_budget_per_subset anymore since budgets come directly from parent
-            
-            # Allocate budgets to individual subsets based on their complexity
+
+
             subset_constraints = []
             
             for idx in subset_indices:
@@ -707,32 +681,28 @@ def active_learning_system(
 
                     if subset_constraint not in set(bias_proba) and subset_constraint not in set(learned_constraints) and len(get_variables(subset_constraint)) > 2:
                         subset_constraints.append(subset_constraint)
-                        # Register this subset in the tree
+
                         register_subset(min_prob_constraint, subset_constraint)
                         
                 except Exception as e:
                     print(f"Failed to create subset constraint: {e}")
-            
-            # Now allocate budgets to the valid subset constraints proportionally
+
             if subset_constraints:
-                # Use only the parent's remaining budget for subsets
+
                 total_subset_budget = remaining_constraint_budget
-                
-                # Distribute evenly across all subset constraints
+
                 if len(subset_constraints) > 0:
-                    # Equal distribution to all subsets
+
                     budget_per_subset = total_subset_budget // len(subset_constraints)
                     subset_budgets = {c: budget_per_subset for c in subset_constraints}
-                    
-                    # Distribute any leftover
+
                     leftover = total_subset_budget - (budget_per_subset * len(subset_constraints))
                     subset_list = list(subset_constraints)
                     for i in range(leftover):
                         subset_budgets[subset_list[i % len(subset_list)]] += 1
                     
                     print(f"Distributing parent's remaining budget ({total_subset_budget}) equally to {len(subset_constraints)} subsets, {budget_per_subset} each")
-                    
-                    # Print detailed budget information for subsets
+
                     print("\n----- Subset Budget Allocation -----")
                     print(f"Parent constraint: {min_prob_constraint}")
                     print(f"Parent's remaining budget: {total_subset_budget}")
@@ -754,32 +724,27 @@ def active_learning_system(
                     total_subsets_added += 1
             else:
                 print("No valid subsets could be generated.")
-            
-            # Remove children constraints when parent is rejected
+
             removed_count = remove_constraint_family(min_prob_constraint, "rejected")
-            
-            # Remove the constraint itself
+
             if min_prob_constraint in bias_constraints:
                 bias_constraints.remove(min_prob_constraint)
             if min_prob_constraint in bias_proba:
                 bias_proba.pop(min_prob_constraint)
 
-        # Recalculate remaining global budget
         total_queries += env.metrics.total_queries
         if total_query_budget is not None:
             remaining_global_budget = total_query_budget - total_queries
-        
-        # Redistribute unused budget equally
+
         if len(bias_constraints) > 0 and unused_budget > 0:
-            # Calculate equal share for each constraint
+
             extra_per_constraint = unused_budget // len(bias_constraints)
             
             if extra_per_constraint > 0:
-                # Distribute evenly
+
                 for c in bias_constraints:
                     constraint_budgets[c] += extra_per_constraint
-                
-                # Distribute any remaining
+
                 leftover = unused_budget - (extra_per_constraint * len(bias_constraints))
                 bias_list = list(bias_constraints)
                 for i in range(leftover):
@@ -794,7 +759,7 @@ def active_learning_system(
         print("Total constraints learned: ", total_constraints_learned)
         print("Total constraints removed: ", total_constraints_removed)
         print("--------------------------------")
-        # input("Press Enter to continue...")
+
 
     print("\nAdding remaining constraints in bias_proba to learned_constraints:")
     for constraint in list(bias_proba.keys()):
@@ -863,9 +828,8 @@ def active_learning_system(
         for constraint in learned_constraints:
             f.write(f"{constraint}\n")
     print(f"\nLearned constraints written to {constraints_file}")
-    
-    # with open(pickle_file, 'wb') as pf:
-    #     pickle.dump(extended_constraints, pf)
+
+
     violated_constraints = [c for c in initial_bias_constraints_set if c not in set(learned_constraints)]
 
     return (
@@ -892,12 +856,16 @@ def construct_instance(experiment_name):
         print("Constructing 9sudoku")
         n = 9
         instance_binary, oracle_binary = construct_sudoku_binary(3, 3, 9)
-        instance_global, oracle_global = construct_sudoku(3, 3, 9)
+        result = construct_sudoku(3, 3, 9)
+
+        instance_global, oracle_global = (result[0], result[1]) if len(result) == 3 else result
     elif 'examtt' in experiment_name.lower():
         print("Constructing examtt")
         n = 6
-        instance_binary, oracle_binary = construct_examtt_simple(nsemesters=9, courses_per_semester=6, slots_per_day=9, days_for_exams=14)
-        instance_global, oracle_global = ces_global(nsemesters=9, courses_per_semester=6, slots_per_day=9, days_for_exams=14)
+        result1 = construct_examtt_simple(nsemesters=9, courses_per_semester=6, slots_per_day=9, days_for_exams=14)
+        instance_binary, oracle_binary = (result1[0], result1[1]) if len(result1) == 3 else result1
+        result2 = ces_global(nsemesters=9, courses_per_semester=6, slots_per_day=9, days_for_exams=14)
+        instance_global, oracle_global = (result2[0], result2[1]) if len(result2) == 3 else result2
     elif 'nurse' in experiment_name.lower():
         n = 0
         instance_binary, oracle_binary = construct_nurse_rostering()
@@ -953,7 +921,7 @@ def construct_instance(experiment_name):
         
         instance_binary, oracle_binary = construct_vm_allocation_instance_binary(PM_DATA, VM_DATA)
         instance_global, oracle_global = construct_vm_allocation_instance_global(PM_DATA, VM_DATA)
-        n = len(instance_binary.X)  # Number of VMs
+        n = len(instance_binary.X)  
     else:
         throw_error("Unknown experiment name")
         return None, None
@@ -977,8 +945,7 @@ def load_passive_learning_constraints(experiment_name, num_solutions=None, outpu
                 return None
         else:
             print(f"Passive learning constraints file not found: {pickle_filename}")
-    
-    # Try to find any available file for this experiment
+
     if os.path.exists(output_dir):
         for filename in os.listdir(output_dir):
             if filename.startswith(f"{experiment_name}_") and filename.endswith("_learned_constraints.pkl"):
@@ -1095,8 +1062,7 @@ if __name__ == "__main__":
     print("Raw valid constraints:")
     for c in valid_constraints:
         print(f"  - {c}")
-    
-    # Exit early if phase2_only is True
+
     if phase2_only:
         print("Exiting after phase 2 (constraint generation) as requested")
         sys.exit(0)
@@ -1146,8 +1112,8 @@ if __name__ == "__main__":
     instance.cl.append(final_valid_constraints)
 
     ca_system = MQuAcq2()
-    # print(instance.cl)
-    # print(instance.bias)
+
+
     learned_instance = ca_system.learn(instance, oracle=oracle_binary, verbose=3)
 
     final_constraints = learned_instance.get_cpmpy_model().constraints

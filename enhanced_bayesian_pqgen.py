@@ -4,9 +4,38 @@ from cpmpy.transformations.get_variables import get_variables
 from pycona.query_generation.pqgen import PQGen
 from pycona.utils import get_con_subset, restore_scope_values
 
+
+def weighted_violation_objective(B, ca_env):
+    
+    if not hasattr(ca_env, 'constraint_probs') or not ca_env.constraint_probs:
+
+        return cp.sum([~c for c in B])
+
+    if hasattr(ca_env, 'verbose') and ca_env.verbose >= 2:
+        print("\nViolation Objective:")
+        for c in B[:5]:  
+            p = ca_env.constraint_probs.get(c, 0.5)
+            weight = 1.0 - p
+            print(f"  {c}: P={p:.3f} -> weight={weight:.3f}")
+        if len(B) > 5:
+            print(f"  ... and {len(B)-5} more constraints")
+
+
+
+    weighted_sum = cp.sum([
+        (1.0 - ca_env.constraint_probs.get(c, 0.5)) * (~c)
+        for c in B
+    ])
+
+    return weighted_sum
+
+
 class EnhancedBayesianPQGen(PQGen):
 
     def __init__(self, *args, **kwargs):
+
+        if 'objective_function' not in kwargs:
+            kwargs['objective_function'] = weighted_violation_objective
         super().__init__(*args, **kwargs)
         self.previous_assignments = {}
         
@@ -51,7 +80,6 @@ class EnhancedBayesianPQGen(PQGen):
 
         t0 = time.time()
 
-        # Project down to only vars in scope of B
         Y2 = frozenset(get_variables(self.env.instance.bias))
 
         if len(Y2) < len(Y):
@@ -63,21 +91,12 @@ class EnhancedBayesianPQGen(PQGen):
 
 
         Cl = get_con_subset(self.env.instance.cl, Y)
-        # if len(Cl)==0:
-        #     print("CL total size", len(self.env.instance.cl))
-        #     for c in self.env.instance.cl:
-        #         print(c)
-        #     print("CL subset total size", len(Cl))
-        #     input("CL is empty")
 
-
-        # If no constraints left in B, just return
         if len(B) == 0:
             return set()
 
-        # If no constraints learned yet, start by just generating an example in all the variables in Y
         if len(Cl) == 0:
-            # print(" WARNING: Empty CL in PQGen")
+
             Cl = self.env.instance.cl
 
         if not self.partial and len(B) > self.blimit:
@@ -95,8 +114,7 @@ class EnhancedBayesianPQGen(PQGen):
             
         m = cp.Model(Cl)
 
-        # We want at least one constraint to be violated to assure that each answer 
-        # will lead to new information
+
         m += ~cp.all(B)
         
         for prev_assignment in all_previous_assignments:
@@ -104,68 +122,75 @@ class EnhancedBayesianPQGen(PQGen):
                 different_assignment = cp.any([lY[i] != prev_assignment[i] for i in range(len(lY))])
                 m += different_assignment
 
-        # Solve first without objective (to find at least one solution)
         flag = m.solve()
 
         t1 = time.time() - t0
         if not flag or (t1 > self.time_limit):
-            # UNSAT or already above time_limit, stop here --- cannot optimize
+
             return lY if flag else set()
 
-        # Next solve will change the values of the variables in lY
-        # so we need to return them to the original ones to continue if we don't find a solution next
+
         values = [x.value() for x in lY]
-        
-        # Filter out None values before passing to solution_hint
+
         valid_vars = []
         valid_values = []
         for i, (var, val) in enumerate(zip(lY, values)):
             if val is not None:
                 valid_vars.append(var)
                 valid_values.append(val)
-            else:
-                print(f"⚠️ Skipping variable {var} with None value in solution_hint")
 
-        # So a solution was found, try to find a better one now
         if valid_vars and valid_values:
-            m.solution_hint(valid_vars, valid_values)
-        else:
-            print("⚠️ No valid variables for solution_hint")
+            if hasattr(m, 'solution_hint'):
+                m.solution_hint(valid_vars, valid_values)
+            else:
+
+                pass
         try:
             objective = self.obj(B=B, ca_env=self.env)
         except:
             raise NotImplementedError(f"Objective given not implemented in PQGen: {self.obj} - Please report an issue")
 
-        # Run with the objective
-        m.maximize(objective)
+
+
+        try:
+            weights_sum = 0.0
+            if hasattr(self.env, 'constraint_probs') and self.env.constraint_probs:
+                for c in B:
+                    weights_sum += (1.0 - self.env.constraint_probs.get(c, 0.5))
+            penalty_M = weights_sum + 1.0
+
+            violations = [~c for c in B]
+            all_violated = cp.boolvar(name="all_violated")
+            m += (all_violated == (cp.sum(violations) == len(B)))
+
+            final_objective = objective - penalty_M * all_violated
+        except Exception:
+            final_objective = objective
+
+        m.maximize(final_objective)
 
         flag2 = m.solve(time_limit=(self.time_limit - t1))
 
         if flag2:
-            # Store this assignment for each constraint in B
+
             new_values = [x.value() for x in lY]
-            
-            # Filter out None values before storing
+
             valid_new_values = []
             for val in new_values:
                 if val is not None:
                     valid_new_values.append(val)
-                else:
-                    print(f"⚠️ Found None value in optimization result")
             
             for constraint in B:
                 self.add_previous_assignment(constraint, valid_new_values if len(valid_new_values) == len(lY) else new_values)
             
             return lY
         else:
-            # Store the original solution if optimization failed
-            # Filter out None values before storing
+
+
             valid_values_original = []
             for val in values:
                 if val is not None:
                     valid_values_original.append(val)
-                else:
-                    print(f"⚠️ Found None value in original solution")
                     
             for constraint in B:
                 self.add_previous_assignment(constraint, valid_values_original if len(valid_values_original) == len(lY) else values)

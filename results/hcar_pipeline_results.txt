@@ -1,0 +1,30 @@
+HCAR Pipeline Results
+================================================================================
+
+         Prob.  Sols  StartC  InvC  CT  Bias  ViolQ  MQuQ   TQ ALQ PAQ  VT(s)  MQuT(s)    TT(s) ALT(s) PAT(s)  _precision  _recall  _s_precision  _s_recall
+        Sudoku     5      37    10  27  2291    101  1232 1333 N/A N/A 317.69   141.14   458.83    N/A    N/A        0.00     0.00           0.0        0.0
+     Sudoku-GT     5      40    29  37  2670     83  1399 1482 N/A N/A  74.96   101.22   176.17    N/A    N/A        0.00     0.00           0.0        0.0
+       JSudoku     5      37    10  31  3491     99  1448 1547 N/A N/A 361.40   793.36  1154.76    N/A    N/A       74.72   100.00           0.0        0.0
+  Latin Square     5      28    10  18  2262     73  2297 2370 N/A N/A 284.40 49915.60 50200.00    N/A    N/A       63.59   100.00           0.0        0.0
+Graph Coloring     5      10     2   5   140     32    68  100 N/A N/A   1.15     0.68     1.83    N/A    N/A       36.14   100.00           0.0        0.0
+     ExamTT-V1     5      15    15   7   463      1   696  697 N/A N/A   0.79    84.49    85.27    N/A    N/A       96.78    21.68           0.0        0.0
+     ExamTT-V2     5      19    19   9  1784      1  2958 2959 N/A N/A   3.26   626.82   630.08    N/A    N/A       80.17    53.09           0.0        0.0
+         nurse     5      16     3 N/A   954     64  1470 1534 N/A N/A  22.25   453.03   475.28    N/A    N/A       35.12    52.25           0.0        0.0
+
+================================================================================
+Legend:
+  Sols: Number of given solutions (positive examples)
+  StartC: Number of candidate constraints from passive learning
+  InvC: Number of constraints invalidated by refinement
+  CT: Number of AllDifferent constraints in target model
+  Bias: Size of generated bias
+  ViolQ: Violation queries (Phase 2)
+  MQuQ: Active learning queries (Phase 3)
+  TQ: Total queries (ViolQ + MQuQ)
+  ALQ: Queries for purely Active Learning baseline
+  PAQ: Queries for Passive+Active baseline
+  VT(s): Duration of violation phase
+  MQuT(s): Duration of active learning phase
+  TT(s): Overall runtime
+  ALT(s): Runtime for Active Learning baseline
+  PAT(s): Runtime for Passive+Active baseline

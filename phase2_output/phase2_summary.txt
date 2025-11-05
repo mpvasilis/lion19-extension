@@ -1,0 +1,115 @@
+================================================================================
+PHASE 2 EXPERIMENTS - COMPREHENSIVE SUMMARY
+================================================================================
+Generated: 2025-11-03T14:24:46.546137
+Total benchmarks: 4
+================================================================================
+
+OVERALL STATISTICS
+--------------------------------------------------------------------------------
+Successful (Perfect Learning): 1
+Completed (Partial Learning): 3
+Failed/Error: 0
+
+PER-BENCHMARK RESULTS
+--------------------------------------------------------------------------------
+
+Benchmark: sudoku
+  Status: SUCCESS
+  Queries: 101
+  Time: 316.17s
+  Total Duration: 320.02s
+
+  Constraint Learning:
+    Target constraints: 27
+    Learned constraints: 27
+    Validated: 27
+    Rejected: 10
+
+  Accuracy:
+    Correct: 27
+    Missing: 0
+    Spurious: 0
+    Precision: 100.00%
+    Recall: 100.00%
+
+  Log file: phase2_output\sudoku_phase2.log
+
+--------------------------------------------------------------------------------
+
+Benchmark: sudoku_gt
+  Status: COMPLETED
+  Queries: 88
+  Time: 73.94s
+  Total Duration: 75.88s
+
+  Constraint Learning:
+    Target constraints: 27
+    Learned constraints: 11
+    Validated: 11
+    Rejected: 29
+
+  Accuracy:
+    Correct: 11
+    Missing: 16
+    Spurious: 0
+    Precision: 100.00%
+    Recall: 40.74%
+
+  Log file: phase2_output\sudoku_gt_phase2.log
+
+--------------------------------------------------------------------------------
+
+Benchmark: examtt_v1
+  Status: COMPLETED
+  Queries: 1
+  Time: 0.77s
+  Total Duration: 2.64s
+
+  Constraint Learning:
+    Target constraints: 7
+    Learned constraints: 0
+    Validated: 0
+    Rejected: 15
+
+  Accuracy:
+    Correct: 0
+    Missing: 7
+    Spurious: 0
+    Recall: 0.00%
+
+  Log file: phase2_output\examtt_v1_phase2.log
+
+--------------------------------------------------------------------------------
+
+Benchmark: examtt_v2
+  Status: COMPLETED
+  Queries: 1
+  Time: 2.77s
+  Total Duration: 4.85s
+
+  Constraint Learning:
+    Target constraints: 9
+    Learned constraints: 0
+    Validated: 0
+    Rejected: 19
+
+  Accuracy:
+    Correct: 0
+    Missing: 9
+    Spurious: 0
+    Recall: 0.00%
+
+  Log file: phase2_output\examtt_v2_phase2.log
+
+--------------------------------------------------------------------------------
+
+SUMMARY TABLE
+--------------------------------------------------------------------------------
+Benchmark            Status       Queries    Time(s)    Precision    Recall    
+--------------------------------------------------------------------------------
+sudoku               SUCCESS      101        316.2      100.00%      100.00%   
+sudoku_gt            COMPLETED    88         73.9       100.00%      40.74%    
+examtt_v1            COMPLETED    1          0.8        N/A          0.00%     
+examtt_v2            COMPLETED    1          2.8        N/A          0.00%     
+================================================================================
