@@ -6,10 +6,14 @@ proportional overfitted constraints, comparing both COP and LION approaches.
 As the number of solutions increases, the number of overfitted constraints decreases.
 
 Configurations:
-- 2 solutions  -> 50 overfitted constraints
-- 5 solutions  -> 20 overfitted constraints  
-- 10 solutions -> 10 overfitted constraints
-- 50 solutions -> 2 overfitted constraints
+Per-benchmark overfitted constraints (InvC) used during passive learning:
+  - S9x9: 2→20, 5→8, 10→6, 50→3
+  - GTS: 2→17, 5→8, 20→5, 200→1
+  - JSud: 2→41, 20→41, 200→32, 500→25
+  - ET1: 2→25, 5→20, 10→11, 50→5
+  - ET2: 2→44, 5→28, 10→9, 50→4
+Benchmarks without explicit mappings fall back to the default inverse relationship
+described in `DEFAULT_OVERFITTED_CONSTRAINTS`.
 
 Each configuration is tested with both:
 - COP approach (main_alldiff_cop.py)
@@ -50,6 +54,54 @@ TARGET_CONSTRAINTS = {
     'examtt_v2': 9,
     'nurse': 13  # Adjust based on actual
 }
+
+# Benchmark-specific overfitted constraint counts (InvC) keyed by solution count
+# These values are used to set the number of overfitted constraints during Phase 1
+# passive learning for each benchmark.
+BENCHMARK_OVERFITTED_CONSTRAINTS = {
+    'sudoku': {
+        2: 20,
+        5: 8,
+        10: 6,
+        50: 3,
+    },
+    'sudoku_gt': {
+        2: 17,
+        5: 8,
+        20: 5,
+        200: 1,
+    },
+    'jsudoku': {
+        2: 41,
+        20: 41,
+        200: 32,
+        500: 25,
+    },
+    'examtt_v1': {
+        2: 25,
+        5: 20,
+        10: 11,
+        50: 5,
+    },
+    'examtt_v2': {
+        2: 44,
+        5: 28,
+        10: 9,
+        50: 4,
+    },
+}
+
+# Default inverse relationship used when a benchmark does not have a bespoke mapping
+DEFAULT_OVERFITTED_CONSTRAINTS = {
+    2: 50,
+    5: 20,
+    10: 10,
+    50: 2,
+}
+
+DEFAULT_OVERFITTED_VALUE = 10
+
+DEFAULT_SOLUTION_CONFIGS = sorted(DEFAULT_OVERFITTED_CONSTRAINTS.keys())
 
 
 def run_command(cmd, description):
@@ -299,20 +351,20 @@ def extract_metrics(benchmark_name, num_solutions, phase1_pickle_path, phase1_ti
     return metrics
 
 
-def calculate_overfitted_constraints(num_solutions):
-    """
-    Calculate the number of overfitted constraints inversely proportional to solutions.
-    Formula: More solutions -> Fewer overfitted constraints
-    """
-    # Inverse relationship mapping
-    mapping = {
-        2: 50,
-        5: 20,
-        10: 10,
-        50: 2
-    }
-    
-    return mapping.get(num_solutions, 10)  # Default to 10 if not in mapping
+def get_solution_counts_for_benchmark(benchmark):
+    """Return the list of solution counts to use for a benchmark."""
+    benchmark_mapping = BENCHMARK_OVERFITTED_CONSTRAINTS.get(benchmark)
+    if benchmark_mapping:
+        return sorted(benchmark_mapping.keys())
+    return DEFAULT_SOLUTION_CONFIGS
+
+
+def calculate_overfitted_constraints(benchmark, num_solutions):
+    """Return the number of overfitted constraints (InvC) for Phase 1."""
+    benchmark_mapping = BENCHMARK_OVERFITTED_CONSTRAINTS.get(benchmark, {})
+    if num_solutions in benchmark_mapping:
+        return benchmark_mapping[num_solutions]
+    return DEFAULT_OVERFITTED_CONSTRAINTS.get(num_solutions, DEFAULT_OVERFITTED_VALUE)
 
 
 def process_benchmark_config(benchmark, num_solutions, approaches):
@@ -321,7 +373,7 @@ def process_benchmark_config(benchmark, num_solutions, approaches):
     Runs Phase 1 once, then both COP and LION approaches.
     Returns list of metrics collected.
     """
-    num_overfitteds = calculate_overfitted_constraints(num_solutions)
+    num_overfitteds = calculate_overfitted_constraints(benchmark, num_solutions)
     
     print(f"\n{'='*80}")
     print(f"[THREAD] Processing: {benchmark} | Solutions={num_solutions}, overfitted={num_overfitteds}")
@@ -425,12 +477,6 @@ def main():
     print(f"SOLUTION VARIANCE EXPERIMENTS - COP vs LION COMPARISON (PARALLEL)")
     print(f"{'='*80}")
     print(f"Starting at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    print(f"\nConfiguration:")
-    print(f"  Solutions: [2, 5, 10, 50]")
-    print(f"  Mock Constraints (inverse): [50, 20, 10, 2]")
-    print(f"  Approaches: [COP, LION]")
-    print(f"  Parallel threads: 4")
-    print(f"  Note: Each thread runs Phase 1 once, then both COP and LION for Phase 2+3")
     print(f"{'='*80}\n")
     
     # Define benchmarks to test
@@ -445,12 +491,26 @@ def main():
         'jsudoku',
     ]
     
-    # Define solution variance configurations
-    solution_configs = [2, 5, 10, 50]
-    
     # Define approaches to compare
     approaches = ['cop', 'lion']
     
+    # Determine solution configurations per benchmark
+    benchmark_solution_map = {
+        benchmark: get_solution_counts_for_benchmark(benchmark)
+        for benchmark in benchmarks
+    }
+
+    print("Benchmark-specific solution counts (solutions → overfitted constraints):")
+    for benchmark in benchmarks:
+        display_name = BENCHMARK_DISPLAY_NAMES.get(benchmark, benchmark)
+        solution_counts = benchmark_solution_map[benchmark]
+        mapped_constraints = {
+            sol: calculate_overfitted_constraints(benchmark, sol)
+            for sol in solution_counts
+        }
+        print(f"  - {display_name}: {mapped_constraints}")
+    print(f"{'='*80}\n")
+
     # Storage for collected metrics (thread-safe)
     all_metrics = []
     metrics_lock = Lock()
@@ -473,12 +533,12 @@ def main():
     
     # Create list of all tasks (benchmark, solution_config combinations)
     tasks = []
-    for benchmark in benchmarks:
-        for num_solutions in solution_configs:
+    for benchmark, solution_counts in benchmark_solution_map.items():
+        for num_solutions in solution_counts:
             tasks.append((benchmark, num_solutions, approaches))
     
     print(f"Total tasks to process: {len(tasks)}")
-    print(f"Each task will run Phase 1 + COP (Phase 2+3) + LION (Phase 2+3)")
+    print(f"Each task runs Phase 1 followed by COP (Phase 2+3) and LION (Phase 2+3)")
     print(f"Processing with 4 parallel threads...\n")
     
     # Initialize progress tracking
@@ -687,14 +747,20 @@ def main():
     
     # Save detailed JSON
     json_path = f"{output_dir}/variance_experiment_detailed.json"
+    summary_overfitted_mapping = {
+        benchmark: {
+            str(sol): calculate_overfitted_constraints(benchmark, sol)
+            for sol in benchmark_solution_map[benchmark]
+        }
+        for benchmark in benchmarks
+    }
+
     summary = {
         'timestamp': datetime.now().isoformat(),
         'metrics': all_metrics,
         'total_benchmarks': len(benchmarks),
-        'solution_configurations': solution_configs,
-        'overfitted_constraints_mapping': {
-            str(sol): calculate_overfitted_constraints(sol) for sol in solution_configs
-        },
+        'solution_configurations': benchmark_solution_map,
+        'overfitted_constraints_mapping': summary_overfitted_mapping,
         'parallel_execution': {
             'max_workers': 4,
             'total_tasks': len(tasks)
@@ -706,7 +772,7 @@ def main():
     
     print(f"[SAVED] Detailed JSON saved to: {json_path}")
     
-    total_expected_configs = len(benchmarks) * len(solution_configs) * len(approaches)
+    total_expected_configs = len(tasks) * len(approaches)
     successful_configs = len(all_metrics)
     
     cop_results = [m for m in all_metrics if m['Approach'] == 'COP']

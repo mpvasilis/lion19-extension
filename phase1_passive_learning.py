@@ -422,6 +422,18 @@ def generate_overfitted_alldifferent(variables, positive_examples, target_alldif
     overfitted = []
     var_list = list(variables)
     attempts = 0
+
+    def is_valid_all_diff(var_subset):
+        for example in positive_examples:
+            values = []
+            for var in var_subset:
+                if var.name in example:
+                    values.append(example[var.name])
+                else:
+                    return False
+            if len(values) != len(set(values)):
+                return False
+        return True
     
     while len(overfitted) < count and attempts < max_attempts:
         attempts += 1
@@ -444,32 +456,70 @@ def generate_overfitted_alldifferent(variables, positive_examples, target_alldif
         if is_subset_of_target:
             continue  
 
-        is_alldiff_pattern = True
-        for example in positive_examples:
-            values = []
-            for var in var_subset:
-                if var.name in example:
-                    values.append(example[var.name])
-                else:
-                    is_alldiff_pattern = False
-                    break
-            
-            if not is_alldiff_pattern:
-                break
-
-            if len(values) != len(set(values)):
-                is_alldiff_pattern = False
-                break
-        
-        if is_alldiff_pattern:
+        if is_valid_all_diff(var_subset):
 
             constraint = AllDifferent(var_subset)
             overfitted.append(constraint)
             target_strs.add(var_names)  
             print(f"  Generated overfitted constraint {len(overfitted)}/{count}: scope size = {scope_size}")
-    
+
     if len(overfitted) < count:
-        print(f"  Warning: Only generated {len(overfitted)} overfitted constraints (target was {count})")
+        print(
+            f"  Warning: Only generated {len(overfitted)} overfitted constraints out of {count} after {attempts} attempts."
+        )
+        print("  Attempting fallback generation allowing subsets of target constraints...")
+
+        fallback_attempts = 0
+        remaining_needed = count - len(overfitted)
+        fallback_max_attempts = max(max_attempts * 5, remaining_needed * 1000)
+        while len(overfitted) < count and fallback_attempts < fallback_max_attempts:
+            fallback_attempts += 1
+
+            scope_size = random.randint(3, min(7, len(var_list)))
+            var_subset = random.sample(var_list, scope_size)
+
+            var_names = tuple(sorted([v.name for v in var_subset]))
+            if var_names in target_strs:
+                continue
+
+            if is_valid_all_diff(var_subset):
+                constraint = AllDifferent(var_subset)
+                overfitted.append(constraint)
+                target_strs.add(var_names)
+                print(
+                    f"  [fallback] Generated overfitted constraint {len(overfitted)}/{count}: scope size = {scope_size}"
+                )
+
+        if len(overfitted) < count:
+            print(
+                f"  Warning: Fallback generation still produced only {len(overfitted)} overfitted constraints (target was {count})."
+            )
+            print("  Attempting deterministic generation to complete target...")
+
+            deterministic_generated = 0
+            for scope_size in range(3, min(8, len(var_list) + 1)):
+                if len(overfitted) >= count:
+                    break
+                for start_idx in range(0, len(var_list) - scope_size + 1):
+                    var_subset = var_list[start_idx:start_idx + scope_size]
+                    var_names = tuple(sorted([v.name for v in var_subset]))
+                    if var_names in target_strs:
+                        continue
+                    if not is_valid_all_diff(var_subset):
+                        continue
+
+                    constraint = AllDifferent(var_subset)
+                    overfitted.append(constraint)
+                    target_strs.add(var_names)
+                    deterministic_generated += 1
+                    print(
+                        f"  [deterministic] Generated overfitted constraint {len(overfitted)}/{count}: scope size = {scope_size}"
+                    )
+                    if len(overfitted) >= count:
+                        break
+
+            if deterministic_generated == 0 and len(overfitted) < count:
+                print("  Warning: Deterministic generation could not reach the desired count either.")
     
     return overfitted
 
@@ -626,8 +676,27 @@ def run_phase1(benchmark_name, output_dir='phase1_output', num_examples=5, num_o
             if len(other_overfitteds) > 5:
                 print(f"         ... and {len(other_overfitteds) - 5} more")
         
-        overfitted_constraints = alldiff_overfitteds
-        print(f"\n[MOCK] Using {len(overfitted_constraints)} AllDifferent overfitted constraints from benchmark")
+        overfitted_constraints = list(alldiff_overfitteds)
+
+        if len(overfitted_constraints) < num_overfitted:
+            needed = num_overfitted - len(overfitted_constraints)
+            print(
+                f"\n[MOCK] Benchmark provided {len(overfitted_constraints)} overfitted constraints; generating {needed} more to reach target of {num_overfitted}."
+            )
+            additional_overfitteds = generate_overfitted_alldifferent(
+                instance.X,
+                positive_examples,
+                target_alldiffs + overfitted_constraints,
+                count=needed
+            )
+            overfitted_constraints.extend(additional_overfitteds)
+        elif len(overfitted_constraints) > num_overfitted:
+            print(
+                f"\n[MOCK] Benchmark provided {len(overfitted_constraints)} overfitted constraints; trimming to requested {num_overfitted}."
+            )
+            overfitted_constraints = overfitted_constraints[:num_overfitted]
+
+        print(f"\n[MOCK] Using {len(overfitted_constraints)} AllDifferent overfitted constraints")
         for i, c in enumerate(overfitted_constraints, 1):
             print(f"       Mock {i}: {c}")
     else:
