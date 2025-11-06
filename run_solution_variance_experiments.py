@@ -437,12 +437,12 @@ def main():
     benchmarks = [
         'sudoku',
         'sudoku_gt',
-        # 'latin_square',
-        # 'graph_coloring_register',
-        # 'examtt_v1',
-        # 'examtt_v2',
-        # 'nurse',
-        # 'jsudoku',
+        'latin_square',
+        'graph_coloring_register',
+        'examtt_v1',
+        'examtt_v2',
+        'nurse',
+        'jsudoku',
     ]
     
     # Define solution variance configurations
