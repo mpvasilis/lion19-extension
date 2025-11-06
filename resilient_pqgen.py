@@ -5,7 +5,7 @@ Resilient PQGen that handles None values in solution hints.
 import time
 import cpmpy as cp
 from pycona.query_generation.pqgen import PQGen
-from pycona.transformations.get_variables import get_variables
+from cpmpy.transformations.get_variables import get_variables
 from pycona.utils import get_con_subset
 
 
