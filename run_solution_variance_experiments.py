@@ -28,8 +28,9 @@ import pickle
 import shutil
 import subprocess
 from datetime import datetime
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from threading import Lock
+
+PYTHON_EXECUTABLE = sys.executable or 'python3'
 
 # Benchmark display names for formatted output
 BENCHMARK_DISPLAY_NAMES = {
@@ -133,7 +134,7 @@ def run_phase1_with_timing(experiment, num_examples, num_overfitted, output_dir=
     os.makedirs(config_output_dir, exist_ok=True)
     
     cmd = [
-        'python', 'phase1_passive_learning.py',
+        PYTHON_EXECUTABLE, 'phase1_passive_learning.py',
         '--benchmark', experiment,
         '--output_dir', config_output_dir,
         '--num_examples', str(num_examples),
@@ -184,7 +185,7 @@ def run_phase2(
     }
     
     cmd = [
-        'python', script,
+        PYTHON_EXECUTABLE, script,
         '--experiment', experiment,
         '--phase1_pickle', phase1_pickle,
         '--max_queries', str(max_queries),
@@ -230,7 +231,7 @@ def run_phase3(experiment, phase2_pickle, *, approach='cop', config_tag=None):
     """Run Phase 3 with the given Phase 2 pickle."""
     
     cmd = [
-        'python', 'run_phase3.py',
+        PYTHON_EXECUTABLE, 'run_phase3.py',
         '--experiment', experiment,
         '--phase2_pickle', phase2_pickle
     ]
@@ -305,6 +306,19 @@ def load_phase3_results(benchmark_name, approach='cop', config_tag=None):
         return None
 
 
+def load_phase2_pickle(path):
+    """Load Phase 2 pickle with error handling."""
+    if not path or not os.path.exists(path):
+        print(f"[WARNING] Phase 2 pickle not found: {path}")
+        return None
+    try:
+        with open(path, 'rb') as f:
+            return pickle.load(f)
+    except Exception as e:
+        print(f"[ERROR] Failed to load Phase 2 pickle ({path}): {e}")
+        return None
+
+
 def extract_metrics(
     benchmark_name,
     num_solutions,
@@ -313,6 +327,7 @@ def extract_metrics(
     *,
     approach='cop',
     config_tag=None,
+    phase2_pickle_path=None,
 ):
     """Extract all metrics from phase outputs for the results table."""
     
@@ -321,10 +336,21 @@ def extract_metrics(
     if phase1_data is None:
         return None
     
-    # Load Phase 3 results from approach-specific directory
-    phase3_results = load_phase3_results(benchmark_name, approach=approach, config_tag=config_tag)
-    if phase3_results is None:
+    # Load Phase 2 data
+    phase2_data = load_phase2_pickle(phase2_pickle_path) if phase2_pickle_path else None
+    if phase2_data is None:
+        print(f"[WARNING] Skipping metrics extraction due to missing Phase 2 data: {phase2_pickle_path}")
         return None
+    
+    phase2_stats = phase2_data.get('phase2_stats', {})
+    validated_globals = phase2_stats.get('validated', len(phase2_data.get('C_validated', [])))
+    
+    # Attempt to load Phase 3 results (may be missing for some configs)
+    phase3_results = load_phase3_results(benchmark_name, approach=approach, config_tag=config_tag)
+    phase3_available = phase3_results is not None
+    
+    if not phase3_available:
+        print(f"[WARNING] Phase 3 results missing for {benchmark_name} ({approach}, {config_tag}). Using Phase 2-only metrics.")
     
     metrics = {}
     
@@ -345,17 +371,23 @@ def extract_metrics(
     metrics['CT'] = TARGET_CONSTRAINTS.get(benchmark_name, 'N/A')
     
     # Bias: Size of generated bias
-    metrics['Bias'] = phase3_results.get('phase1', {}).get('B_fixed_size', 0)
+    if phase3_available:
+        metrics['Bias'] = phase3_results.get('phase1', {}).get('B_fixed_size', 0)
+    else:
+        metrics['Bias'] = len(phase2_data.get('B_fixed', []))
     
     # ViolQ: Violation queries from Phase 2
-    metrics['ViolQ'] = phase3_results.get('phase2', {}).get('queries', 0)
+    metrics['ViolQ'] = phase3_results.get('phase2', {}).get('queries', phase2_stats.get('queries', 0)) if phase3_available else phase2_stats.get('queries', 0)
     
     # InvC: Invalid constraints (StartC - validated)
-    validated_count = phase3_results.get('phase2', {}).get('validated_globals', 0)
+    if phase3_available:
+        validated_count = phase3_results.get('phase2', {}).get('validated_globals', validated_globals)
+    else:
+        validated_count = validated_globals
     metrics['InvC'] = StartC - validated_count
     
     # MQuQ: MQuAcq queries from Phase 3
-    metrics['MQuQ'] = phase3_results.get('phase3', {}).get('queries', 0)
+    metrics['MQuQ'] = phase3_results.get('phase3', {}).get('queries', 0) if phase3_available else 0
     
     # TQ: Total queries
     metrics['TQ'] = metrics['ViolQ'] + metrics['MQuQ']
@@ -364,10 +396,11 @@ def extract_metrics(
     metrics['P1T(s)'] = round(phase1_time, 2)
     
     # VT(s): Phase 2 violation time
-    metrics['VT(s)'] = round(phase3_results.get('phase2', {}).get('time', 0), 2)
+    phase2_time = phase3_results.get('phase2', {}).get('time', phase2_stats.get('time', 0)) if phase3_available else phase2_stats.get('time', 0)
+    metrics['VT(s)'] = round(phase2_time, 2)
     
     # MQuT(s): Phase 3 MQuAcq time
-    metrics['MQuT(s)'] = round(phase3_results.get('phase3', {}).get('time', 0), 2)
+    metrics['MQuT(s)'] = round(phase3_results.get('phase3', {}).get('time', 0), 2) if phase3_available else 0.0
     
     # TT(s): Total time (P1T + VT + MQuT)
     metrics['TT(s)'] = round(metrics['P1T(s)'] + metrics['VT(s)'] + metrics['MQuT(s)'], 2)
@@ -379,14 +412,20 @@ def extract_metrics(
     metrics['PAT(s)'] = 'N/A'
     
     # Evaluation metrics
-    eval_data = phase3_results.get('evaluation', {})
-    constraint_level = eval_data.get('constraint_level', {})
-    solution_level = eval_data.get('solution_level', {})
-    
-    metrics['precision'] = round(constraint_level.get('precision', 0) * 100, 2)
-    metrics['recall'] = round(constraint_level.get('recall', 0) * 100, 2)
-    metrics['s_precision'] = round(solution_level.get('s_precision', 0) * 100, 2)
-    metrics['s_recall'] = round(solution_level.get('s_recall', 0) * 100, 2)
+    if phase3_available:
+        eval_data = phase3_results.get('evaluation', {})
+        constraint_level = eval_data.get('constraint_level', {})
+        solution_level = eval_data.get('solution_level', {})
+        
+        metrics['precision'] = round(constraint_level.get('precision', 0) * 100, 2)
+        metrics['recall'] = round(constraint_level.get('recall', 0) * 100, 2)
+        metrics['s_precision'] = round(solution_level.get('s_precision', 0) * 100, 2)
+        metrics['s_recall'] = round(solution_level.get('s_recall', 0) * 100, 2)
+    else:
+        metrics['precision'] = 0.0
+        metrics['recall'] = 0.0
+        metrics['s_precision'] = 0.0
+        metrics['s_recall'] = 0.0
     
     return metrics
 
@@ -417,7 +456,7 @@ def process_benchmark_config(benchmark, num_solutions, approaches):
     config_tag = f"sol{num_solutions}_of{num_overfitteds}"
     
     print(f"\n{'='*80}")
-    print(f"[THREAD] Processing: {benchmark} | Solutions={num_solutions}, overfitted={num_overfitteds}")
+    print(f"[TASK] Processing: {benchmark} | Solutions={num_solutions}, overfitted={num_overfitteds}")
     print(f"{'='*80}\n")
     
     config_metrics = []
@@ -434,7 +473,7 @@ def process_benchmark_config(benchmark, num_solutions, approaches):
     # Run both COP and LION approaches for this configuration
     for approach in approaches:
         print(f"\n{'-'*60}")
-        print(f"[THREAD] Running {approach.upper()} approach for {benchmark} ({config_tag})")
+        print(f"[TASK] Running {approach.upper()} approach for {benchmark} ({config_tag})")
         print(f"{'-'*60}\n")
         
         # Run Phase 2 with the specified approach
@@ -446,10 +485,11 @@ def process_benchmark_config(benchmark, num_solutions, approaches):
         )
         
         if not phase2_success:
-            print(f"\n[THREAD ERROR] Phase 2 ({approach.upper()}) failed for {benchmark}")
+            print(f"\n[TASK ERROR] Phase 2 ({approach.upper()}) failed for {benchmark}")
             continue
         
         # Run Phase 3 with the specified approach
+        phase3_success = False
         try:
             phase3_success = run_phase3(
                 benchmark,
@@ -459,15 +499,14 @@ def process_benchmark_config(benchmark, num_solutions, approaches):
             )
             
             if not phase3_success:
-                print(f"\n[THREAD ERROR] Phase 3 ({approach.upper()}) failed for {benchmark}")
-                continue
+                print(f"\n[TASK WARNING] Phase 3 ({approach.upper()}) failed for {benchmark}; proceeding with Phase 2 metrics only.")
         except Exception as e:
-            print(f"\n[THREAD EXCEPTION] Phase 3 ({approach.upper()}) crashed for {benchmark}: {e}")
+            print(f"\n[TASK EXCEPTION] Phase 3 ({approach.upper()}) crashed for {benchmark}: {e}")
             import traceback
             traceback.print_exc()
-            continue
+            phase3_success = False
         
-        # Extract metrics if all phases succeeded
+        # Extract metrics (Phase 2-only fallback if Phase 3 failed)
         try:
             metrics = extract_metrics(
                 benchmark,
@@ -476,14 +515,18 @@ def process_benchmark_config(benchmark, num_solutions, approaches):
                 phase1_time,
                 approach=approach,
                 config_tag=config_tag,
+                phase2_pickle_path=phase2_pickle,
             )
             if metrics:
                 config_metrics.append(metrics)
-                print(f"\n[THREAD SUCCESS] Extracted metrics for {benchmark} | Solutions={num_solutions} | {approach.upper()}")
+                if phase3_success:
+                    print(f"\n[TASK SUCCESS] Extracted metrics for {benchmark} | Solutions={num_solutions} | {approach.upper()}")
+                else:
+                    print(f"\n[TASK PARTIAL] Recorded Phase 2 metrics for {benchmark} | Solutions={num_solutions} | {approach.upper()} (Phase 3 unavailable)")
             else:
-                print(f"\n[THREAD WARNING] Could not extract metrics for {benchmark} | Solutions={num_solutions} | {approach.upper()}")
+                print(f"\n[TASK WARNING] Could not extract metrics for {benchmark} | Solutions={num_solutions} | {approach.upper()}")
         except Exception as e:
-            print(f"\n[THREAD ERROR] Failed to extract metrics for {benchmark} | Solutions={num_solutions} | {approach.upper()}: {e}")
+            print(f"\n[TASK ERROR] Failed to extract metrics for {benchmark} | Solutions={num_solutions} | {approach.upper()}: {e}")
             import traceback
             traceback.print_exc()
     
@@ -540,11 +583,11 @@ def main():
     # Define benchmarks to test
     benchmarks = [
         # 'sudoku',
-        'sudoku_gt',
+        # 'sudoku_gt',
         # 'latin_square',
         # 'graph_coloring_register',
         # 'examtt_v1',
-        # 'examtt_v2',
+        'examtt_v2',
         # 'nurse',
         # 'jsudoku',
     ]
@@ -595,57 +638,50 @@ def main():
         for num_solutions in solution_counts:
             tasks.append((benchmark, num_solutions, approaches))
     
-    print(f"Total tasks to process: {len(tasks)}")
+    total_tasks = len(tasks)
+    print(f"Total tasks to process: {total_tasks}")
     print(f"Each task runs Phase 1 followed by COP (Phase 2+3) and LION (Phase 2+3)")
-    print(f"Processing with 4 parallel threads...\n")
+    print(f"Processing sequentially...\n")
     
     # Initialize progress tracking
-    update_progress_file(0, len(tasks), progress_path, metrics_lock)
+    update_progress_file(0, total_tasks, progress_path, metrics_lock)
     
-    # Process tasks in parallel using ThreadPoolExecutor
-    completed_tasks = 0
-    with ThreadPoolExecutor(max_workers=4) as executor:
-        # Submit all tasks
-        future_to_task = {
-            executor.submit(process_benchmark_config, benchmark, num_sols, approaches): (benchmark, num_sols)
-            for benchmark, num_sols, approaches in tasks
-        }
+    # Process tasks sequentially
+    for index, (benchmark, num_solutions, approach_list) in enumerate(tasks, start=1):
+        print(f"\n{'='*80}")
+        print(f"[TASK {index}/{total_tasks}] Processing: {benchmark} | Solutions={num_solutions}")
+        print(f"{'='*80}\n")
         
-        # Process completed tasks as they finish
-        for future in as_completed(future_to_task):
-            benchmark, num_sols = future_to_task[future]
-            completed_tasks += 1
+        try:
+            config_metrics = process_benchmark_config(benchmark, num_solutions, approach_list)
             
-            try:
-                config_metrics = future.result()
-                
-                # Thread-safe addition to all_metrics
-                with metrics_lock:
-                    all_metrics.extend(config_metrics)
-                
-                # Write intermediate results immediately
-                append_metrics_to_csv(config_metrics, intermediate_csv_path, metrics_lock)
-                
-                # Update progress tracking
-                update_progress_file(completed_tasks, len(tasks), progress_path, metrics_lock)
-                
-                print(f"\n{'='*80}")
-                print(f"[PROGRESS] Completed {completed_tasks}/{len(tasks)}: {benchmark} with {num_sols} solutions")
-                print(f"[PROGRESS] Collected {len(config_metrics)} metric sets from this task")
-                print(f"[PROGRESS] Results appended to: {intermediate_csv_path}")
-                print(f"{'='*80}\n")
-                
-            except Exception as e:
-                print(f"\n[ERROR] Task failed for {benchmark} with {num_sols} solutions: {e}")
-                import traceback
-                traceback.print_exc()
-                
-                # Still update progress even on failure
-                update_progress_file(completed_tasks, len(tasks), progress_path, metrics_lock)
+            # Thread-safe addition to all_metrics
+            with metrics_lock:
+                all_metrics.extend(config_metrics)
+            
+            # Write intermediate results immediately
+            append_metrics_to_csv(config_metrics, intermediate_csv_path, metrics_lock)
+            
+            # Update progress tracking
+            update_progress_file(index, total_tasks, progress_path, metrics_lock)
+            
+            print(f"\n{'='*80}")
+            print(f"[PROGRESS] Completed {index}/{total_tasks}: {benchmark} with {num_solutions} solutions")
+            print(f"[PROGRESS] Collected {len(config_metrics)} metric sets from this task")
+            print(f"[PROGRESS] Results appended to: {intermediate_csv_path}")
+            print(f"{'='*80}\n")
+            
+        except Exception as e:
+            print(f"\n[ERROR] Task failed for {benchmark} with {num_solutions} solutions: {e}")
+            import traceback
+            traceback.print_exc()
+            
+            # Still update progress even on failure
+            update_progress_file(index, total_tasks, progress_path, metrics_lock)
     
     # All tasks completed
     print(f"\n{'='*80}")
-    print(f"ALL PARALLEL TASKS COMPLETED")
+    print(f"ALL TASKS COMPLETED")
     print(f"{'='*80}")
     print(f"Total metrics collected: {len(all_metrics)}")
     print(f"{'='*80}\n")
