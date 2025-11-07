@@ -1,6 +1,6 @@
 {
   "experiment": "graph_coloring_register",
-  "timestamp": "2025-10-29T21:47:11.229988",
+  "timestamp": "2025-11-06T15:40:21.230667",
   "phase1": {
     "queries": 0,
     "time": 0,
@@ -8,54 +8,44 @@
     "B_fixed_size": 50
   },
   "phase2": {
-    "queries": 32,
-    "time": 1.1108896732330322,
+    "queries": 9,
+    "time": 0.09503817558288574,
     "validated_globals": 8,
     "validated_globals_list": [
-      "alldifferent(register[6],register[7],register[8])",
-      "alldifferent(register[3],register[4],register[5])",
-      "alldifferent(register[8],register[9],register[10],register[11])",
       "alldifferent(register[2],register[5],register[8],register[11])",
+      "alldifferent(register[6],register[7],register[8])",
       "alldifferent(register[4],register[5],register[6],register[7])",
+      "alldifferent(register[8],register[9],register[10],register[11])",
       "alldifferent(register[1],register[2],register[3],register[4])",
-      "alldifferent(register[0],register[9],register[10])",
-      "alldifferent(register[0],register[1],register[2])"
+      "alldifferent(register[3],register[4],register[5])",
+      "alldifferent(register[0],register[1],register[2])",
+      "alldifferent(register[0],register[9],register[10])"
     ]
   },
   "phase3": {
-    "queries": 28,
-    "time": 0.5403130054473877,
+    "queries": 21,
+    "time": 0.0605618953704834,
     "initial_cl": 30,
     "pruned_bias": 20,
     "final_model_size": 36,
     "resilience": {
       "findc": {
-        "collapse_warnings": 2,
-        "unresolved_scopes": 2,
-        "unresolved_details": [
-          {
-            "scope": "[register[1], register[4]]",
-            "target": "[(register[1]) != (register[4])]"
-          },
-          {
-            "scope": "[register[10], register[4]]",
-            "target": "[]"
-          }
-        ]
+        "collapse_warnings": 0,
+        "unresolved_scopes": 0,
+        "unresolved_details": []
       },
       "mquacq2": {
-        "skipped_scopes_count": 2,
-        "skipped_scopes": [
-          "[register[1], register[4]]",
-          "[register[10], register[4]]"
-        ]
+        "skipped_scopes_count": 0,
+        "skipped_scopes": [],
+        "invalid_cl_constraints_count": 0,
+        "invalid_cl_constraints": []
       },
-      "total_issues": 4
+      "total_issues": 0
     }
   },
   "total": {
-    "queries": 60,
-    "time": 1.65120267868042
+    "queries": 30,
+    "time": 0.15560007095336914
   },
   "evaluation": {
     "constraint_level": {
@@ -73,7 +63,7 @@
       "s_recall": 0.0,
       "s_f1": 0.0,
       "learned_solutions": 1,
-      "target_solutions": 2,
+      "target_solutions": 3,
       "intersection_solutions": 0,
       "is_complete": false,
       "learned_incomplete": true,

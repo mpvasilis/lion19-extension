@@ -1,4 +1,5 @@
 import argparse
+import copy
 import os
 import pickle
 import time
@@ -14,6 +15,34 @@ from benchmarks_global import construct_sudoku_greater_than
 from benchmarks_global import construct_examtt_simple as ces_global
 from benchmarks_global import construct_examtt_variant1, construct_examtt_variant2
 from benchmarks_global import construct_nurse_rostering as nr_global
+
+
+def variables_to_assignment(variables):
+    """Extract variable assignments as a name -> value mapping."""
+    assignment = {}
+
+    for var in variables:
+        name = getattr(var, "name", None)
+        if name is None:
+            continue
+
+        value = None
+        if callable(getattr(var, "value", None)):
+            value = var.value()
+        if value is None and hasattr(var, "_value"):
+            value = getattr(var, "_value")
+
+        if value is not None:
+            assignment[str(name)] = value
+
+    return assignment
+
+
+def assignment_signature(assignment):
+    """Create a canonical signature for an assignment dictionary."""
+    if not assignment:
+        return None
+    return tuple(sorted(assignment.items()))
 
 
 def load_phase1_data(pickle_path):
@@ -148,7 +177,8 @@ def update_supporting_evidence(P_c, alpha):
     return P_c + (1 - P_c) * (1 - alpha)
 
 
-def generate_violation_query(CG, C_validated, probabilities, all_variables, oracle=None):
+def generate_violation_query(CG, C_validated, probabilities, all_variables, oracle=None,
+                             previous_queries=None, positive_examples=None):
     
     import cpmpy as cp
     import time
@@ -181,6 +211,44 @@ def generate_violation_query(CG, C_validated, probabilities, all_variables, orac
 
     for c in C_validated:
         model += c
+
+    exclusion_assignments = []
+    if previous_queries:
+        exclusion_assignments.extend(previous_queries)
+
+    if exclusion_assignments:
+        for idx, assignment in enumerate(exclusion_assignments):
+            diff_terms = []
+            for var in all_variables:
+                name = getattr(var, "name", None)
+                if name is None:
+                    continue
+                key = str(name)
+                if key not in assignment:
+                    continue
+                diff_terms.append(var != assignment[key])
+
+            if diff_terms:
+                model += cp.any(diff_terms)
+
+    if positive_examples:
+        consistency_terms = []
+        for example in positive_examples:
+            if not isinstance(example, dict) or not example:
+                continue
+            eq_terms = []
+            for var in all_variables:
+                name = getattr(var, "name", None)
+                if name is None:
+                    continue
+                key = str(name)
+                if key in example:
+                    eq_terms.append(var == example[key])
+            if eq_terms:
+                consistency_terms.append(cp.all(eq_terms))
+
+        if consistency_terms:
+            model += cp.any(consistency_terms)
 
     gamma = {str(c): cp.boolvar(name=f"gamma_{i}") for i, c in enumerate(CG)}
 
@@ -268,16 +336,21 @@ def generate_violation_query(CG, C_validated, probabilities, all_variables, orac
             print(f"    get_kappa found {len(Viol_e)} violations")
             print(f"  This may indicate variable synchronization issues.")
         
-        return Y, Viol_e, "SAT"
+        assignment = variables_to_assignment(Y)
+        return Y, Viol_e, "SAT", assignment
     else:
         print(f"  UNSAT after {solve_time:.2f}s - cannot find violation query")
-        return None, [], "UNSAT"
+        return None, [], "UNSAT", {}
 
 
 
 def cop_refinement_recursive(CG_cand, C_validated, oracle, probabilities, all_variables,
                              alpha, theta_max, theta_min, max_queries, timeout, 
-                             recursion_depth=0, experiment_name=""):
+                             recursion_depth=0, experiment_name="",
+                             query_signature_cache=None, query_assignments=None,
+                             negative_query_assignments=None,
+                             query_history=None, positive_query_examples=None,
+                             positive_signature_cache=None, phase1_positive_examples=None):
     """
     Recursive COP-based constraint refinement.
     
@@ -322,7 +395,22 @@ def cop_refinement_recursive(CG_cand, C_validated, oracle, probabilities, all_va
     """
     start_time = time.time()
     queries_used = 0
-    
+
+    if phase1_positive_examples is None:
+        phase1_positive_examples = []
+    if query_signature_cache is None:
+        query_signature_cache = set()
+    if query_assignments is None:
+        query_assignments = []
+    if negative_query_assignments is None:
+        negative_query_assignments = []
+    if query_history is None:
+        query_history = []
+    if positive_query_examples is None:
+        positive_query_examples = []
+    if positive_signature_cache is None:
+        positive_signature_cache = set()
+
     # Make a working copy
     CG = set(CG_cand) if not isinstance(CG_cand, set) else CG_cand.copy()
     C_val = list(C_validated)  # Local validated set
@@ -366,7 +454,16 @@ def cop_refinement_recursive(CG_cand, C_validated, oracle, probabilities, all_va
         
         # Generate violation query
         print(f"{indent}[QUERY] Generating violation query...")
-        Y, Viol_e, status = generate_violation_query(CG, C_val, probs, all_variables, oracle)
+
+        Y, Viol_e, status, assignment = generate_violation_query(
+            CG,
+            C_val,
+            probs,
+            all_variables,
+            oracle,
+            previous_queries=negative_query_assignments,
+            positive_examples=phase1_positive_examples
+        )
         
         if status == "UNSAT":
             consecutive_unsat += 1
@@ -393,6 +490,19 @@ def cop_refinement_recursive(CG_cand, C_validated, oracle, probabilities, all_va
             continue
         
         consecutive_unsat = 0
+
+        assignment_signature_value = assignment_signature(assignment)
+        if assignment_signature_value is None:
+            print(f"{indent}[WARN] Generated query has no assigned values; skipping")
+            continue
+
+        if assignment_signature_value in query_signature_cache:
+            print(f"{indent}[SKIP] Duplicate query detected; skipping oracle call")
+            continue
+
+        query_signature_cache.add(assignment_signature_value)
+        assignment_snapshot = assignment.copy()
+        query_assignments.append(assignment_snapshot)
         
         print(f"{indent}Generated query violating {len(Viol_e)} constraints")
         for c in Viol_e:
@@ -413,6 +523,17 @@ def cop_refinement_recursive(CG_cand, C_validated, oracle, probabilities, all_va
         else:
             answer = oracle.answer_membership_query(Y)
         queries_used += 1
+
+        record = {
+            'assignment': assignment,
+            'assignment_signature': assignment_signature_value,
+            'violated_constraints': [str(c) for c in Viol_e],
+            'answer': bool(answer),
+            'depth': recursion_depth,
+            'iteration': iteration,
+            'timestamp': time.time()
+        }
+        query_history.append(record)
         
         if answer == True:
             # Counterexample: all violated constraints are incorrect
@@ -422,10 +543,17 @@ def cop_refinement_recursive(CG_cand, C_validated, oracle, probabilities, all_va
                     CG.remove(c)
                     probs[c] *= alpha 
                     print(f"{indent}  [REMOVE] {c} (P={probs[c]:.3f})")
+
+            if assignment_signature_value not in positive_signature_cache:
+                positive_signature_cache.add(assignment_signature_value)
+                assignment_snapshot = assignment.copy()
+                positive_query_examples.append(assignment_snapshot)
+                phase1_positive_examples.append(assignment_snapshot)
         
         else:
             # Oracle: NO (invalid) - At least one violated constraint is correct
             print(f"{indent}Oracle: NO (invalid) - Disambiguate {len(Viol_e)} violated constraints")
+            negative_query_assignments.append(assignment_snapshot)
             
             if len(Viol_e) == 1:
                 # Only one violated: must be correct
@@ -472,7 +600,14 @@ def cop_refinement_recursive(CG_cand, C_validated, oracle, probabilities, all_va
                         max_queries=recursive_budget,
                         timeout=recursive_timeout,
                         recursion_depth=recursion_depth + 1,
-                        experiment_name=experiment_name
+                        experiment_name=experiment_name,
+                        query_signature_cache=query_signature_cache,
+                        query_assignments=query_assignments,
+                        negative_query_assignments=negative_query_assignments,
+                        query_history=query_history,
+                        positive_query_examples=positive_query_examples,
+                        positive_signature_cache=positive_signature_cache,
+                        phase1_positive_examples=phase1_positive_examples
                     )
                 
                 queries_used += queries_recursive
@@ -512,7 +647,7 @@ def cop_refinement_recursive(CG_cand, C_validated, oracle, probabilities, all_va
 
 def cop_based_refinement(experiment_name, oracle, candidate_constraints, initial_probabilities,
                          variables, alpha=0.42, theta_max=0.9, theta_min=0.1, 
-                         max_queries=500, timeout=600):
+                         max_queries=500, timeout=600, phase1_positive_examples=None):
     """
     Wrapper function for the recursive COP-based refinement.
     
@@ -529,6 +664,23 @@ def cop_based_refinement(experiment_name, oracle, candidate_constraints, initial
     print(f"Parameters: alpha={alpha}, theta_max={theta_max}, theta_min={theta_min}")
     print(f"Budget: {max_queries} queries, {timeout}s timeout\n")
     
+    phase1_positive_examples = phase1_positive_examples or []
+    original_phase1_positive_examples = [copy.deepcopy(example) for example in phase1_positive_examples]
+    positive_examples_repository = [copy.deepcopy(example) for example in phase1_positive_examples]
+
+    phase1_positive_signatures = set()
+    for example in positive_examples_repository:
+        sig = assignment_signature(example)
+        if sig is not None:
+            phase1_positive_signatures.add(sig)
+
+    query_signature_cache = set(phase1_positive_signatures)
+    positive_signature_cache = set(phase1_positive_signatures)
+    query_assignments = []
+    negative_query_assignments = []
+    query_history = []
+    positive_query_examples = []
+
     # Call the recursive refinement function
     C_validated, CG_remaining, probabilities_final, queries_used = cop_refinement_recursive(
         CG_cand=candidate_constraints,
@@ -542,7 +694,14 @@ def cop_based_refinement(experiment_name, oracle, candidate_constraints, initial
         max_queries=max_queries,
         timeout=timeout,
         recursion_depth=0,
-        experiment_name=experiment_name
+        experiment_name=experiment_name,
+        query_signature_cache=query_signature_cache,
+        query_assignments=query_assignments,
+        negative_query_assignments=negative_query_assignments,
+        query_history=query_history,
+        positive_query_examples=positive_query_examples,
+        positive_signature_cache=positive_signature_cache,
+        phase1_positive_examples=positive_examples_repository
     )
     
     end_time = time.time()
@@ -570,7 +729,16 @@ def cop_based_refinement(experiment_name, oracle, candidate_constraints, initial
         'time': total_duration,
         'validated': len(C_validated),
         'rejected': len(candidate_constraints) - len(C_validated) - len(CG_remaining),
-        'uncertain': len(CG_remaining)
+        'uncertain': len(CG_remaining),
+        'unique_queries': len(query_signature_cache),
+        'positive_queries': len(positive_query_examples),
+        'query_history': copy.deepcopy(query_history),
+        'phase2_positive_examples': copy.deepcopy(positive_query_examples),
+        'query_assignments': copy.deepcopy(query_assignments),
+        'negative_query_assignments': copy.deepcopy(negative_query_assignments),
+        'query_signature_cache': list(query_signature_cache),
+        'positive_examples_repository': copy.deepcopy(positive_examples_repository),
+        'phase1_positive_examples_initial': copy.deepcopy(original_phase1_positive_examples)
     }
     
     return C_validated, stats
@@ -854,6 +1022,12 @@ if __name__ == "__main__":
         'E_plus': phase1_data['E_plus'] if args.phase1_pickle and 'E_plus' in phase1_data else None,
         'B_fixed': phase1_data['B_fixed'] if args.phase1_pickle and 'B_fixed' in phase1_data else None,
         'all_variables': list(instance.X),
+        'query_assignments': stats.get('query_assignments', []),
+        'negative_query_assignments': stats.get('negative_query_assignments', []),
+        'phase1_positive_examples_initial': stats.get('phase1_positive_examples_initial', []),
+        'phase2_positive_examples': stats.get('phase2_positive_examples', []),
+        'positive_examples_repository': stats.get('positive_examples_repository', []),
+        'query_signature_cache': stats.get('query_signature_cache', []),
         'metadata': {
             'alpha': args.alpha,
             'theta_max': args.theta_max,
@@ -871,6 +1045,27 @@ if __name__ == "__main__":
     with open(phase2_pickle_path, 'wb') as f:
         pickle.dump(phase2_output, f)
     
+    positive_examples_path = os.path.join(phase2_output_dir, f"{args.experiment}_positive_examples.pkl")
+    positive_examples_payload = {
+        'phase1_initial': stats.get('phase1_positive_examples_initial', []),
+        'phase2_positive_examples': stats.get('phase2_positive_examples', []),
+        'merged_positive_examples': stats.get('positive_examples_repository', [])
+    }
+
+    with open(positive_examples_path, 'wb') as f:
+        pickle.dump(positive_examples_payload, f)
+
+    query_history_path = os.path.join(phase2_output_dir, f"{args.experiment}_query_history.pkl")
+    with open(query_history_path, 'wb') as f:
+        pickle.dump({
+            'query_history': stats.get('query_history', []),
+            'query_assignments': stats.get('query_assignments', []),
+            'negative_query_assignments': stats.get('negative_query_assignments', []),
+            'query_signature_cache': stats.get('query_signature_cache', [])
+        }, f)
+
     print(f"\n Phase 2 outputs saved to: {phase2_pickle_path}")
     print(f"  - Validated constraints: {len(C_validated)}")
+    print(f"  - Positive examples saved to: {positive_examples_path}")
+    print(f"  - Query log saved to: {query_history_path}")
 
