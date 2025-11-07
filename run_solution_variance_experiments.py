@@ -582,18 +582,18 @@ def main():
     
     # Define benchmarks to test
     benchmarks = [
-        # 'sudoku',
-        # 'sudoku_gt',
-        # 'latin_square',
-        # 'graph_coloring_register',
-        # 'examtt_v1',
+        'sudoku',
+        'sudoku_gt',
+        'latin_square',
+        'graph_coloring_register',
+        'examtt_v1',
         'examtt_v2',
-        # 'nurse',
-        # 'jsudoku',
+        'nurse',
+        'jsudoku',
     ]
     
     # Define approaches to compare
-    approaches = ['cop']
+    approaches = ['cop', 'lion']
     
     # Determine solution configurations per benchmark
     benchmark_solution_map = {
