@@ -19,16 +19,13 @@ def construct_sudoku_greater_than(block_size_row, block_size_col, grid_size):
 
     for row in grid:
         model += cp.AllDifferent(row)
-        model += cp.AllDifferent(row).decompose()
 
     for col in grid.T:
         model += cp.AllDifferent(col)
-        model += cp.AllDifferent(col).decompose()
 
     for i in range(0, grid_size, block_size_row):
         for j in range(0, grid_size, block_size_col):
             model += cp.AllDifferent(grid[i:i + block_size_row, j:j + block_size_col])
-            model += cp.AllDifferent(grid[i:i + block_size_row, j:j + block_size_col]).decompose()
 
 
 

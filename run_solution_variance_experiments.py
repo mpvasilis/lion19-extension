@@ -156,7 +156,15 @@ def run_phase1_with_timing(experiment, num_examples, num_overfitted, output_dir=
         return False, None, elapsed_time
 
 
-def run_phase2(experiment, phase1_pickle, approach='cop', max_queries=5000, timeout=1200):
+def run_phase2(
+    experiment,
+    phase1_pickle,
+    *,
+    approach='cop',
+    max_queries=5000,
+    timeout=1200,
+    config_tag=None,
+):
     """Run Phase 2 with the given Phase 1 pickle using specified approach (cop or lion)."""
     
     # Select the appropriate script based on approach
@@ -189,12 +197,23 @@ def run_phase2(experiment, phase1_pickle, approach='cop', max_queries=5000, time
         # Both scripts output to "phase2_output" directory
         default_output = "phase2_output"
         source_pickle = os.path.join(default_output, filename_map[approach.lower()])
-        
+
         # Move to approach-specific directory for organization
-        target_dir = f"phase2_output_{approach.lower()}"
+        base_output_dir = f"phase2_output_{approach.lower()}"
+        if config_tag:
+            target_dir = os.path.join(base_output_dir, experiment)
+            file_suffix_map = {
+                'cop': 'phase2.pkl',
+                'lion': 'lion19_phase2.pkl'
+            }
+            dest_filename = f"{experiment}_{config_tag}_{file_suffix_map[approach.lower()]}"
+        else:
+            target_dir = base_output_dir
+            dest_filename = filename_map[approach.lower()]
+
         os.makedirs(target_dir, exist_ok=True)
-        target_pickle = os.path.join(target_dir, filename_map[approach.lower()])
-        
+        target_pickle = os.path.join(target_dir, dest_filename)
+
         # Move the file
         if os.path.exists(source_pickle):
             shutil.move(source_pickle, target_pickle)
@@ -207,7 +226,7 @@ def run_phase2(experiment, phase1_pickle, approach='cop', max_queries=5000, time
         return False, None
 
 
-def run_phase3(experiment, phase2_pickle, approach='cop'):
+def run_phase3(experiment, phase2_pickle, *, approach='cop', config_tag=None):
     """Run Phase 3 with the given Phase 2 pickle."""
     
     cmd = [
@@ -225,19 +244,29 @@ def run_phase3(experiment, phase2_pickle, approach='cop'):
     if success:
         # Phase 3 outputs to "phase3_output" directory by default
         default_output = "phase3_output"
-        
+
         # Move outputs to approach-specific directory
-        target_dir = f"phase3_output_{approach.lower()}"
+        base_output_dir = f"phase3_output_{approach.lower()}"
+        if config_tag:
+            target_dir = os.path.join(base_output_dir, experiment)
+            results_json_name = f"{experiment}_{config_tag}_phase3_results.json"
+            final_model_name = f"{experiment}_{config_tag}_final_model.pkl"
+        else:
+            target_dir = base_output_dir
+            results_json_name = f"{experiment}_phase3_results.json"
+            final_model_name = f"{experiment}_final_model.pkl"
+
         os.makedirs(target_dir, exist_ok=True)
-        
-        # Files to move
-        results_json = f"{experiment}_phase3_results.json"
-        final_model_pkl = f"{experiment}_final_model.pkl"
-        
-        for filename in [results_json, final_model_pkl]:
-            source = os.path.join(default_output, filename)
-            target = os.path.join(target_dir, filename)
-            
+
+        file_mapping = {
+            f"{experiment}_phase3_results.json": results_json_name,
+            f"{experiment}_final_model.pkl": final_model_name,
+        }
+
+        for source_name, dest_name in file_mapping.items():
+            source = os.path.join(default_output, source_name)
+            target = os.path.join(target_dir, dest_name)
+
             if os.path.exists(source):
                 shutil.move(source, target)
                 print(f"[INFO] Moved {source} to {target}")
@@ -259,10 +288,13 @@ def load_phase1_pickle(pickle_path):
         return None
 
 
-def load_phase3_results(benchmark_name, approach='cop'):
+def load_phase3_results(benchmark_name, approach='cop', config_tag=None):
     """Load Phase 3 JSON results from approach-specific directory."""
     output_dir = f"phase3_output_{approach.lower()}"
-    json_path = f"{output_dir}/{benchmark_name}_phase3_results.json"
+    if config_tag:
+        json_path = os.path.join(output_dir, benchmark_name, f"{benchmark_name}_{config_tag}_phase3_results.json")
+    else:
+        json_path = os.path.join(output_dir, f"{benchmark_name}_phase3_results.json")
     if not os.path.exists(json_path):
         return None
     try:
@@ -273,7 +305,15 @@ def load_phase3_results(benchmark_name, approach='cop'):
         return None
 
 
-def extract_metrics(benchmark_name, num_solutions, phase1_pickle_path, phase1_time, approach='cop'):
+def extract_metrics(
+    benchmark_name,
+    num_solutions,
+    phase1_pickle_path,
+    phase1_time,
+    *,
+    approach='cop',
+    config_tag=None,
+):
     """Extract all metrics from phase outputs for the results table."""
     
     # Load Phase 1 data
@@ -282,7 +322,7 @@ def extract_metrics(benchmark_name, num_solutions, phase1_pickle_path, phase1_ti
         return None
     
     # Load Phase 3 results from approach-specific directory
-    phase3_results = load_phase3_results(benchmark_name, approach=approach)
+    phase3_results = load_phase3_results(benchmark_name, approach=approach, config_tag=config_tag)
     if phase3_results is None:
         return None
     
@@ -374,6 +414,7 @@ def process_benchmark_config(benchmark, num_solutions, approaches):
     Returns list of metrics collected.
     """
     num_overfitteds = calculate_overfitted_constraints(benchmark, num_solutions)
+    config_tag = f"sol{num_solutions}_of{num_overfitteds}"
     
     print(f"\n{'='*80}")
     print(f"[THREAD] Processing: {benchmark} | Solutions={num_solutions}, overfitted={num_overfitteds}")
@@ -393,11 +434,16 @@ def process_benchmark_config(benchmark, num_solutions, approaches):
     # Run both COP and LION approaches for this configuration
     for approach in approaches:
         print(f"\n{'-'*60}")
-        print(f"[THREAD] Running {approach.upper()} approach for {benchmark}")
+        print(f"[THREAD] Running {approach.upper()} approach for {benchmark} ({config_tag})")
         print(f"{'-'*60}\n")
         
         # Run Phase 2 with the specified approach
-        phase2_success, phase2_pickle = run_phase2(benchmark, phase1_pickle, approach=approach)
+        phase2_success, phase2_pickle = run_phase2(
+            benchmark,
+            phase1_pickle,
+            approach=approach,
+            config_tag=config_tag,
+        )
         
         if not phase2_success:
             print(f"\n[THREAD ERROR] Phase 2 ({approach.upper()}) failed for {benchmark}")
@@ -405,7 +451,12 @@ def process_benchmark_config(benchmark, num_solutions, approaches):
         
         # Run Phase 3 with the specified approach
         try:
-            phase3_success = run_phase3(benchmark, phase2_pickle, approach=approach)
+            phase3_success = run_phase3(
+                benchmark,
+                phase2_pickle,
+                approach=approach,
+                config_tag=config_tag,
+            )
             
             if not phase3_success:
                 print(f"\n[THREAD ERROR] Phase 3 ({approach.upper()}) failed for {benchmark}")
@@ -418,7 +469,14 @@ def process_benchmark_config(benchmark, num_solutions, approaches):
         
         # Extract metrics if all phases succeeded
         try:
-            metrics = extract_metrics(benchmark, num_solutions, phase1_pickle, phase1_time, approach=approach)
+            metrics = extract_metrics(
+                benchmark,
+                num_solutions,
+                phase1_pickle,
+                phase1_time,
+                approach=approach,
+                config_tag=config_tag,
+            )
             if metrics:
                 config_metrics.append(metrics)
                 print(f"\n[THREAD SUCCESS] Extracted metrics for {benchmark} | Solutions={num_solutions} | {approach.upper()}")
@@ -481,18 +539,18 @@ def main():
     
     # Define benchmarks to test
     benchmarks = [
-        'sudoku',
+        # 'sudoku',
         'sudoku_gt',
-        'latin_square',
-        'graph_coloring_register',
-        'examtt_v1',
-        'examtt_v2',
-        'nurse',
-        'jsudoku',
+        # 'latin_square',
+        # 'graph_coloring_register',
+        # 'examtt_v1',
+        # 'examtt_v2',
+        # 'nurse',
+        # 'jsudoku',
     ]
     
     # Define approaches to compare
-    approaches = ['cop', 'lion']
+    approaches = ['cop']
     
     # Determine solution configurations per benchmark
     benchmark_solution_map = {
