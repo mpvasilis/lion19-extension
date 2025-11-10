@@ -231,24 +231,24 @@ def generate_violation_query(CG, C_validated, probabilities, all_variables, orac
             if diff_terms:
                 model += cp.any(diff_terms)
 
-    if positive_examples:
-        consistency_terms = []
-        for example in positive_examples:
-            if not isinstance(example, dict) or not example:
-                continue
-            eq_terms = []
-            for var in all_variables:
-                name = getattr(var, "name", None)
-                if name is None:
-                    continue
-                key = str(name)
-                if key in example:
-                    eq_terms.append(var == example[key])
-            if eq_terms:
-                consistency_terms.append(cp.all(eq_terms))
+    # if positive_examples:
+    #     consistency_terms = []
+    #     for example in positive_examples:
+    #         if not isinstance(example, dict) or not example:
+    #             continue
+    #         eq_terms = []
+    #         for var in all_variables:
+    #             name = getattr(var, "name", None)
+    #             if name is None:
+    #                 continue
+    #             key = str(name)
+    #             if key in example:
+    #                 eq_terms.append(var == example[key])
+    #         if eq_terms:
+    #             consistency_terms.append(cp.all(eq_terms))
 
-        if consistency_terms:
-            model += cp.any(consistency_terms)
+    #     if consistency_terms:
+    #         model += cp.any(consistency_terms)
 
     gamma = {str(c): cp.boolvar(name=f"gamma_{i}") for i, c in enumerate(CG)}
 
@@ -337,7 +337,8 @@ def generate_violation_query(CG, C_validated, probabilities, all_variables, orac
             print(f"  This may indicate variable synchronization issues.")
         
         assignment = variables_to_assignment(Y)
-        return Y, Viol_e, "SAT", assignment
+        input("Continue...")
+        return Y, gamma_violations, "SAT", assignment
     else:
         print(f"  UNSAT after {solve_time:.2f}s - cannot find violation query")
         return None, [], "UNSAT", {}
@@ -939,7 +940,8 @@ if __name__ == "__main__":
             old_prob_map = {str(c): p for c, p in old_probs.items()}
             
             # Apply to new constraints
-            for c in CG:
+            for c in phase1_data['CG']:
+                print(c)
                 c_str = str(c)
                 if c_str in old_prob_map:
                     probabilities[c] = old_prob_map[c_str]
@@ -953,14 +955,14 @@ if __name__ == "__main__":
     else:
         probabilities = initialize_probabilities(CG, prior=args.prior)
     
-    if len(CG) == 0:
+    if len(phase1_data['CG']) == 0:
         print(f"\n No AllDifferent constraints found")
         sys.exit(0)
 
     C_validated, stats = cop_based_refinement(
         experiment_name=args.experiment,
         oracle=oracle,
-        candidate_constraints=CG,
+        candidate_constraints=phase1_data['CG'],
         initial_probabilities=probabilities,
         variables=instance.X,
         alpha=args.alpha,
