@@ -337,7 +337,7 @@ def generate_violation_query(CG, C_validated, probabilities, all_variables, orac
             print(f"  This may indicate variable synchronization issues.")
         
         assignment = variables_to_assignment(Y)
-        input("Continue...")
+        # input("Continue...")
         return Y, gamma_violations, "SAT", assignment
     else:
         print(f"  UNSAT after {solve_time:.2f}s - cannot find violation query")
