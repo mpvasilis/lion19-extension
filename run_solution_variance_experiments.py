@@ -344,6 +344,10 @@ def extract_metrics(
     
     phase2_stats = phase2_data.get('phase2_stats', {})
     validated_globals = phase2_stats.get('validated', len(phase2_data.get('C_validated', [])))
+    cp_implication = phase2_stats.get('cp_implication', {}) if isinstance(phase2_stats, dict) else {}
+    implied_constraints = None
+    if isinstance(cp_implication, dict):
+        implied_constraints = cp_implication.get('implied_count')
     
     # Attempt to load Phase 3 results (may be missing for some configs)
     phase3_results = load_phase3_results(benchmark_name, approach=approach, config_tag=config_tag)
@@ -366,6 +370,9 @@ def extract_metrics(
     # StartC: Starting candidate constraints from Phase 1
     StartC = len(phase1_data.get('CG', []))
     metrics['StartC'] = StartC
+    
+    # Implied: Number of constraints implied by target model (Phase 2 CP check)
+    metrics['Implied'] = implied_constraints if implied_constraints is not None else 'N/A'
     
     # CT: Target constraint count
     metrics['CT'] = TARGET_CONSTRAINTS.get(benchmark_name, 'N/A')
@@ -545,13 +552,13 @@ def append_metrics_to_csv(metrics_list, csv_path, metrics_lock):
         with open(csv_path, 'a') as f:
             # Write header if file doesn't exist
             if not file_exists:
-                f.write("Prob.,Approach,Sols,StartC,InvC,CT,Bias,ViolQ,MQuQ,TQ,ALQ,PAQ,")
+                f.write("Prob.,Approach,Sols,StartC,Implied,InvC,CT,Bias,ViolQ,MQuQ,TQ,ALQ,PAQ,")
                 f.write("P1T(s),VT(s),MQuT(s),TT(s),ALT(s),PAT(s),")
                 f.write("precision,recall,s_precision,s_recall\n")
             
             # Write data rows
             for m in metrics_list:
-                f.write(f"{m['Prob.']},{m['Approach']},{m['Sols']},{m['StartC']},{m['InvC']},")
+                f.write(f"{m['Prob.']},{m['Approach']},{m['Sols']},{m['StartC']},{m['Implied']},{m['InvC']},")
                 f.write(f"{m['CT']},{m['Bias']},{m['ViolQ']},{m['MQuQ']},{m['TQ']},")
                 f.write(f"{m['ALQ']},{m['PAQ']},")
                 f.write(f"{m['P1T(s)']},{m['VT(s)']},{m['MQuT(s)']},{m['TT(s)']},")
@@ -583,17 +590,17 @@ def main():
     # Define benchmarks to test
     benchmarks = [
         'sudoku',
-        'sudoku_gt',
-        'latin_square',
-        'graph_coloring_register',
-        'examtt_v1',
-        'examtt_v2',
-        'nurse',
-        'jsudoku',
+        # 'sudoku_gt',
+        # 'latin_square',
+        # 'graph_coloring_register',
+        # 'examtt_v1',
+        # 'examtt_v2',
+        # 'nurse',
+        # 'jsudoku',
     ]
     
     # Define approaches to compare
-    approaches = ['cop', 'lion']
+    approaches = ['cop',]
     
     # Determine solution configurations per benchmark
     benchmark_solution_map = {
@@ -704,13 +711,13 @@ def main():
         f.write("="*140 + "\n\n")
         
         # Header line
-        f.write(f"{'Prob.':<15} {'Approach':<9} {'Sols':<6} {'StartC':<8} {'InvC':<6} {'CT':<5} {'Bias':<6} ")
+        f.write(f"{'Prob.':<15} {'Approach':<9} {'Sols':<6} {'StartC':<8} {'Implied':<9} {'InvC':<6} {'CT':<5} {'Bias':<6} ")
         f.write(f"{'ViolQ':<7} {'MQuQ':<7} {'TQ':<6} {'ALQ':<5} {'PAQ':<5} ")
         f.write(f"{'P1T(s)':<8} {'VT(s)':<8} {'MQuT(s)':<9} {'TT(s)':<8} {'ALT(s)':<7} {'PAT(s)':<7}\n")
         
         # Data rows
         for m in all_metrics:
-            f.write(f"{m['Prob.']:<15} {m['Approach']:<9} {m['Sols']:<6} {m['StartC']:<8} {m['InvC']:<6} ")
+            f.write(f"{m['Prob.']:<15} {m['Approach']:<9} {m['Sols']:<6} {m['StartC']:<8} {str(m['Implied']):<9} {m['InvC']:<6} ")
             f.write(f"{str(m['CT']):<5} {m['Bias']:<6} ")
             f.write(f"{m['ViolQ']:<7} {m['MQuQ']:<7} {m['TQ']:<6} {m['ALQ']:<5} {m['PAQ']:<5} ")
             f.write(f"{m['P1T(s)']:<8} {m['VT(s)']:<8} {m['MQuT(s)']:<9} {m['TT(s)']:<8} ")
@@ -739,11 +746,11 @@ def main():
     print(f"[SAVED] Formatted results saved to: {report_path}")
     
     # Print to console
-    print(f"\n{'Prob.':<15} {'Approach':<9} {'Sols':<6} {'StartC':<8} {'InvC':<6} {'CT':<5} {'Bias':<6} ")
+    print(f"\n{'Prob.':<15} {'Approach':<9} {'Sols':<6} {'StartC':<8} {'Implied':<9} {'InvC':<6} {'CT':<5} {'Bias':<6} ")
     print(f"{'ViolQ':<7} {'MQuQ':<7} {'TQ':<6} {'P1T(s)':<8} {'VT(s)':<8} {'MQuT(s)':<9} {'TT(s)':<8}")
     print("="*120)
     for m in all_metrics:
-        print(f"{m['Prob.']:<15} {m['Approach']:<9} {m['Sols']:<6} {m['StartC']:<8} {m['InvC']:<6} ", end="")
+        print(f"{m['Prob.']:<15} {m['Approach']:<9} {m['Sols']:<6} {m['StartC']:<8} {str(m['Implied']):<9} {m['InvC']:<6} ", end="")
         print(f"{str(m['CT']):<5} {m['Bias']:<6} ", end="")
         print(f"{m['ViolQ']:<7} {m['MQuQ']:<7} {m['TQ']:<6} ", end="")
         print(f"{m['P1T(s)']:<8} {m['VT(s)']:<8} {m['MQuT(s)']:<9} {m['TT(s)']:<8}")
@@ -752,13 +759,13 @@ def main():
     csv_path = f"{output_dir}/variance_results.csv"
     with open(csv_path, 'w') as f:
         # Header
-        f.write("Prob.,Approach,Sols,StartC,InvC,CT,Bias,ViolQ,MQuQ,TQ,ALQ,PAQ,")
+        f.write("Prob.,Approach,Sols,StartC,Implied,InvC,CT,Bias,ViolQ,MQuQ,TQ,ALQ,PAQ,")
         f.write("P1T(s),VT(s),MQuT(s),TT(s),ALT(s),PAT(s),")
         f.write("precision,recall,s_precision,s_recall\n")
         
         # Data
         for m in all_metrics:
-            f.write(f"{m['Prob.']},{m['Approach']},{m['Sols']},{m['StartC']},{m['InvC']},")
+            f.write(f"{m['Prob.']},{m['Approach']},{m['Sols']},{m['StartC']},{m['Implied']},{m['InvC']},")
             f.write(f"{m['CT']},{m['Bias']},{m['ViolQ']},{m['MQuQ']},{m['TQ']},")
             f.write(f"{m['ALQ']},{m['PAQ']},")
             f.write(f"{m['P1T(s)']},{m['VT(s)']},{m['MQuT(s)']},{m['TT(s)']},")
@@ -819,6 +826,16 @@ def main():
                 f.write(f"{'Recall (%)':<20} {cop.get('recall', 0):<15} {lion.get('recall', 0):<15} ")
                 f.write(f"{lion.get('recall', 0) - cop.get('recall', 0):<15.2f}\n")
                 
+                # Implied constraints
+                cop_implied = cop.get('Implied', 'N/A')
+                lion_implied = lion.get('Implied', 'N/A')
+                if isinstance(cop_implied, (int, float)) and isinstance(lion_implied, (int, float)):
+                    implied_diff = lion_implied - cop_implied
+                    diff_str = f"{implied_diff:<15}"
+                else:
+                    diff_str = f"{'N/A':<15}"
+                f.write(f"{'Implied':<20} {str(cop_implied):<15} {str(lion_implied):<15} {diff_str}\n")
+                
                 # Winner determination
                 f.write("\nWinner: ")
                 if cop.get('TQ', 0) < lion.get('TQ', 0):
@@ -856,7 +873,7 @@ def main():
         'solution_configurations': benchmark_solution_map,
         'overfitted_constraints_mapping': summary_overfitted_mapping,
         'parallel_execution': {
-            'max_workers': 4,
+            'max_workers': 1,
             'total_tasks': len(tasks)
         }
     }
