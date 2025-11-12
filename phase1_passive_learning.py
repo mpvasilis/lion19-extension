@@ -1,12 +1,14 @@
 
 
 import argparse
+import math
 import os
 import pickle
 import random
 import re
 import sys
 from itertools import combinations
+import cpmpy as cp
 from cpmpy import *
 from cpmpy import cpm_array
 from cpmpy.expressions.utils import all_pairs
@@ -406,7 +408,147 @@ def extract_alldifferent_constraints(oracle):
     return alldiff_constraints
 
 
-def generate_overfitted_alldifferent(variables, positive_examples, target_alldiffs, count=4, max_attempts=1000):
+def build_constraint_violation(constraint):
+
+    if isinstance(constraint, AllDifferent):
+        variables = []
+        if getattr(constraint, "args", None):
+            args = constraint.args
+            if len(args) == 1 and isinstance(args[0], (list, tuple)):
+                variables = list(args[0])
+            else:
+                variables = list(args)
+        if not variables:
+            variables = list(get_variables(constraint))
+
+        variables = list(variables)
+        violation_terms = []
+        for i in range(len(variables)):
+            for j in range(i + 1, len(variables)):
+                violation_terms.append(variables[i] == variables[j])
+
+        if not violation_terms:
+            return 0 == 1
+
+        return cp.sum(violation_terms) >= 1
+
+    return ~constraint
+
+
+def is_constraint_implied(candidate_constraint, base_constraints, variables):
+
+    if not base_constraints:
+        return False
+
+    violation_expr = build_constraint_violation(candidate_constraint)
+
+    test_model = Model()
+    test_model += base_constraints
+    test_model += violation_expr
+
+    has_counterexample = test_model.solve()
+
+    for var in variables:
+        if hasattr(var, "_value"):
+            var._value = None
+
+    return not has_counterexample
+
+
+def extract_grid_info(variables):
+
+    pattern = re.compile(r"grid\[(\d+),(\d+)\]")
+    entries = []
+
+    for var in variables:
+        name = getattr(var, "name", None)
+        if not name:
+            continue
+        match = pattern.match(str(name))
+        if not match:
+            continue
+        row = int(match.group(1))
+        col = int(match.group(2))
+        entries.append((var, row, col))
+
+    if not entries:
+        return None
+
+    max_row = max(entry[1] for entry in entries) + 1
+    max_col = max(entry[2] for entry in entries) + 1
+
+    if max_row <= 0 or max_col <= 0:
+        return None
+
+    block_size_row = int(math.sqrt(max_row))
+    block_size_col = int(math.sqrt(max_col))
+
+    if block_size_row == 0 or block_size_col == 0:
+        return None
+
+    if block_size_row * block_size_row != max_row or block_size_col * block_size_col != max_col:
+        return None
+
+    coords = {}
+    rows = {}
+    cols = {}
+    blocks = {}
+
+    for var, row, col in entries:
+        block_row = row // block_size_row
+        block_col = col // block_size_col
+        block_id = (block_row, block_col)
+
+        coords[var] = (row, col, block_id)
+        rows.setdefault(row, []).append(var)
+        cols.setdefault(col, []).append(var)
+        blocks.setdefault(block_id, []).append(var)
+
+    return {
+        'coords': coords,
+        'rows': rows,
+        'cols': cols,
+        'blocks': blocks,
+        'block_size': (block_size_row, block_size_col)
+    }
+
+
+def discover_non_implied_pairs(variables, positive_examples, target_constraints, grid_info=None, max_pairs=25, max_checks=2000):
+
+    if grid_info is None or not positive_examples:
+        return []
+
+    coords = grid_info.get('coords', {})
+    if not coords:
+        return []
+
+    var_list = list(coords.keys())
+    unique_pairs = []
+    attempts = 0
+    rng = random.Random(42)
+
+    while len(unique_pairs) < max_pairs and attempts < max_checks:
+        attempts += 1
+        v1, v2 = rng.sample(var_list, 2)
+        row1, col1, block1 = coords[v1]
+        row2, col2, block2 = coords[v2]
+
+        if row1 == row2 or col1 == col2 or block1 == block2:
+            continue
+
+        if any(example[v1.name] == example[v2.name] for example in positive_examples if v1.name in example and v2.name in example):
+            continue
+
+        candidate = AllDifferent([v1, v2])
+        if is_constraint_implied(candidate, target_constraints, variables):
+            continue
+
+        unique_pairs.append((v1, v2))
+
+    return unique_pairs
+
+
+def generate_overfitted_alldifferent(variables, positive_examples, target_alldiffs, count=4, max_attempts=10000, grid_info=None, pair_seeds=None):
 
     print(f"\nGenerating {count} overfitted AllDifferent constraints...")
 
@@ -420,7 +562,14 @@ def generate_overfitted_alldifferent(variables, positive_examples, target_alldif
         target_sets.append(set(var_names))
     
     overfitted = []
+    implication_base = list(target_alldiffs)
     var_list = list(variables)
+    block_mappings = []
+    coords = {}
+
+    if grid_info:
+        block_mappings = [(bid, vars_in_block) for bid, vars_in_block in grid_info.get('blocks', {}).items() if len(vars_in_block) > 1]
+        coords = grid_info.get('coords', {})
     attempts = 0
 
     def is_valid_all_diff(var_subset):
@@ -438,9 +587,85 @@ def generate_overfitted_alldifferent(variables, positive_examples, target_alldif
     while len(overfitted) < count and attempts < max_attempts:
         attempts += 1
 
-        scope_size = random.randint(4, min(7, len(var_list)))
+        var_subset = None
+        generation_mode = 'standard'
+        roll = random.random()
 
-        var_subset = random.sample(var_list, scope_size)
+        if pair_seeds and roll < 0.2:
+            generation_mode = 'pair'
+        elif block_mappings and roll < 0.4:
+            generation_mode = 'block'
+        elif grid_info and 0.4 <= roll < 0.6:
+            generation_mode = 'sparse'
+        elif roll >= 0.6 and roll < 0.8:
+            generation_mode = 'wide'
+
+        if generation_mode == 'pair' and pair_seeds:
+            base_pair = random.choice(pair_seeds)
+            subset_pool = [v for v in var_list if v not in base_pair]
+            random.shuffle(subset_pool)
+            target_size = random.randint(4, min(9, len(var_list)))
+            selection = list(base_pair)
+            for candidate_var in subset_pool:
+                if candidate_var in selection:
+                    continue
+                if any(candidate_var.name not in example for example in positive_examples):
+                    continue
+                duplicate = False
+                for example in positive_examples:
+                    existing_values = {example[var.name] for var in selection if var.name in example}
+                    if candidate_var.name in example and example[candidate_var.name] in existing_values:
+                        duplicate = True
+                        break
+                if duplicate:
+                    continue
+                selection.append(candidate_var)
+                if len(selection) >= target_size:
+                    break
+            if len(selection) >= 3:
+                var_subset = selection
+        elif generation_mode == 'block' and block_mappings:
+            block_id, block_vars = random.choice(block_mappings)
+            other_vars = [v for v in var_list if v not in block_vars]
+            if not block_vars:
+                continue
+            hybrid_target = random.randint(4, min(9, len(block_vars) + len(other_vars)))
+            take_from_block = min(len(block_vars), max(2, hybrid_target - max(1, hybrid_target // 3)))
+            take_from_rest = max(0, hybrid_target - take_from_block)
+            block_selection = random.sample(block_vars, take_from_block)
+            remainder_selection = random.sample(other_vars, min(take_from_rest, len(other_vars))) if take_from_rest > 0 and other_vars else []
+            var_subset = block_selection + remainder_selection
+        elif generation_mode == 'sparse' and coords:
+            available = list(coords.keys())
+            random.shuffle(available)
+            used_rows = set()
+            used_cols = set()
+            used_blocks = set()
+            target_size = random.randint(5, min(9, len(available)))
+            selection = []
+            for var in available:
+                row, col, block_id = coords[var]
+                if row in used_rows or col in used_cols or block_id in used_blocks:
+                    continue
+                selection.append(var)
+                used_rows.add(row)
+                used_cols.add(col)
+                used_blocks.add(block_id)
+                if len(selection) >= target_size:
+                    break
+            if len(selection) >= 4:
+                var_subset = selection
+        elif generation_mode == 'wide':
+            if len(var_list) < 8:
+                continue
+            var_subset = random.sample(var_list, random.randint(8, min(9, len(var_list))))
+        else:
+            var_subset = random.sample(var_list, random.randint(4, min(7, len(var_list))))
+
+        if not var_subset or len(var_subset) < 3:
+            continue
+
+        scope_size = len(var_subset)
 
         var_names = tuple(sorted([v.name for v in var_subset]))
         if var_names in target_strs:
@@ -459,8 +684,12 @@ def generate_overfitted_alldifferent(variables, positive_examples, target_alldif
         if is_valid_all_diff(var_subset):
 
             constraint = AllDifferent(var_subset)
+            if is_constraint_implied(constraint, implication_base, variables):
+                print(f"  [SKIP] Candidate implied by target model; discarding (scope size = {scope_size})")
+                continue
             overfitted.append(constraint)
             target_strs.add(var_names)  
+            implication_base.append(constraint)
             print(f"  Generated overfitted constraint {len(overfitted)}/{count}: scope size = {scope_size}")
 
     if len(overfitted) < count:
@@ -484,8 +713,11 @@ def generate_overfitted_alldifferent(variables, positive_examples, target_alldif
 
             if is_valid_all_diff(var_subset):
                 constraint = AllDifferent(var_subset)
+                if is_constraint_implied(constraint, implication_base, variables):
+                    continue
                 overfitted.append(constraint)
                 target_strs.add(var_names)
+                implication_base.append(constraint)
                 print(
                     f"  [fallback] Generated overfitted constraint {len(overfitted)}/{count}: scope size = {scope_size}"
                 )
@@ -509,9 +741,12 @@ def generate_overfitted_alldifferent(variables, positive_examples, target_alldif
                         continue
 
                     constraint = AllDifferent(var_subset)
+                    if is_constraint_implied(constraint, implication_base, variables):
+                        continue
                     overfitted.append(constraint)
                     target_strs.add(var_names)
                     deterministic_generated += 1
+                    implication_base.append(constraint)
                     print(
                         f"  [deterministic] Generated overfitted constraint {len(overfitted)}/{count}: scope size = {scope_size}"
                     )
@@ -655,6 +890,13 @@ def run_phase1(benchmark_name, output_dir='phase1_output', num_examples=5, num_o
     all_target_constraints = detected_alldiffs + missing_targets
     print(f"\nComplete target coverage: {len(detected_alldiffs)} detected + {len(missing_targets)} appended = {len(all_target_constraints)} total target constraints")
 
+    grid_info = extract_grid_info(instance.X)
+    if grid_info and grid_info.get('blocks'):
+        print(f"\nDetected {len(grid_info.get('blocks', {}))} block groups for overfitted generation")
+    pair_seeds = discover_non_implied_pairs(instance.X, positive_examples, all_target_constraints, grid_info=grid_info)
+    if pair_seeds:
+        print(f"  Identified {len(pair_seeds)} non-implied variable pairs for overfitted seeding")
+
     if overfitted_constraints_from_benchmark is not None and len(overfitted_constraints_from_benchmark) > 0:
 
         print(f"\n[MOCK] Received {len(overfitted_constraints_from_benchmark)} overfitted constraints from benchmark")
@@ -687,7 +929,9 @@ def run_phase1(benchmark_name, output_dir='phase1_output', num_examples=5, num_o
                 instance.X,
                 positive_examples,
                 target_alldiffs + overfitted_constraints,
-                count=needed
+                count=needed,
+                grid_info=grid_info,
+                pair_seeds=pair_seeds
             )
             overfitted_constraints.extend(additional_overfitteds)
         elif len(overfitted_constraints) > num_overfitted:
@@ -702,7 +946,12 @@ def run_phase1(benchmark_name, output_dir='phase1_output', num_examples=5, num_o
     else:
 
         overfitted_constraints = generate_overfitted_alldifferent(
-            instance.X, positive_examples, all_target_constraints, count=num_overfitted
+            instance.X,
+            positive_examples,
+            all_target_constraints,
+            count=num_overfitted,
+            grid_info=grid_info,
+            pair_seeds=pair_seeds
         )
 
     CG = all_target_constraints + overfitted_constraints

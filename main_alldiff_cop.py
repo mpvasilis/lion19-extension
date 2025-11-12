@@ -171,11 +171,11 @@ def build_constraint_violation(constraint):
     if isinstance(constraint, AllDifferent):
         variables = []
         if getattr(constraint, "args", None):
-            first_arg = constraint.args[0]
-            if isinstance(first_arg, (list, tuple)):
-                variables = list(first_arg)
+            args = constraint.args
+            if len(args) == 1 and isinstance(args[0], (list, tuple)):
+                variables = list(args[0])
             else:
-                variables = [first_arg]
+                variables = list(args)
         if not variables:
             variables = list(get_variables(constraint))
         
@@ -188,7 +188,7 @@ def build_constraint_violation(constraint):
         if not violation_terms:
             return 0 == 1
         
-        return cp.any(violation_terms)
+        return cp.sum(violation_terms) >= 1
     
     return ~constraint
 
@@ -591,14 +591,17 @@ def cop_refinement_recursive(CG_cand, C_validated, oracle, probabilities, all_va
             negative_query_assignments.append(assignment_snapshot)
             
             if len(Viol_e) == 1:
-                # Only one violated: must be correct
+                # Only one violated: must be correct, but validate only if probability crosses threshold
                 c = list(Viol_e)[0]
                 print(f"{indent}  [SINGLE VIOLATION] Must be correct: {c}")
                 probs[c] = update_supporting_evidence(probs[c], alpha)
-                if c in CG:
-                    CG.remove(c)
-                    C_val.append(c)
-                print(f"{indent}  [VALIDATE] {c} (P={probs[c]:.3f})")
+                if probs[c] >= theta_max:
+                    if c in CG:
+                        CG.remove(c)
+                        C_val.append(c)
+                    print(f"{indent}  [VALIDATE] {c} (P={probs[c]:.3f})")
+                else:
+                    print(f"{indent}  [DEFER] {c} (P={probs[c]:.3f} < {theta_max})")
             
             else:
                 print(f"{indent}[DISAMBIGUATE] Recursively refining {len(Viol_e)} constraints...")
@@ -661,10 +664,14 @@ def cop_refinement_recursive(CG_cand, C_validated, oracle, probabilities, all_va
                 
                 # Apply results
                 for c in ToValidate:
-                    if c in CG:
-                        CG.remove(c)
-                        C_val.append(c)
-                    print(f"{indent}  [VALIDATE] {c} (P={probs[c]:.3f})")
+                    current_prob = probs.get(c, 0.0)
+                    if current_prob >= theta_max:
+                        if c in CG:
+                            CG.remove(c)
+                            C_val.append(c)
+                        print(f"{indent}  [VALIDATE] {c} (P={current_prob:.3f})")
+                    else:
+                        print(f"{indent}  [DEFER] {c} (P={current_prob:.3f} < {theta_max})")
                 
                 for c in ToRemove:
                     if c in CG:
