@@ -16,6 +16,7 @@ from benchmarks_global import construct_sudoku_greater_than
 from benchmarks_global import construct_examtt_simple as ces_global
 from benchmarks_global import construct_examtt_variant1, construct_examtt_variant2
 from benchmarks_global import construct_nurse_rostering as nr_global
+from cpmpy.transformations.normalize import toplevel_list
 
 
 def variables_to_assignment(variables):
@@ -228,16 +229,21 @@ def generate_violation_query(CG, C_validated, probabilities, all_variables, orac
         
         print(f"  Oracle breakdown: {alldiff_count} AllDifferent, {len(non_alldiff_constraints)} non-AllDifferent")
         
-        if non_alldiff_constraints:
-            print(f"  Adding {len(non_alldiff_constraints)} non-AllDifferent constraints as hard constraints")
-            for c in non_alldiff_constraints:
-                model += c
-        else:
-            print(f"  Warning: No non-AllDifferent constraints found in oracle!")
+        # if non_alldiff_constraints:
+        #     print(f"  Adding {len(non_alldiff_constraints)} non-AllDifferent constraints as hard constraints")
+        #     for c in non_alldiff_constraints:
+        #         model += c
+
     else:
         print(f"  WARNING: No oracle provided to generate_violation_query!")
 
-    for c in C_validated:
+    C_validated_dec = toplevel_list([c.decompose()[0] for c in C_validated])
+
+    model_vars = get_variables(CG)
+
+    Cl = get_con_subset(C_validated_dec, model_vars)
+
+    for c in Cl:
         model += c
 
     exclusion_assignments = []

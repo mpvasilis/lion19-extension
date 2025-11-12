@@ -97,11 +97,7 @@ class ResilientMQuAcq2(MQuAcq2):
                             NScopes = NScopes.union(self.analyze_and_learn(Y))
                         except IndexError as e:
                             # Handle the case where find_neighbours fails due to invalid scope
-                            print(f"\n[WARNING] analyze_and_learn failed: {e}")
-                            print(f"  This may be due to constraints with invalid scopes in CL")
-                            print(f"  Continuing without analyze_and_learn for this iteration...")
-                            # Don't propagate the error, just continue without analyze_and_learn
-                    
+                            print(f"\n[WARNING] analyze_and_learn failed: {e}")                    
                     Y = [y2 for y2 in Y if not any(y2 in set(nscope) for nscope in NScopes)]
                     
                     kappaB = get_kappa(self.env.instance.bias, Y)
@@ -112,10 +108,6 @@ class ResilientMQuAcq2(MQuAcq2):
         return self._perform_analyzeAndLearn
     
     def _validate_cl_for_mquacq2(self):
-        """
-        Validate all constraints in CL have proper scopes that can be handled by MQuAcq-2.
-        Remove any constraints with invalid scopes (unary or with transformed variables).
-        """
         from utils import get_scope
         
         valid_cl = []
