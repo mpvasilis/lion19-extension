@@ -380,11 +380,15 @@ def extract_metrics(
     # CT: Target constraint count
     metrics['CT'] = TARGET_CONSTRAINTS.get(benchmark_name, 'N/A')
     
-    # Bias: Size of generated bias
+    # Bias: Size of generated bias (excluding decomposed binary constraints from AllDifferent)
     if phase3_available:
-        metrics['Bias'] = phase3_results.get('phase1', {}).get('B_fixed_size', 0)
+        raw_bias = phase3_results.get('phase1', {}).get('B_fixed_size', 0)
+        decomposed_binaries = phase3_results.get('phase3', {}).get('initial_cl', 0)
+        metrics['Bias'] = raw_bias - decomposed_binaries
     else:
-        metrics['Bias'] = len(phase2_data.get('B_fixed', []))
+        raw_bias = len(phase2_data.get('B_fixed', []))
+        # For Phase 2-only results, we don't have decomposed count, so use raw bias
+        metrics['Bias'] = raw_bias
     
     # ViolQ: Violation queries from Phase 2
     metrics['ViolQ'] = phase3_results.get('phase2', {}).get('queries', phase2_stats.get('queries', 0)) if phase3_available else phase2_stats.get('queries', 0)
