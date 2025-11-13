@@ -1,0 +1,28 @@
+Solution Variance Experiment Results (COP vs LION Comparison)
+============================================================================================================================================
+
+Prob.           Approach  Sols   StartC   InvC   CT    Bias   ViolQ   MQuQ    TQ     ALQ   PAQ   P1T(s)   VT(s)    MQuT(s)   TT(s)    ALT(s)  PAT(s) 
+Sudoku-GT       COP       20     32       5      37    1049   37      114     151    N/A   N/A   3.82     303.01   4.33      311.16   N/A     N/A    
+Sudoku-GT       COP       5      35       8      37    2443   37      408     445    N/A   N/A   2.61     310.33   8.74      321.68   N/A     N/A    
+Sudoku-GT       COP       2      44       17     37    5756   37      168     205    N/A   N/A   2.4      310.55   7.87      320.82   N/A     N/A    
+Sudoku-GT       COP       200    28       1      37    830    37      1       38     N/A   N/A   146.53   299.71   0.01      446.25   N/A     N/A    
+
+============================================================================================================================================
+Legend:
+  Approach: COP or LION methodology
+  Sols: Number of given solutions (positive examples)
+  StartC: Number of candidate constraints from passive learning
+  InvC: Number of constraints invalidated by refinement
+  CT: Number of AllDifferent constraints in target model
+  Bias: Size of generated bias
+  ViolQ: Violation queries (Phase 2)
+  MQuQ: Active learning queries (Phase 3)
+  TQ: Total queries (ViolQ + MQuQ)
+  ALQ: Queries for purely Active Learning baseline
+  PAQ: Queries for Passive+Active baseline
+  P1T(s): Phase 1 passive learning time
+  VT(s): Duration of violation phase
+  MQuT(s): Duration of active learning phase
+  TT(s): Overall runtime (P1T + VT + MQuT)
+  ALT(s): Runtime for Active Learning baseline
+  PAT(s): Runtime for Passive+Active baseline

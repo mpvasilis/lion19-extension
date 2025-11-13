@@ -1,0 +1,125 @@
+{
+  "experiment": "examtt_v2",
+  "timestamp": "2025-11-07T21:40:51.237574",
+  "phase1": {
+    "queries": 0,
+    "time": 0,
+    "E_plus_size": 2,
+    "B_fixed_size": 3166
+  },
+  "phase2": {
+    "queries": 0,
+    "time": 13.144569158554077,
+    "validated_globals": 53,
+    "validated_globals_list": [
+      "alldifferent((var[6,0]) // 8,(var[6,1]) // 8,(var[6,2]) // 8,(var[6,3]) // 8,(var[6,4]) // 8,(var[6,5]) // 8,(var[6,6]) // 8)",
+      "alldifferent(var[0,2],var[3,5],var[2,3],var[7,2],var[0,6],var[1,4])",
+      "alldifferent(var[0,0],var[1,0],var[2,0],var[3,0],var[4,0],var[5,0])",
+      "alldifferent(var[4,5],var[3,2],var[3,3],var[7,4],var[2,3],var[5,6],var[4,3])",
+      "alldifferent(var[7,0],var[5,5],var[2,5])",
+      "alldifferent(var[6,1],var[0,4],var[1,5],var[7,6],var[3,5])",
+      "alldifferent(var[3,1],var[1,1],var[5,4],var[4,4],var[2,4])",
+      "alldifferent((var[7,0]) // 8,(var[7,1]) // 8,(var[7,2]) // 8,(var[7,3]) // 8,(var[7,4]) // 8,(var[7,5]) // 8,(var[7,6]) // 8)",
+      "alldifferent((var[0,0]) mod 8,(var[0,1]) mod 8,(var[0,2]) mod 8,(var[0,3]) mod 8,(var[0,4]) mod 8,(var[0,5]) mod 8,(var[0,6]) mod 8,(var[1,0]) mod 8)",
+      "alldifferent(var[0,6],var[3,0],var[7,1],var[5,0],var[5,6])",
+      "alldifferent(var[0,5],var[1,2],var[0,0])",
+      "alldifferent(var[0,0],var[0,1],var[1,0],var[1,1],var[2,0],var[2,1],var[3,0],var[3,1],var[4,0],var[4,1],var[5,0],var[5,1],var[6,0],var[6,1],var[7,0])",
+      "alldifferent(var[0,3],var[7,3],var[6,4],var[3,0],var[2,4],var[2,3])",
+      "alldifferent(var[0,0],var[0,1],var[0,2],var[0,3],var[0,4],var[0,5],var[0,6],var[1,0],var[1,1],var[1,2],var[1,3],var[1,4],var[1,5],var[1,6],var[2,0],var[2,1],var[2,2],var[2,3],var[2,4],var[2,5],var[2,6],var[3,0],var[3,1],var[3,2],var[3,3],var[3,4],var[3,5],var[3,6],var[4,0],var[4,1],var[4,2],var[4,3],var[4,4],var[4,5],var[4,6],var[5,0],var[5,1],var[5,2],var[5,3],var[5,4],var[5,5],var[5,6],var[6,0],var[6,1],var[6,2],var[6,3],var[6,4],var[6,5],var[6,6],var[7,0],var[7,1],var[7,2],var[7,3],var[7,4],var[7,5],var[7,6])",
+      "alldifferent(var[0,5],var[1,2],var[0,2],var[0,1],var[7,0])",
+      "alldifferent(var[2,4],var[0,1],var[4,5],var[7,2],var[6,5],var[3,2])",
+      "alldifferent((var[0,0]) // 8,(var[0,1]) // 8,(var[0,2]) // 8,(var[0,3]) // 8,(var[0,4]) // 8,(var[0,5]) // 8,(var[0,6]) // 8)",
+      "alldifferent(var[6,0],var[1,4],var[3,0],var[2,3],var[2,2],var[3,3],var[3,6])",
+      "alldifferent(var[4,0],var[5,4],var[7,1],var[5,6],var[0,1],var[6,0])",
+      "alldifferent(var[0,5],var[1,1],var[4,3])",
+      "alldifferent(var[0,6],var[1,6],var[2,6],var[3,6],var[4,6])",
+      "alldifferent(var[1,0],var[1,4],var[6,0],var[0,6],var[7,5])",
+      "alldifferent(var[2,4],var[7,4],var[6,5],var[5,0],var[4,5],var[7,2])",
+      "alldifferent(var[0,1],var[3,0],var[0,6],var[6,0])",
+      "alldifferent(var[1,4],var[0,2],var[3,1],var[6,2])",
+      "alldifferent(var[3,4],var[5,3],var[4,4],var[7,2],var[7,6])",
+      "alldifferent(var[0,3],var[1,3],var[2,3],var[3,3],var[4,3],var[5,3])",
+      "alldifferent((var[2,0]) // 8,(var[2,1]) // 8,(var[2,2]) // 8,(var[2,3]) // 8,(var[2,4]) // 8,(var[2,5]) // 8,(var[2,6]) // 8)",
+      "alldifferent(var[1,6],var[2,6],var[5,2],var[6,3],var[2,5])",
+      "alldifferent(var[0,1],var[7,3],var[2,2],var[4,0])",
+      "alldifferent(var[4,2],var[0,0],var[7,1],var[4,6],var[4,3])",
+      "alldifferent((var[5,0]) // 8,(var[5,1]) // 8,(var[5,2]) // 8,(var[5,3]) // 8,(var[5,4]) // 8,(var[5,5]) // 8,(var[5,6]) // 8)",
+      "alldifferent((var[3,0]) // 8,(var[3,1]) // 8,(var[3,2]) // 8,(var[3,3]) // 8,(var[3,4]) // 8,(var[3,5]) // 8,(var[3,6]) // 8)",
+      "alldifferent(var[0,0],var[0,1],var[0,2],var[2,0],var[2,1],var[2,2],var[4,0],var[4,1],var[4,2],var[6,0],var[6,1],var[6,2])",
+      "alldifferent(var[4,6],var[5,0],var[7,6],var[1,4],var[5,2],var[3,6])",
+      "alldifferent(var[1,0],var[2,4],var[6,3],var[1,4])",
+      "alldifferent(var[3,1],var[0,3],var[6,0],var[4,5],var[3,6])",
+      "alldifferent((var[0,0]) // 8,(var[0,1]) // 8,(var[0,2]) // 8,(var[0,3]) // 8,(var[0,4]) // 8,(var[0,5]) // 8,(var[0,6]) // 8,(var[1,0]) // 8,(var[1,1]) // 8,(var[1,2]) // 8,(var[1,3]) // 8,(var[1,4]) // 8,(var[1,5]) // 8,(var[1,6]) // 8,(var[2,0]) // 8,(var[2,1]) // 8,(var[2,2]) // 8,(var[2,3]) // 8,(var[2,4]) // 8,(var[2,5]) // 8,(var[2,6]) // 8)",
+      "alldifferent((var[4,0]) // 8,(var[4,1]) // 8,(var[4,2]) // 8,(var[4,3]) // 8,(var[4,4]) // 8,(var[4,5]) // 8,(var[4,6]) // 8)",
+      "alldifferent(var[0,3],var[3,6],var[2,5],var[6,6])",
+      "alldifferent(var[7,4],var[3,3],var[1,3],var[3,4],var[5,4])",
+      "alldifferent(var[1,4],var[1,5],var[0,5],var[7,4],var[1,0],var[1,6])",
+      "alldifferent(var[0,6],var[1,5],var[2,4],var[3,3],var[4,2])",
+      "alldifferent((var[1,0]) // 8,(var[1,1]) // 8,(var[1,2]) // 8,(var[1,3]) // 8,(var[1,4]) // 8,(var[1,5]) // 8,(var[1,6]) // 8)",
+      "alldifferent(var[7,5],var[2,3],var[5,5],var[4,2])",
+      "alldifferent(var[1,4],var[1,5],var[1,6],var[3,4],var[3,5],var[3,6],var[5,4],var[5,5],var[5,6],var[7,4],var[7,5],var[7,6])",
+      "alldifferent(var[1,0],var[3,1],var[6,2])",
+      "alldifferent(var[0,0],var[1,1],var[2,2],var[3,3],var[4,4])",
+      "alldifferent(var[4,3],var[5,6],var[7,5],var[0,2],var[1,3])",
+      "alldifferent(var[0,2],var[3,0],var[2,4],var[0,1],var[1,0])",
+      "alldifferent(var[2,4],var[2,6],var[1,1],var[1,4],var[6,2])",
+      "alldifferent(var[4,5],var[6,0],var[2,1],var[5,3],var[2,6])",
+      "alldifferent(var[6,4],var[3,2],var[7,2],var[1,3],var[1,6],var[7,3],var[4,1])"
+    ]
+  },
+  "phase3": {
+    "queries": 854,
+    "time": 146.368390083313,
+    "initial_cl": 1712,
+    "pruned_bias": 1626,
+    "final_model_size": 2344,
+    "resilience": {
+      "findc": {
+        "collapse_warnings": 1,
+        "unresolved_scopes": 1,
+        "unresolved_details": [
+          {
+            "scope": "[var[6,6], var[2,2]]",
+            "target": "[]"
+          }
+        ]
+      },
+      "mquacq2": {
+        "skipped_scopes_count": 1,
+        "skipped_scopes": [
+          "[var[6,6], var[2,2]]"
+        ],
+        "invalid_cl_constraints_count": 0,
+        "invalid_cl_constraints": []
+      },
+      "total_issues": 2
+    }
+  },
+  "total": {
+    "queries": 854,
+    "time": 159.51295924186707
+  },
+  "evaluation": {
+    "constraint_level": {
+      "target_size": 1942,
+      "learned_size": 2344,
+      "correct": 1132,
+      "missing": 810,
+      "spurious": 1212,
+      "precision": 0.48293515358361777,
+      "recall": 0.5829042224510813,
+      "f1": 0.5282314512365841
+    },
+    "solution_level": {
+      "s_precision": 0.0,
+      "s_recall": 0.0,
+      "s_f1": 0.0,
+      "learned_solutions": 1,
+      "target_solutions": 0,
+      "intersection_solutions": 0,
+      "is_complete": false,
+      "learned_incomplete": true,
+      "target_incomplete": false
+    }
+  }
+}
