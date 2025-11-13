@@ -302,7 +302,7 @@ def generate_violation_query(CG, C_validated, probabilities, all_variables, orac
     print(f"  Solving COP...")
     solve_start = time.time()
 
-    result = model.solve(time_limit=5)
+    result = model.solve(time_limit=60)
     solve_time = time.time() - solve_start
     if not result:
         print("UNSAT")
@@ -486,6 +486,32 @@ def cop_refinement_recursive(CG_cand, C_validated, oracle, probabilities, all_va
             break
         
         print(f"\n{indent}[Iter {iteration}] {len(C_val)} validated, {len(CG)} candidates, {queries_used}q used")
+        
+        # Pre-filter high-probability constraints (>0.8) by checking directly against oracle
+        high_prob_threshold = 0.8
+        high_prob_constraints = [c for c in CG if probs[c] > high_prob_threshold]
+        
+        if high_prob_constraints:
+            print(f"{indent}[PRE-FILTER] Found {len(high_prob_constraints)} constraints with P(c) > {high_prob_threshold}")
+            oracle_constraint_strs = set(str(c) for c in oracle.constraints)
+            
+            for c in high_prob_constraints:
+                c_str = str(c)
+                if c_str in oracle_constraint_strs:
+                    # Constraint exists in oracle - validate it
+                    CG.remove(c)
+                    C_val.append(c)
+                    print(f"{indent}  [DIRECT-VALIDATE] {c} (P={probs[c]:.3f}) - found in oracle")
+                else:
+                    # Constraint not in oracle - reject it
+                    CG.remove(c)
+                    probs[c] *= alpha  # Apply penalty as if we got a counterexample
+                    print(f"{indent}  [DIRECT-REJECT] {c} (P={probs[c]:.3f}) - not in oracle")
+            
+            # If we processed all candidates, we're done
+            if not CG:
+                print(f"{indent}[STOP] All candidates processed via direct check")
+                break
         
         # Generate violation query
         print(f"{indent}[QUERY] Generating violation query...")
