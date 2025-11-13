@@ -127,11 +127,28 @@ def run_command(cmd, description):
 
 
 def run_phase1_with_timing(experiment, num_examples, num_overfitted, output_dir='solution_variance_output'):
-    """Run Phase 1 with timing and return the time taken."""
+    """Run Phase 1 with timing and return the time taken. Skip if pickle already exists."""
     
     # Create custom output directory for this configuration
     config_output_dir = f"{output_dir}/{experiment}_sol{num_examples}_overfitted{num_overfitted}"
     os.makedirs(config_output_dir, exist_ok=True)
+    
+    # Check if Phase 1 pickle already exists
+    phase1_pickle = f"{config_output_dir}/{experiment}_phase1.pkl"
+    
+    if os.path.exists(phase1_pickle):
+        # Verify the pickle is valid by attempting to load it
+        try:
+            with open(phase1_pickle, 'rb') as f:
+                pickle.load(f)
+            print(f"\n{'='*80}")
+            print(f"[SKIP] Phase 1 pickle already exists: {phase1_pickle}")
+            print(f"[SKIP] Reusing existing Phase 1 results")
+            print(f"{'='*80}\n")
+            return True, phase1_pickle, 0.0  # Return 0 time since we didn't run it
+        except Exception as e:
+            print(f"\n[WARNING] Existing Phase 1 pickle is corrupted: {e}")
+            print(f"[WARNING] Re-running Phase 1...")
     
     cmd = [
         PYTHON_EXECUTABLE, 'phase1_passive_learning.py',
@@ -150,7 +167,6 @@ def run_phase1_with_timing(experiment, num_examples, num_overfitted, output_dir=
     
     if success:
         print(f"\n[TIMING] Phase 1 completed in {elapsed_time:.2f} seconds")
-        phase1_pickle = f"{config_output_dir}/{experiment}_phase1.pkl"
         return True, phase1_pickle, elapsed_time
     else:
         print(f"\n[ERROR] Phase 1 failed after {elapsed_time:.2f} seconds")
