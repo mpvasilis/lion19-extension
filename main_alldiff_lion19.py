@@ -172,6 +172,26 @@ def query_driven_refinement(
         print(f"\n{'-'*70}")
         print(f"Constraint {idx}/{len(remaining_constraints)}")
         print(constraint)
+        
+        # Pre-filter high-probability constraints (>0.8) by checking directly against oracle
+        high_prob_threshold = 0.8
+        current_prob = probability_map.get(constraint, 0.5)
+        
+        if current_prob > high_prob_threshold:
+            print(f"  [PRE-FILTER] Constraint has high probability P={current_prob:.3f} > {high_prob_threshold}")
+            oracle_constraint_strs = set(str(c) for c in oracle.constraints)
+            constraint_str = str(constraint)
+            
+            if constraint_str in oracle_constraint_strs:
+                # Constraint exists in oracle - keep it (already in remaining_constraints)
+                print(f"  [DIRECT-VALIDATE] Found in oracle - accepting without queries")
+                continue  # Skip to next constraint
+            else:
+                # Constraint not in oracle - reject it
+                removed_constraints.add(constraint)
+                probability_map.pop(constraint, None)
+                print(f"  [DIRECT-REJECT] Not found in oracle - removing without queries")
+                continue  # Skip to next constraint
 
         scope_vars = list(get_variables([constraint]))
         if len(scope_vars) < 2:
