@@ -302,7 +302,7 @@ def generate_violation_query(CG, C_validated, probabilities, all_variables, orac
     print(f"  Solving COP...")
     solve_start = time.time()
 
-    result = model.solve(time_limit=60)
+    result = model.solve(time_limit=5)
     solve_time = time.time() - solve_start
     if not result:
         print("UNSAT")
