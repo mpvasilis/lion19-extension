@@ -441,10 +441,11 @@ def extract_metrics(
     metrics['CT'] = TARGET_CONSTRAINTS.get(benchmark_name, 'N/A')
     
     # Bias: Size of generated bias (excluding decomposed binary constraints from AllDifferent)
+    # Clamped to 0 to prevent negative values when learned constraints expand beyond original bias
     if phase3_available:
         raw_bias = phase3_results.get('phase1', {}).get('B_fixed_size', 0)
         decomposed_binaries = phase3_results.get('phase3', {}).get('initial_cl', 0)
-        metrics['Bias'] = raw_bias - decomposed_binaries
+        metrics['Bias'] = max(0, raw_bias - decomposed_binaries)
     else:
         raw_bias = len(phase2_data.get('B_fixed', []))
         # For Phase 2-only results, we don't have decomposed count, so use raw bias
