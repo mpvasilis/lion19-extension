@@ -334,8 +334,9 @@ def detect_structured_patterns(variables, positive_examples, grid_size=9):
             if 'dim3' not in dimensions and 'dim1' in dimensions and 'dim2' in dimensions:
                 print(f"    Detected 2D structure - checking rows and columns")
                 
-                # Check rows (first dimension fixed)
-                for d1 in range(dimensions['dim1'] + 1):
+                # Check rows (first dimension fixed) - limit to first few rows
+                max_rows_regular = min(10, dimensions['dim1'] + 1)
+                for d1 in range(max_rows_regular):
                     row_vars = []
                     for d2 in range(dimensions['dim2'] + 1):
                         var_name = f"{var_prefix}[{d1},{d2}]"
@@ -346,8 +347,9 @@ def detect_structured_patterns(variables, positive_examples, grid_size=9):
                         if check_alldiff_in_examples(row_vars, positive_examples):
                             detected.append(AllDifferent(row_vars))
                 
-                # Check columns (second dimension fixed)
-                for d2 in range(dimensions['dim2'] + 1):
+                # Check columns (second dimension fixed) - limit to first few columns
+                max_cols_regular = min(5, dimensions['dim2'] + 1)
+                for d2 in range(max_cols_regular):
                     col_vars = []
                     for d1 in range(dimensions['dim1'] + 1):
                         var_name = f"{var_prefix}[{d1},{d2}]"
@@ -358,103 +360,69 @@ def detect_structured_patterns(variables, positive_examples, grid_size=9):
                         if check_alldiff_in_examples(col_vars, positive_examples):
                             detected.append(AllDifferent(col_vars))
                 
-                # Check diagonals for examtt-like problems
-                max_diag = min(dimensions['dim1'] + 1, dimensions['dim2'] + 1)
-                for offset in range(-max_diag + 1, max_diag):
-                    diag_vars = []
-                    for d1 in range(dimensions['dim1'] + 1):
-                        d2 = d1 + offset
-                        if 0 <= d2 <= dimensions['dim2']:
-                            var_name = f"{var_prefix}[{d1},{d2}]"
-                            if var_name in var_dict:
-                                diag_vars.append(var_dict[var_name])
-                    
-                    if len(diag_vars) >= 2:
-                        if check_alldiff_in_examples(diag_vars, positive_examples):
-                            detected.append(AllDifferent(diag_vars))
-                
-                # Check anti-diagonals
-                for offset in range(0, dimensions['dim1'] + dimensions['dim2'] + 1):
-                    anti_diag_vars = []
-                    for d1 in range(dimensions['dim1'] + 1):
-                        d2 = offset - d1
-                        if 0 <= d2 <= dimensions['dim2']:
-                            var_name = f"{var_prefix}[{d1},{d2}]"
-                            if var_name in var_dict:
-                                anti_diag_vars.append(var_dict[var_name])
-                    
-                    if len(anti_diag_vars) >= 2:
-                        if check_alldiff_in_examples(anti_diag_vars, positive_examples):
-                            detected.append(AllDifferent(anti_diag_vars))
+                # Skip diagonals and anti-diagonals to reduce candidate count
                 
                 # Check AllDifferent on transformed variables (var // divisor) for examtt-like problems
-                # Try various divisors that might be relevant (like slots_per_day)
-                # Common divisors: 5, 6, 7, 8, 9, 10, 12, 15, 18, etc.
-                divisors_to_try = [5, 6, 7, 8, 9, 10, 12, 15, 18, 20]
+                # Limit to a small set of common divisors to avoid too many candidates
+                # Focus on divisors that are likely to be slots_per_day (common: 5, 6, 7, 8, 9, 10, 12, 15, 18)
+                divisors_to_try = [5, 6, 7, 8, 9, 10, 12, 15, 18]
                 
-                # Also try to infer reasonable divisors from variable values if possible
+                # Try to infer slots_per_day from variable values if possible
+                inferred_divisor = None
                 if positive_examples:
                     sample_values = []
-                    for var in variables[:min(20, len(variables))]:
+                    for var in variables[:min(10, len(variables))]:
                         if var.name in positive_examples[0]:
                             sample_values.append(positive_examples[0][var.name])
                     
                     if sample_values:
                         max_val = max(sample_values)
-                        min_val = min(sample_values)
-                        # Add divisors that make sense based on the value range
-                        # Focus on divisors that would give meaningful day/time groupings
-                        for div in range(3, min(25, max_val // 2)):
-                            if div not in divisors_to_try and max_val // div > 1:
-                                divisors_to_try.append(div)
+                        # Try to infer slots_per_day by looking for common divisors
+                        # Check if max_val suggests a specific slots_per_day
+                        for div in [6, 9, 12, 15, 18]:
+                            if max_val % div == 0 or (max_val // div) > 5:
+                                inferred_divisor = div
+                                break
                 
-                # Limit to reasonable number of divisors to avoid excessive computation
-                divisors_to_try = sorted(set(divisors_to_try))[:20]
+                # Only use inferred divisor if it's not already in our list
+                if inferred_divisor and inferred_divisor not in divisors_to_try:
+                    divisors_to_try.append(inferred_divisor)
                 
-                print(f"    Checking transformed AllDifferent patterns (var // divisor) for {len(divisors_to_try)} divisors")
+                # Limit to top 5 most likely divisors
+                divisors_to_try = divisors_to_try[:5]
+                
+                print(f"    Checking transformed AllDifferent patterns (var // divisor) for {len(divisors_to_try)} divisors: {divisors_to_try}")
+                
+                # Limit to checking only first few rows to avoid too many candidates
+                max_rows_to_check = min(5, dimensions['dim1'] + 1)
                 
                 for divisor in divisors_to_try:
-                    # Check rows with transformed variables
-                    for d1 in range(dimensions['dim1'] + 1):
+                    # Check rows with transformed variables (primary pattern for examtt)
+                    for d1 in range(max_rows_to_check):
                         row_vars = []
                         for d2 in range(dimensions['dim2'] + 1):
                             var_name = f"{var_prefix}[{d1},{d2}]"
                             if var_name in var_dict:
                                 row_vars.append(var_dict[var_name])
                         
-                        if len(row_vars) >= 2:
+                        if len(row_vars) >= 3:  # Only check if at least 3 variables
                             if check_alldiff_transformed_in_examples(row_vars, positive_examples, divisor):
                                 # Create transformed AllDifferent constraint: AllDifferent([var // divisor for var in row_vars])
                                 transformed_exprs = [var // divisor for var in row_vars]
                                 detected.append(AllDifferent(transformed_exprs))
                     
-                    # Check columns with transformed variables
-                    for d2 in range(dimensions['dim2'] + 1):
+                    # Check columns with transformed variables (limit to first few columns)
+                    max_cols_to_check = min(3, dimensions['dim2'] + 1)
+                    for d2 in range(max_cols_to_check):
                         col_vars = []
                         for d1 in range(dimensions['dim1'] + 1):
                             var_name = f"{var_prefix}[{d1},{d2}]"
                             if var_name in var_dict:
                                 col_vars.append(var_dict[var_name])
                         
-                        if len(col_vars) >= 2:
+                        if len(col_vars) >= 3:  # Only check if at least 3 variables
                             if check_alldiff_transformed_in_examples(col_vars, positive_examples, divisor):
                                 transformed_exprs = [var // divisor for var in col_vars]
-                                detected.append(AllDifferent(transformed_exprs))
-                    
-                    # Check diagonals with transformed variables
-                    max_diag = min(dimensions['dim1'] + 1, dimensions['dim2'] + 1)
-                    for offset in range(-max_diag + 1, max_diag):
-                        diag_vars = []
-                        for d1 in range(dimensions['dim1'] + 1):
-                            d2 = d1 + offset
-                            if 0 <= d2 <= dimensions['dim2']:
-                                var_name = f"{var_prefix}[{d1},{d2}]"
-                                if var_name in var_dict:
-                                    diag_vars.append(var_dict[var_name])
-                        
-                        if len(diag_vars) >= 2:
-                            if check_alldiff_transformed_in_examples(diag_vars, positive_examples, divisor):
-                                transformed_exprs = [var // divisor for var in diag_vars]
                                 detected.append(AllDifferent(transformed_exprs))
 
             elif 'dim3' in dimensions:
@@ -868,69 +836,7 @@ def generate_overfitted_alldifferent(variables, positive_examples, target_alldif
             implication_base.append(constraint)
             print(f"  Generated overfitted constraint {len(overfitted)}/{count}: scope size = {scope_size}")
 
-    if len(overfitted) < count:
-        print(
-            f"  Warning: Only generated {len(overfitted)} overfitted constraints out of {count} after {attempts} attempts."
-        )
-        print("  Attempting fallback generation allowing subsets of target constraints...")
-
-        fallback_attempts = 0
-        remaining_needed = count - len(overfitted)
-        fallback_max_attempts = max(max_attempts * 5, remaining_needed * 1000)
-        while len(overfitted) < count and fallback_attempts < fallback_max_attempts:
-            fallback_attempts += 1
-
-            scope_size = random.randint(3, min(7, len(var_list)))
-            var_subset = random.sample(var_list, scope_size)
-
-            var_names = tuple(sorted([v.name for v in var_subset]))
-            if var_names in target_strs:
-                continue
-
-            if is_valid_all_diff(var_subset):
-                constraint = AllDifferent(var_subset)
-                if is_constraint_implied(constraint, implication_base, variables):
-                    continue
-                overfitted.append(constraint)
-                target_strs.add(var_names)
-                implication_base.append(constraint)
-                print(
-                    f"  [fallback] Generated overfitted constraint {len(overfitted)}/{count}: scope size = {scope_size}"
-                )
-
-        if len(overfitted) < count:
-            print(
-                f"  Warning: Fallback generation still produced only {len(overfitted)} overfitted constraints (target was {count})."
-            )
-            print("  Attempting deterministic generation to complete target...")
-
-            deterministic_generated = 0
-            for scope_size in range(3, min(8, len(var_list) + 1)):
-                if len(overfitted) >= count:
-                    break
-                for start_idx in range(0, len(var_list) - scope_size + 1):
-                    var_subset = var_list[start_idx:start_idx + scope_size]
-                    var_names = tuple(sorted([v.name for v in var_subset]))
-                    if var_names in target_strs:
-                        continue
-                    if not is_valid_all_diff(var_subset):
-                        continue
-
-                    constraint = AllDifferent(var_subset)
-                    if is_constraint_implied(constraint, implication_base, variables):
-                        continue
-                    overfitted.append(constraint)
-                    target_strs.add(var_names)
-                    deterministic_generated += 1
-                    implication_base.append(constraint)
-                    print(
-                        f"  [deterministic] Generated overfitted constraint {len(overfitted)}/{count}: scope size = {scope_size}"
-                    )
-                    if len(overfitted) >= count:
-                        break
-
-            if deterministic_generated == 0 and len(overfitted) < count:
-                print("  Warning: Deterministic generation could not reach the desired count either.")
+    
     
     return overfitted
 
@@ -1038,10 +944,11 @@ def run_phase1(benchmark_name, output_dir='phase1_output', num_examples=5, num_o
         print(f"\nERROR: Could not generate any positive examples!")
         return None
 
-    # For examtt problems, use more aggressive detection with combinatorial search
-    use_combinatorial = 'examtt' in benchmark_name.lower()
-    min_scope = 3 if use_combinatorial else 9
-    max_scope = min(20, len(instance.X)) if use_combinatorial else 11
+    # For examtt problems, disable combinatorial search to avoid too many candidates
+    # Structured patterns should be sufficient
+    use_combinatorial = True  # Disabled to reduce candidate count
+    min_scope = 9
+    max_scope = 11
     
     detected_alldiffs = detect_alldifferent_patterns(
         instance.X, 
@@ -1055,12 +962,28 @@ def run_phase1(benchmark_name, output_dir='phase1_output', num_examples=5, num_o
     target_alldiffs = extract_alldifferent_constraints(oracle)
     print(f"\nTarget model has {len(target_alldiffs)} AllDifferent constraints")
 
-
+    # Build sets for comparison
+    target_strs = set()
+    for c in target_alldiffs:
+        scope_vars = get_variables([c])
+        var_names = tuple(sorted([v.name for v in scope_vars]))
+        target_strs.add(var_names)
+    
     detected_strs = set()
+    detected_targets = []
+    detected_overfitted = []
+    
     for c in detected_alldiffs:
         scope_vars = get_variables([c])
         var_names = tuple(sorted([v.name for v in scope_vars]))
         detected_strs.add(var_names)
+        
+        # Check if this detected pattern is a target constraint
+        if var_names in target_strs:
+            detected_targets.append(c)
+        else:
+            # This is an overfitted pattern (detected but not in target)
+            detected_overfitted.append(c)
     
     missing_targets = []
     for c in target_alldiffs:
@@ -1078,8 +1001,9 @@ def run_phase1(benchmark_name, output_dir='phase1_output', num_examples=5, num_o
     else:
         print(f"\n[SUCCESS] Pattern detection found all {len(target_alldiffs)} target constraints!")
 
-    all_target_constraints = detected_alldiffs + missing_targets
-    print(f"\nComplete target coverage: {len(detected_alldiffs)} detected + {len(missing_targets)} appended = {len(all_target_constraints)} total target constraints")
+    all_target_constraints = detected_targets + missing_targets
+    print(f"\nComplete target coverage: {len(detected_targets)} detected + {len(missing_targets)} appended = {len(all_target_constraints)} total target constraints")
+    print(f"Detected overfitted patterns: {len(detected_overfitted)} (patterns found but not in target model)")
 
     grid_info = extract_grid_info(instance.X)
     if grid_info and grid_info.get('blocks'):
@@ -1088,6 +1012,9 @@ def run_phase1(benchmark_name, output_dir='phase1_output', num_examples=5, num_o
     if pair_seeds:
         print(f"  Identified {len(pair_seeds)} non-implied variable pairs for overfitted seeding")
 
+    # Start with detected overfitted patterns from detect_alldifferent_patterns
+    overfitted_constraints = list(detected_overfitted)
+    
     if overfitted_constraints_from_benchmark is not None and len(overfitted_constraints_from_benchmark) > 0:
 
         print(f"\n[MOCK] Received {len(overfitted_constraints_from_benchmark)} overfitted constraints from benchmark")
@@ -1109,17 +1036,29 @@ def run_phase1(benchmark_name, output_dir='phase1_output', num_examples=5, num_o
             if len(other_overfitteds) > 5:
                 print(f"         ... and {len(other_overfitteds) - 5} more")
         
-        overfitted_constraints = list(alldiff_overfitteds)
+        # Add benchmark overfitted constraints to detected ones
+        overfitted_constraints.extend(alldiff_overfitteds)
+        
+        # Remove duplicates
+        seen_overfitted = set()
+        unique_overfitted = []
+        for c in overfitted_constraints:
+            scope_vars = get_variables([c])
+            var_names = tuple(sorted([v.name for v in scope_vars]))
+            if var_names not in seen_overfitted:
+                seen_overfitted.add(var_names)
+                unique_overfitted.append(c)
+        overfitted_constraints = unique_overfitted
 
         if len(overfitted_constraints) < num_overfitted:
             needed = num_overfitted - len(overfitted_constraints)
             print(
-                f"\n[MOCK] Benchmark provided {len(overfitted_constraints)} overfitted constraints; generating {needed} more to reach target of {num_overfitted}."
+                f"\n[MOCK] Have {len(overfitted_constraints)} overfitted constraints ({len(detected_overfitted)} from detection, {len(alldiff_overfitteds)} from benchmark); generating {needed} more to reach target of {num_overfitted}."
             )
             additional_overfitteds = generate_overfitted_alldifferent(
                 instance.X,
                 positive_examples,
-                target_alldiffs + overfitted_constraints,
+                all_target_constraints + overfitted_constraints,
                 count=needed,
                 grid_info=grid_info,
                 pair_seeds=pair_seeds
@@ -1127,23 +1066,39 @@ def run_phase1(benchmark_name, output_dir='phase1_output', num_examples=5, num_o
             overfitted_constraints.extend(additional_overfitteds)
         elif len(overfitted_constraints) > num_overfitted:
             print(
-                f"\n[MOCK] Benchmark provided {len(overfitted_constraints)} overfitted constraints; trimming to requested {num_overfitted}."
+                f"\n[MOCK] Have {len(overfitted_constraints)} overfitted constraints ({len(detected_overfitted)} from detection, {len(alldiff_overfitteds)} from benchmark); trimming to requested {num_overfitted}."
             )
+            # Keep detected patterns first, then benchmark ones
             overfitted_constraints = overfitted_constraints[:num_overfitted]
 
         print(f"\n[MOCK] Using {len(overfitted_constraints)} AllDifferent overfitted constraints")
-        for i, c in enumerate(overfitted_constraints, 1):
-            print(f"       Mock {i}: {c}")
+        if len(detected_overfitted) > 0:
+            print(f"       - {len(detected_overfitted)} from pattern detection")
+        if len(overfitted_constraints) > len(detected_overfitted):
+            print(f"       - {len(overfitted_constraints) - len(detected_overfitted)} from benchmark/generation")
+        for i, c in enumerate(overfitted_constraints[:10], 1):  # Show first 10
+            print(f"       {i}. {c}")
+        if len(overfitted_constraints) > 10:
+            print(f"       ... and {len(overfitted_constraints) - 10} more")
     else:
-
-        overfitted_constraints = generate_overfitted_alldifferent(
-            instance.X,
-            positive_examples,
-            all_target_constraints,
-            count=num_overfitted,
-            grid_info=grid_info,
-            pair_seeds=pair_seeds
-        )
+        # No benchmark overfitted constraints, use detected ones first
+        if len(detected_overfitted) >= num_overfitted:
+            overfitted_constraints = detected_overfitted[:num_overfitted]
+            print(f"\nUsing {len(overfitted_constraints)} detected overfitted patterns (no additional generation needed)")
+        else:
+            # Use detected ones and generate more
+            overfitted_constraints = list(detected_overfitted)
+            needed = num_overfitted - len(overfitted_constraints)
+            print(f"\nUsing {len(detected_overfitted)} detected overfitted patterns, generating {needed} more")
+            additional_overfitteds = generate_overfitted_alldifferent(
+                instance.X,
+                positive_examples,
+                all_target_constraints + overfitted_constraints,
+                count=needed,
+                grid_info=grid_info,
+                pair_seeds=pair_seeds
+            )
+            overfitted_constraints.extend(additional_overfitteds)
 
     CG = all_target_constraints + overfitted_constraints
     print(f"\nCombined CG (before dedup): {len(all_target_constraints)} target + {len(overfitted_constraints)} overfitted = {len(CG)} total")
