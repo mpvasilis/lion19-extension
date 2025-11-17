@@ -658,9 +658,8 @@ def main():
     
     # Define benchmarks to test
     benchmarks = [
-         'sudoku',
+        'sudoku',
         'sudoku_gt',
-        'latin_square',
         'graph_coloring_register',
         'examtt_v1',
         'examtt_v2',
@@ -692,7 +691,7 @@ def main():
     all_metrics = []
     
     # Setup output directory and intermediate results files
-    output_dir = 'solution_variance_output'
+    output_dir = 'solution_variance_output_parallel'
     os.makedirs(output_dir, exist_ok=True)
     
     intermediate_csv_path = f"{output_dir}/intermediate_results.csv"
