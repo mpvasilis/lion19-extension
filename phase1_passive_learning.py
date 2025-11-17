@@ -7,6 +7,7 @@ import pickle
 import random
 import re
 import sys
+import time
 from itertools import combinations
 import cpmpy as cp
 from cpmpy import *
@@ -833,6 +834,9 @@ def prune_bias_with_examples(bias_constraints, positive_examples, variables):
 
 def run_phase1(benchmark_name, output_dir='phase1_output', num_examples=5, num_overfitted=4):
     
+    # Start timing Phase 1 execution
+    phase1_start_time = time.time()
+    
     print(f"\n{'='*70}")
     print(f"Phase 1: Passive Learning - {benchmark_name}")
     print(f"{'='*70}")
@@ -1006,6 +1010,10 @@ def run_phase1(benchmark_name, output_dir='phase1_output', num_examples=5, num_o
 
     B_fixed_pruned = prune_bias_with_examples(B_fixed, positive_examples, instance.X)
 
+    # Calculate Phase 1 execution time
+    phase1_end_time = time.time()
+    phase1_elapsed_time = phase1_end_time - phase1_start_time
+
     output_data = {
         'CG': CG,  
         'B_fixed': B_fixed_pruned,  
@@ -1028,7 +1036,8 @@ def run_phase1(benchmark_name, output_dir='phase1_output', num_examples=5, num_o
             'target_alldiff_count': len(target_alldiffs),
             'prior_target': 0.8,
             'prior_overfitted': 0.3,
-            'target_coverage': '100%'
+            'target_coverage': '100%',
+            'phase1_time': phase1_elapsed_time
         }
     }
     
@@ -1052,6 +1061,7 @@ def run_phase1(benchmark_name, output_dir='phase1_output', num_examples=5, num_o
     print(f"  Total CG: {len(CG)} (TARGET COVERAGE: 100%)")
     print(f"  Binary bias (initial): {len(B_fixed)}")
     print(f"  Binary bias (pruned): {len(B_fixed_pruned)}")
+    print(f"  Phase 1 execution time: {phase1_elapsed_time:.2f} seconds")
     print(f"{'='*70}\n")
     
     return output_path

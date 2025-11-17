@@ -147,15 +147,25 @@ def run_phase1_with_timing(experiment, num_examples, num_overfitted, output_dir=
     phase1_pickle = f"{config_output_dir}/{experiment}_phase1.pkl"
     
     if os.path.exists(phase1_pickle):
-        # Verify the pickle is valid by attempting to load it
+        # Verify the pickle is valid and extract Phase 1 time if available
         try:
             with open(phase1_pickle, 'rb') as f:
-                pickle.load(f)
+                phase1_data = pickle.load(f)
+            
+            # Extract Phase 1 time from metadata if available
+            phase1_time = 0.0
+            if isinstance(phase1_data, dict) and 'metadata' in phase1_data:
+                phase1_time = phase1_data['metadata'].get('phase1_time', 0.0)
+            
             print(f"\n{'='*80}")
             print(f"[SKIP] Phase 1 pickle already exists: {phase1_pickle}")
             print(f"[SKIP] Reusing existing Phase 1 results")
+            if phase1_time > 0:
+                print(f"[SKIP] Phase 1 time from cache: {phase1_time:.2f} seconds")
+            else:
+                print(f"[SKIP] Phase 1 time not recorded in cache (using 0.0)")
             print(f"{'='*80}\n")
-            return True, phase1_pickle, 0.0  # Return 0 time since we didn't run it
+            return True, phase1_pickle, phase1_time
         except Exception as e:
             print(f"\n[WARNING] Existing Phase 1 pickle is corrupted: {e}")
             print(f"[WARNING] Re-running Phase 1...")
@@ -176,6 +186,26 @@ def run_phase1_with_timing(experiment, num_examples, num_overfitted, output_dir=
     elapsed_time = end_time - start_time
     
     if success:
+        # Store the Phase 1 execution time in the pickle metadata (thread-safe)
+        try:
+            with file_ops_lock:
+                if os.path.exists(phase1_pickle):
+                    with open(phase1_pickle, 'rb') as f:
+                        phase1_data = pickle.load(f)
+                    
+                    # Add Phase 1 time to metadata
+                    if isinstance(phase1_data, dict):
+                        if 'metadata' not in phase1_data:
+                            phase1_data['metadata'] = {}
+                        phase1_data['metadata']['phase1_time'] = elapsed_time
+                        
+                        # Save the updated pickle
+                        with open(phase1_pickle, 'wb') as f:
+                            pickle.dump(phase1_data, f)
+                        print(f"[INFO] Stored Phase 1 execution time ({elapsed_time:.2f}s) in pickle metadata")
+        except Exception as e:
+            print(f"[WARNING] Could not store Phase 1 time in pickle metadata: {e}")
+        
         print(f"\n[TIMING] Phase 1 completed in {elapsed_time:.2f} seconds")
         return True, phase1_pickle, elapsed_time
     else:
