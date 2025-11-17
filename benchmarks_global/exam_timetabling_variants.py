@@ -161,7 +161,7 @@ def construct_examtt_variant1(nsemesters=6, courses_per_semester=5, slots_per_da
     return instance, oracle, overfitted_constraints
 
 
-def construct_examtt_variant2(nsemesters=8, courses_per_semester=7, slots_per_day=8, days_for_exams=12):
+def construct_examtt_variant2(nsemesters=20, courses_per_semester=18, slots_per_day=12, days_for_exams=30):
     
     total_courses = nsemesters * courses_per_semester
     total_slots = slots_per_day * days_for_exams

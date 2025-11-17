@@ -872,8 +872,8 @@ def construct_instance(experiment_name):
             instance, oracle = result
     
     elif 'examtt_v2' in experiment_name.lower() or 'examtt_variant2' in experiment_name.lower():
-        result = construct_examtt_variant2(nsemesters=8, courses_per_semester=7, 
-                                           slots_per_day=8, days_for_exams=12)
+        result = construct_examtt_variant2(nsemesters=20, courses_per_semester=18, 
+                                           slots_per_day=12, days_for_exams=30)
 
         if len(result) == 3:
             instance, oracle, _ = result

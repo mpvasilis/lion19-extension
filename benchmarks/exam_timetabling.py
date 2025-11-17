@@ -7,7 +7,7 @@ def day_of_exam(course, slots_per_day):
     return course // slots_per_day
 
 
-def construct_examtt_simple(nsemesters=9, courses_per_semester=6, slots_per_day=9, days_for_exams=14):
+def construct_examtt_simple(nsemesters=20, courses_per_semester=15, slots_per_day=15, days_for_exams=25):
     
 
     total_courses = nsemesters * courses_per_semester

@@ -204,9 +204,9 @@ def construct_instance(experiment_name):
         instance_global, oracle_global = (result[0], result[1]) if len(result) == 3 else result
     elif 'examtt' in experiment_name.lower():
         n = 6
-        result1 = construct_examtt_simple(nsemesters=9, courses_per_semester=6, slots_per_day=9, days_for_exams=14)
+        result1 = construct_examtt_simple(nsemesters=20, courses_per_semester=15, slots_per_day=15, days_for_exams=25)
         instance_binary, oracle_binary = (result1[0], result1[1]) if len(result1) == 3 else result1
-        result2 = ces_global(nsemesters=9, courses_per_semester=6, slots_per_day=9, days_for_exams=14)
+        result2 = ces_global(nsemesters=20, courses_per_semester=15, slots_per_day=15, days_for_exams=25)
         instance_global, oracle_global = (result2[0], result2[1]) if len(result2) == 3 else result2
     elif 'nurse' in experiment_name.lower():
         from benchmarks import construct_nurse_rostering as construct_nurse_binary

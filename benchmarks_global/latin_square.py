@@ -41,7 +41,7 @@ def construct_latin_square(n=9):
 
 
     AV = absvar(2)
-    lang = [AV[0] == AV[1], AV[0] != AV[1], AV[0] < AV[1], AV[0] > AV[1], AV[0] >= AV[1], AV[0] <= AV[1]]
+    lang = [AV[0] == AV[1], AV[0] != AV[1], AV[0] < AV[1], AV[0] > AV[1]]
     
     instance = ProblemInstance(variables=grid, params=parameters, language=lang, name="latin_square")
     oracle = ConstraintOracle(C_T)
