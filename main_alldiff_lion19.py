@@ -19,6 +19,8 @@ from main_alldiff_cop import (  # pylint: disable=wrong-import-position
     extract_alldifferent_constraints,
     initialize_probabilities,
     update_supporting_evidence,
+    build_constraint_violation,
+    variables_to_assignment,
 )
 
 
@@ -420,6 +422,86 @@ def main():
     print(f"Recall: {recall:.2%}")
     print(f"{'='*60}\n")
 
+    print(f"\n{'='*60}")
+    print(f"CP Implication Check")
+    print(f"{'='*60}")
+
+    cp_implication_results = {}
+    target_constraint_list = list(getattr(oracle, 'constraints', []))
+
+    if not target_constraint_list:
+        print("Oracle exposes no constraints; skipping implication check.")
+        cp_implication_results = {
+            'skipped': True,
+            'reason': 'no target constraints available'
+        }
+    elif not final_constraints:
+        print("No validated constraints to check; skipping implication check.")
+        cp_implication_results = {
+            'skipped': True,
+            'reason': 'no validated constraints'
+        }
+    else:
+        base_constraints = list(target_constraint_list)
+        implied = []
+        not_implied = []
+        counterexamples = []
+
+        print(f"Target constraint count: {len(base_constraints)}")
+        print(f"Validated constraints to check: {len(final_constraints)}")
+
+        for idx, constraint in enumerate(final_constraints, start=1):
+            violation_expr = build_constraint_violation(constraint)
+
+            test_model = cp.Model()
+            test_model += base_constraints
+            test_model += violation_expr
+
+            has_counterexample = test_model.solve()
+
+            if has_counterexample:
+                assignment = variables_to_assignment(oracle_variables)
+                assignment_copy = dict(assignment)
+
+                preview_items = list(assignment_copy.items())
+                preview_str = ", ".join(f"{k}={v}" for k, v in preview_items[:10])
+                if len(preview_items) > 10:
+                    preview_str += ", ..."
+
+                print(f"  [FAIL] Constraint not implied: {constraint}")
+                if preview_str:
+                    print(f"    Counterexample: {{{preview_str}}}")
+
+                not_implied.append(str(constraint))
+                counterexamples.append({
+                    'constraint': str(constraint),
+                    'assignment': assignment_copy
+                })
+            else:
+                print(f"  [OK] Constraint implied: {constraint}")
+                implied.append(str(constraint))
+
+        implied_count = len(implied)
+        not_implied_count = len(not_implied)
+
+        print(f"Number of implied constraints: {implied_count}")
+        print(f"\nImplication summary: implied={implied_count}, "
+              f"not_implied={not_implied_count}, checked={len(final_constraints)}")
+
+        cp_implication_results = {
+            'skipped': False,
+            'checked': len(final_constraints),
+            'implied': implied,
+            'not_implied': counterexamples,
+            'status': 'all_implied' if not not_implied else 'partial',
+            'implied_count': implied_count,
+            'not_implied_count': not_implied_count,
+            'target_constraint_count': len(target_constraint_list)
+        }
+
+    # Add cp_implication to stats
+    stats['cp_implication'] = cp_implication_results
+
     phase2_output = {
         "C_validated": final_constraints,
         "C_validated_strs": [str(c) for c in final_constraints],
@@ -452,9 +534,58 @@ def main():
     with open(phase2_pickle_path, "wb") as f:
         pickle.dump(phase2_output, f)
 
+    # Save CP implication log
+    cp_implication_log_path = os.path.join(phase2_output_dir, f"{args.experiment}_lion19_cp_implication.log")
+    if cp_implication_results.get('skipped', False):
+        log_contents = [
+            "CP Implication Check",
+            "====================",
+            f"Status: SKIPPED",
+            f"Reason: {cp_implication_results.get('reason', 'unknown')}",
+            ""
+        ]
+    else:
+        log_contents = [
+            "CP Implication Check",
+            "====================",
+            f"Target constraint count: {cp_implication_results.get('target_constraint_count', 0)}",
+            f"Validated constraints checked: {cp_implication_results.get('checked', 0)}",
+            f"Implied constraints: {cp_implication_results.get('implied_count', 0)}",
+            f"Not implied constraints: {cp_implication_results.get('not_implied_count', 0)}",
+            "",
+            "Implied constraints:",
+        ]
+        implied_list = cp_implication_results.get('implied', [])
+        if implied_list:
+            log_contents.extend(f"  - {c}" for c in implied_list)
+        else:
+            log_contents.append("  (none)")
+
+        log_contents.extend([
+            "",
+            "Counterexamples for non-implied constraints:"
+        ])
+        counterexamples = cp_implication_results.get('not_implied', [])
+        if counterexamples:
+            for counter in counterexamples:
+                constraint_str = counter.get('constraint', '<unknown>')
+                assignment = counter.get('assignment', {})
+                assignment_preview = ", ".join(f"{k}={v}" for k, v in list(assignment.items())[:15])
+                if len(assignment) > 15:
+                    assignment_preview += ", ..."
+                log_contents.append(f"  - {constraint_str}")
+                log_contents.append(f"    Assignment: {{{assignment_preview}}}")
+        else:
+            log_contents.append("  (none)")
+        log_contents.append("")
+
+    with open(cp_implication_log_path, 'w') as f:
+        f.write("\n".join(log_contents))
+
     print(f"Phase 2 outputs saved to: {phase2_pickle_path}")
     print(f"  - Validated constraints: {len(final_constraints)}")
     print(f"  - Rejected constraints: {len(removed_constraints)}")
+    print(f"  - CP implication log saved to: {cp_implication_log_path}")
 
     return 0
 
