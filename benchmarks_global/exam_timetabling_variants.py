@@ -134,6 +134,55 @@ def construct_examtt_variant1(nsemesters=6, courses_per_semester=5, slots_per_da
             overfitted_constraints.append(overfitted_c8)
             model += overfitted_c8
 
+    if nsemesters >= 10 and courses_per_semester >= 8:
+        first_ten_sems = variables[:10, :].flatten()
+        overfitted_c9 = cp.AllDifferent(first_ten_sems[:min(80, len(first_ten_sems))])
+        overfitted_constraints.append(overfitted_c9)
+        model += overfitted_c9
+
+    if nsemesters >= 12 and courses_per_semester >= 10:
+        large_diagonal = [variables[i, i] for i in range(min(12, nsemesters, courses_per_semester))]
+        overfitted_c10 = cp.AllDifferent(large_diagonal)
+        overfitted_constraints.append(overfitted_c10)
+        model += overfitted_c10
+
+    if nsemesters >= 12 and courses_per_semester >= 10:
+        large_anti_diag = [variables[i, courses_per_semester - 1 - i] 
+                          for i in range(min(12, nsemesters, courses_per_semester))]
+        overfitted_c11 = cp.AllDifferent(large_anti_diag)
+        overfitted_constraints.append(overfitted_c11)
+        model += overfitted_c11
+
+    if nsemesters >= 15 and courses_per_semester >= 12:
+        quarter_subset = variables[:15, :12].flatten()
+        overfitted_c12 = cp.AllDifferent(quarter_subset[:min(180, len(quarter_subset))])
+        overfitted_constraints.append(overfitted_c12)
+        model += overfitted_c12
+
+    if nsemesters >= 20 and courses_per_semester >= 15:
+        first_half_sems = variables[:nsemesters//2, :].flatten()
+        overfitted_c13 = cp.AllDifferent(first_half_sems[:min(150, len(first_half_sems))])
+        overfitted_constraints.append(overfitted_c13)
+        model += overfitted_c13
+
+    if nsemesters >= 15 and courses_per_semester >= 10:
+        every_third_sem = variables[::3, :].flatten()
+        overfitted_c14 = cp.AllDifferent(every_third_sem[:min(50, len(every_third_sem))])
+        overfitted_constraints.append(overfitted_c14)
+        model += overfitted_c14
+
+    if nsemesters >= 12 and courses_per_semester >= 8:
+        last_eight_cols = variables[:, -8:].flatten()
+        overfitted_c15 = cp.AllDifferent(last_eight_cols[:min(96, len(last_eight_cols))])
+        overfitted_constraints.append(overfitted_c15)
+        model += overfitted_c15
+
+    if nsemesters >= 18 and courses_per_semester >= 12:
+        middle_block = variables[nsemesters//3:2*nsemesters//3, courses_per_semester//3:2*courses_per_semester//3].flatten()
+        overfitted_c16 = cp.AllDifferent(middle_block[:min(72, len(middle_block))])
+        overfitted_constraints.append(overfitted_c16)
+        model += overfitted_c16
+
     AV = absvar(2)
 
     lang = [
@@ -161,7 +210,7 @@ def construct_examtt_variant1(nsemesters=6, courses_per_semester=5, slots_per_da
     return instance, oracle, overfitted_constraints
 
 
-def construct_examtt_variant2(nsemesters=20, courses_per_semester=18, slots_per_day=12, days_for_exams=30):
+def construct_examtt_variant2(nsemesters=30, courses_per_semester=25, slots_per_day=15, days_for_exams=40):
     
     total_courses = nsemesters * courses_per_semester
     total_slots = slots_per_day * days_for_exams

@@ -9,7 +9,7 @@ def day_of_exam(course, slots_per_day):
     return course // slots_per_day
 
 
-def construct_examtt_simple(nsemesters=20, courses_per_semester=15, slots_per_day=15, days_for_exams=25):
+def construct_examtt_simple(nsemesters=30, courses_per_semester=20, slots_per_day=18, days_for_exams=35):
     total_courses = nsemesters * courses_per_semester
     total_slots = slots_per_day * days_for_exams
 
@@ -120,6 +120,55 @@ def construct_examtt_simple(nsemesters=20, courses_per_semester=15, slots_per_da
         overfitted_c12 = cp.AllDifferent(alternating)
         overfitted_constraints.append(overfitted_c12)
         model += overfitted_c12
+
+    if nsemesters >= 10 and courses_per_semester >= 5:
+        first_ten_sems = variables[:10, :].flatten()
+        overfitted_c13 = cp.AllDifferent(first_ten_sems[:min(50, len(first_ten_sems))])
+        overfitted_constraints.append(overfitted_c13)
+        model += overfitted_c13
+
+    if nsemesters >= 12 and courses_per_semester >= 8:
+        large_diagonal = [variables[i, i] for i in range(min(12, nsemesters, courses_per_semester))]
+        overfitted_c14 = cp.AllDifferent(large_diagonal)
+        overfitted_constraints.append(overfitted_c14)
+        model += overfitted_c14
+
+    if nsemesters >= 12 and courses_per_semester >= 8:
+        large_anti_diag = [variables[i, courses_per_semester - 1 - i] 
+                          for i in range(min(12, nsemesters, courses_per_semester))]
+        overfitted_c15 = cp.AllDifferent(large_anti_diag)
+        overfitted_constraints.append(overfitted_c15)
+        model += overfitted_c15
+
+    if nsemesters >= 15 and courses_per_semester >= 10:
+        quarter_subset = variables[:15, :10].flatten()
+        overfitted_c16 = cp.AllDifferent(quarter_subset[:min(100, len(quarter_subset))])
+        overfitted_constraints.append(overfitted_c16)
+        model += overfitted_c16
+
+    if nsemesters >= 10 and courses_per_semester >= 6:
+        first_three_cols_large = variables[:, :3].flatten()
+        overfitted_c17 = cp.AllDifferent(first_three_cols_large[:min(30, len(first_three_cols_large))])
+        overfitted_constraints.append(overfitted_c17)
+        model += overfitted_c17
+
+    if nsemesters >= 12 and courses_per_semester >= 5:
+        last_five_cols = variables[:, -5:].flatten()
+        overfitted_c18 = cp.AllDifferent(last_five_cols[:min(60, len(last_five_cols))])
+        overfitted_constraints.append(overfitted_c18)
+        model += overfitted_c18
+
+    if nsemesters >= 20 and courses_per_semester >= 10:
+        first_half_sems = variables[:nsemesters//2, :].flatten()
+        overfitted_c19 = cp.AllDifferent(first_half_sems[:min(100, len(first_half_sems))])
+        overfitted_constraints.append(overfitted_c19)
+        model += overfitted_c19
+
+    if nsemesters >= 15 and courses_per_semester >= 8:
+        every_third_sem = variables[::3, :].flatten()
+        overfitted_c20 = cp.AllDifferent(every_third_sem[:min(40, len(every_third_sem))])
+        overfitted_constraints.append(overfitted_c20)
+        model += overfitted_c20
 
     AV = absvar(2)  
 

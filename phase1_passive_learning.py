@@ -112,8 +112,8 @@ def construct_instance(benchmark_name):
     
     elif 'examtt_v2' in benchmark_name.lower() or 'examtt_variant2' in benchmark_name.lower():
         print("Constructing Exam Timetabling Variant 2...")
-        result = construct_examtt_variant2(nsemesters=20, courses_per_semester=18, 
-                                           slots_per_day=12, days_for_exams=30)
+        result = construct_examtt_variant2(nsemesters=30, courses_per_semester=25, 
+                                           slots_per_day=15, days_for_exams=40)
         
         if len(result) == 3:
             instance, oracle, overfitted_constraints = result
@@ -125,8 +125,8 @@ def construct_instance(benchmark_name):
     
     elif 'examtt' in benchmark_name.lower():
         print("Constructing Exam Timetabling...")
-        result = ces_global(nsemesters=9, courses_per_semester=6, 
-                           slots_per_day=9, days_for_exams=14)
+        result = ces_global(nsemesters=30, courses_per_semester=20, 
+                           slots_per_day=18, days_for_exams=35)
         
         if len(result) == 3:
             instance, oracle, overfitted_constraints = result
@@ -307,11 +307,16 @@ def detect_structured_patterns(variables, positive_examples, grid_size=9):
         print(f"  Detected multi-dimensional structure")
 
         dimensions = {}
+        var_prefix = None
         for var in variables:
-            match = re.match(r'.*\[(\d+),(\d+),?(\d+)?\]', var.name)
+            match = re.match(r'([^[]+)\[(\d+),(\d+),?(\d+)?\]', var.name)
             if match:
-                d1, d2 = int(match.group(1)), int(match.group(2))
-                d3 = int(match.group(3)) if match.group(3) else None
+                prefix = match.group(1)
+                d1, d2 = int(match.group(2)), int(match.group(3))
+                d3 = int(match.group(4)) if match.group(4) else None
+                
+                if var_prefix is None:
+                    var_prefix = prefix
                 
                 if 'dim1' not in dimensions or d1 > dimensions['dim1']:
                     dimensions['dim1'] = d1
@@ -323,14 +328,142 @@ def detect_structured_patterns(variables, positive_examples, grid_size=9):
         
         if dimensions:
             print(f"    Dimensions inferred: {dimensions}")
+            print(f"    Variable prefix: {var_prefix}")
 
-            if 'dim3' in dimensions:
+            # Handle 2D structures (like examtt: var[i,j])
+            if 'dim3' not in dimensions and 'dim1' in dimensions and 'dim2' in dimensions:
+                print(f"    Detected 2D structure - checking rows and columns")
+                
+                # Check rows (first dimension fixed)
+                for d1 in range(dimensions['dim1'] + 1):
+                    row_vars = []
+                    for d2 in range(dimensions['dim2'] + 1):
+                        var_name = f"{var_prefix}[{d1},{d2}]"
+                        if var_name in var_dict:
+                            row_vars.append(var_dict[var_name])
+                    
+                    if len(row_vars) >= 2:
+                        if check_alldiff_in_examples(row_vars, positive_examples):
+                            detected.append(AllDifferent(row_vars))
+                
+                # Check columns (second dimension fixed)
+                for d2 in range(dimensions['dim2'] + 1):
+                    col_vars = []
+                    for d1 in range(dimensions['dim1'] + 1):
+                        var_name = f"{var_prefix}[{d1},{d2}]"
+                        if var_name in var_dict:
+                            col_vars.append(var_dict[var_name])
+                    
+                    if len(col_vars) >= 2:
+                        if check_alldiff_in_examples(col_vars, positive_examples):
+                            detected.append(AllDifferent(col_vars))
+                
+                # Check diagonals for examtt-like problems
+                max_diag = min(dimensions['dim1'] + 1, dimensions['dim2'] + 1)
+                for offset in range(-max_diag + 1, max_diag):
+                    diag_vars = []
+                    for d1 in range(dimensions['dim1'] + 1):
+                        d2 = d1 + offset
+                        if 0 <= d2 <= dimensions['dim2']:
+                            var_name = f"{var_prefix}[{d1},{d2}]"
+                            if var_name in var_dict:
+                                diag_vars.append(var_dict[var_name])
+                    
+                    if len(diag_vars) >= 2:
+                        if check_alldiff_in_examples(diag_vars, positive_examples):
+                            detected.append(AllDifferent(diag_vars))
+                
+                # Check anti-diagonals
+                for offset in range(0, dimensions['dim1'] + dimensions['dim2'] + 1):
+                    anti_diag_vars = []
+                    for d1 in range(dimensions['dim1'] + 1):
+                        d2 = offset - d1
+                        if 0 <= d2 <= dimensions['dim2']:
+                            var_name = f"{var_prefix}[{d1},{d2}]"
+                            if var_name in var_dict:
+                                anti_diag_vars.append(var_dict[var_name])
+                    
+                    if len(anti_diag_vars) >= 2:
+                        if check_alldiff_in_examples(anti_diag_vars, positive_examples):
+                            detected.append(AllDifferent(anti_diag_vars))
+                
+                # Check AllDifferent on transformed variables (var // divisor) for examtt-like problems
+                # Try various divisors that might be relevant (like slots_per_day)
+                # Common divisors: 5, 6, 7, 8, 9, 10, 12, 15, 18, etc.
+                divisors_to_try = [5, 6, 7, 8, 9, 10, 12, 15, 18, 20]
+                
+                # Also try to infer reasonable divisors from variable values if possible
+                if positive_examples:
+                    sample_values = []
+                    for var in variables[:min(20, len(variables))]:
+                        if var.name in positive_examples[0]:
+                            sample_values.append(positive_examples[0][var.name])
+                    
+                    if sample_values:
+                        max_val = max(sample_values)
+                        min_val = min(sample_values)
+                        # Add divisors that make sense based on the value range
+                        # Focus on divisors that would give meaningful day/time groupings
+                        for div in range(3, min(25, max_val // 2)):
+                            if div not in divisors_to_try and max_val // div > 1:
+                                divisors_to_try.append(div)
+                
+                # Limit to reasonable number of divisors to avoid excessive computation
+                divisors_to_try = sorted(set(divisors_to_try))[:20]
+                
+                print(f"    Checking transformed AllDifferent patterns (var // divisor) for {len(divisors_to_try)} divisors")
+                
+                for divisor in divisors_to_try:
+                    # Check rows with transformed variables
+                    for d1 in range(dimensions['dim1'] + 1):
+                        row_vars = []
+                        for d2 in range(dimensions['dim2'] + 1):
+                            var_name = f"{var_prefix}[{d1},{d2}]"
+                            if var_name in var_dict:
+                                row_vars.append(var_dict[var_name])
+                        
+                        if len(row_vars) >= 2:
+                            if check_alldiff_transformed_in_examples(row_vars, positive_examples, divisor):
+                                # Create transformed AllDifferent constraint: AllDifferent([var // divisor for var in row_vars])
+                                transformed_exprs = [var // divisor for var in row_vars]
+                                detected.append(AllDifferent(transformed_exprs))
+                    
+                    # Check columns with transformed variables
+                    for d2 in range(dimensions['dim2'] + 1):
+                        col_vars = []
+                        for d1 in range(dimensions['dim1'] + 1):
+                            var_name = f"{var_prefix}[{d1},{d2}]"
+                            if var_name in var_dict:
+                                col_vars.append(var_dict[var_name])
+                        
+                        if len(col_vars) >= 2:
+                            if check_alldiff_transformed_in_examples(col_vars, positive_examples, divisor):
+                                transformed_exprs = [var // divisor for var in col_vars]
+                                detected.append(AllDifferent(transformed_exprs))
+                    
+                    # Check diagonals with transformed variables
+                    max_diag = min(dimensions['dim1'] + 1, dimensions['dim2'] + 1)
+                    for offset in range(-max_diag + 1, max_diag):
+                        diag_vars = []
+                        for d1 in range(dimensions['dim1'] + 1):
+                            d2 = d1 + offset
+                            if 0 <= d2 <= dimensions['dim2']:
+                                var_name = f"{var_prefix}[{d1},{d2}]"
+                                if var_name in var_dict:
+                                    diag_vars.append(var_dict[var_name])
+                        
+                        if len(diag_vars) >= 2:
+                            if check_alldiff_transformed_in_examples(diag_vars, positive_examples, divisor):
+                                transformed_exprs = [var // divisor for var in diag_vars]
+                                detected.append(AllDifferent(transformed_exprs))
+
+            elif 'dim3' in dimensions:
 
                 for d1 in range(dimensions['dim1'] + 1):
                     vars_slice = []
                     for d2 in range(dimensions['dim2'] + 1):
                         for d3 in range(dimensions['dim3'] + 1):
-                            var_name = f"var[{d1},{d2},{d3}]"
+                            var_name = f"{var_prefix}[{d1},{d2},{d3}]"
                             if var_name in var_dict:
                                 vars_slice.append(var_dict[var_name])
                     
@@ -352,6 +485,25 @@ def check_alldiff_in_examples(var_subset, positive_examples):
                 return False
         
         if len(values) != len(set(values)):
+            return False
+    
+    return True
+
+
+def check_alldiff_transformed_in_examples(var_subset, positive_examples, divisor):
+    """Check if AllDifferent holds on transformed variables (var // divisor)"""
+    for example in positive_examples:
+        transformed_values = []
+        for var in var_subset:
+            if var.name in example:
+                # Apply transformation: var // divisor
+                transformed_value = example[var.name] // divisor
+                transformed_values.append(transformed_value)
+            else:
+                return False
+        
+        # Check if all transformed values are different
+        if len(transformed_values) != len(set(transformed_values)):
             return False
     
     return True
@@ -382,19 +534,42 @@ def detect_alldifferent_patterns(variables, positive_examples, use_structured=Tr
         print(f"    Scope range: {min_scope} to {min(max_scope, len(variables))}")
         
         var_list = list(variables)
+        max_combinations_per_scope = 10000  # Limit to prevent excessive computation
         
         for scope_size in range(min_scope, min(max_scope + 1, len(variables) + 1)):
-            print(f"    Checking scope size {scope_size}...", end=" ")
+            print(f"    Checking scope size {scope_size}...", end=" ", flush=True)
             
             count = 0
-
-            for var_subset in combinations(var_list, scope_size):
-                if check_alldiff_in_examples(var_subset, positive_examples):
-                    constraint = AllDifferent(list(var_subset))
-                    detected.append(constraint)
-                    count += 1
+            checked = 0
+            total_combinations = math.comb(len(var_list), scope_size) if len(var_list) >= scope_size else 0
             
-            print(f"found {count} patterns")
+            # For large problems, sample combinations instead of checking all
+            if total_combinations > max_combinations_per_scope:
+                print(f"(sampling {max_combinations_per_scope} of {total_combinations} combinations)", end=" ", flush=True)
+                import random
+                var_subset_samples = set()
+                indices = list(range(len(var_list)))
+                while len(var_subset_samples) < max_combinations_per_scope and checked < total_combinations:
+                    # Sample indices instead of variables directly
+                    sample_indices = tuple(sorted(random.sample(indices, scope_size)))
+                    if sample_indices not in var_subset_samples:
+                        var_subset_samples.add(sample_indices)
+                        checked += 1
+                        # Convert indices back to variables
+                        var_subset = [var_list[i] for i in sample_indices]
+                        if check_alldiff_in_examples(var_subset, positive_examples):
+                            constraint = AllDifferent(var_subset)
+                            detected.append(constraint)
+                            count += 1
+            else:
+                for var_subset in combinations(var_list, scope_size):
+                    checked += 1
+                    if check_alldiff_in_examples(var_subset, positive_examples):
+                        constraint = AllDifferent(list(var_subset))
+                        detected.append(constraint)
+                        count += 1
+            
+            print(f"found {count} patterns (checked {checked} combinations)")
     
     print(f"  Total detected: {len(detected)} AllDifferent patterns")
     return detected
@@ -863,7 +1038,19 @@ def run_phase1(benchmark_name, output_dir='phase1_output', num_examples=5, num_o
         print(f"\nERROR: Could not generate any positive examples!")
         return None
 
-    detected_alldiffs = detect_alldifferent_patterns(instance.X, positive_examples)
+    # For examtt problems, use more aggressive detection with combinatorial search
+    use_combinatorial = 'examtt' in benchmark_name.lower()
+    min_scope = 3 if use_combinatorial else 9
+    max_scope = min(20, len(instance.X)) if use_combinatorial else 11
+    
+    detected_alldiffs = detect_alldifferent_patterns(
+        instance.X, 
+        positive_examples,
+        use_structured=True,
+        use_combinatorial=use_combinatorial,
+        min_scope=min_scope,
+        max_scope=max_scope
+    )
 
     target_alldiffs = extract_alldifferent_constraints(oracle)
     print(f"\nTarget model has {len(target_alldiffs)} AllDifferent constraints")
