@@ -9,7 +9,7 @@ numbers of solutions to analyze how the quantity of training examples affects:
 - Learning time
 - Overall convergence
 
-The script uses pre-computed Phase 1 pickles from solution_variance_output22/
+The script uses pre-computed Phase 1 pickles from solution_variance_output_parallel/
 """
 
 import os
@@ -252,7 +252,7 @@ def run_experiment_with_solution_count(benchmark_name, num_solutions, phase1_pic
     }
 
 
-def discover_solution_variants(base_dir='solution_variance_output22'):
+def discover_solution_variants(base_dir='solution_variance_output_parallel'):
     """
     Discover all available solution variance experiments from the directory.
     
@@ -309,7 +309,7 @@ def main():
     parser = argparse.ArgumentParser(
         description='Compare passive+active performance with different numbers of solutions'
     )
-    parser.add_argument('--base_dir', type=str, default='solution_variance_output22',
+    parser.add_argument('--base_dir', type=str, default='solution_variance_output_parallel',
                        help='Base directory containing solution variance pickles')
     parser.add_argument('--algorithm', type=str, default='mquacq2', 
                        choices=['mquacq2', 'growacq'],
