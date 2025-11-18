@@ -311,7 +311,7 @@ def main():
     )
     parser.add_argument('--base_dir', type=str, default='solution_variance_output_parallel',
                        help='Base directory containing solution variance pickles')
-    parser.add_argument('--algorithm', type=str, default='mquacq2', 
+    parser.add_argument('--algorithm', type=str, default='growacq', 
                        choices=['mquacq2', 'growacq'],
                        help='Active learning algorithm to use')
     parser.add_argument('--benchmarks', type=str, nargs='+', default=None,
