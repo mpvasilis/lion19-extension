@@ -228,7 +228,8 @@ def query_driven_refinement(
             if additional_constraints:
                 model += list(additional_constraints)
 
-            # Include all remaining constraints except the current one being tested (C_G \ {c})
+            # Include all candidate constraints except the current one being tested
+            # C'_G = (C_G \ {c}) ∪ {xi = v, xj = v}
             for other in remaining_constraints:
                 if other is constraint or other in removed_constraints:
                     continue
@@ -251,16 +252,38 @@ def query_driven_refinement(
             total_queries += 1
 
             synchronise_assignments(solver_vars, oracle_vars)
+            
+            # Print the violating assignment
+            print(f"    -> Violating assignment found:")
+            assignment_dict = {}
+            for var in solver_vars:
+                if hasattr(var, 'value') and var.value() is not None:
+                    assignment_dict[var.name] = var.value()
+            
+            # Print assignment in a compact format
+            if len(assignment_dict) <= 20:
+                # For small assignments, print all values
+                print(f"       {assignment_dict}")
+            else:
+                # For large assignments, print only relevant variables in the constraint scope
+                scope_names = {var.name for var in scope_vars}
+                relevant_assignment = {k: v for k, v in assignment_dict.items() if k in scope_names}
+                print(f"       Scope variables: {relevant_assignment}")
+                print(f"       Full assignment has {len(assignment_dict)} variables")
+            
             answer = oracle.answer_membership_query(oracle_vars)
             is_valid = interpret_oracle_response(answer)
 
             print(f"    -> Oracle response: {'YES' if is_valid else 'NO'}")
 
             if is_valid:
+                # Oracle confirms the assignment is valid, so the constraint is refuted
                 removed_constraints.add(constraint)
                 probability_map.pop(constraint, None)
                 print("    -> Constraint refuted by valid counterexample. Removing from candidate set.")
+                break  # Move to next constraint
             else:
+                # Oracle rejects the assignment, so the constraint is supported
                 updated_prob = update_supporting_evidence(probability_map.get(constraint, 0.5), alpha)
                 probability_map[constraint] = updated_prob
                 print(f"    -> Constraint supported. Updated probability: {updated_prob:.3f}")
@@ -268,8 +291,10 @@ def query_driven_refinement(
                 if updated_prob >= theta_max:
                     print(f"    -> Probability exceeds theta_max ({theta_max}); accepting constraint.")
                     validated_constraints.add(constraint)
-
-            break
+                    break  # Move to next constraint
+                
+                # Continue to next pair to gather more evidence
+                print(f"    -> Probability {updated_prob:.3f} < theta_max ({theta_max}); continuing to next pair.")
 
         if not violation_found:
             print("  [ACCEPT] No violating assignment found; accepting constraint.")
