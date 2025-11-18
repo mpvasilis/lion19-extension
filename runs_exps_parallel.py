@@ -668,7 +668,7 @@ def main():
     ]
     
     # Define approaches to compare
-    approaches = ['cop', 'lion']
+    approaches = ['lion']
     
     # Determine solution configurations per benchmark
     benchmark_solution_map = {
@@ -691,7 +691,7 @@ def main():
     all_metrics = []
     
     # Setup output directory and intermediate results files
-    output_dir = 'solution_variance_output_parallel'
+    output_dir = 'solution_variance_output_parallel_lion'
     os.makedirs(output_dir, exist_ok=True)
     
     intermediate_csv_path = f"{output_dir}/intermediate_results.csv"

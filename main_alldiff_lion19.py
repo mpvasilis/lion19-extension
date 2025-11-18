@@ -133,7 +133,7 @@ def query_driven_refinement(
     probabilities,
     *,
     alpha=0.42,
-    theta_max=0.9,
+    theta_max=0.98,
     max_queries=500,
     timeout=600,
     solver_timeout=30,
@@ -150,8 +150,9 @@ def query_driven_refinement(
 
     remaining_constraints = list(candidate_constraints)
     removed_constraints = set()
+    validated_constraints = set()  # Track constraints that have been validated/learned
 
-    probability_map = {c: probabilities.get(c, 0.5) for c in remaining_constraints}
+    probability_map = {c: probabilities.get(c, 0.3) for c in remaining_constraints}
 
     total_queries = 0
     solver_calls = 0
@@ -187,6 +188,7 @@ def query_driven_refinement(
             if constraint_str in oracle_constraint_strs:
                 # Constraint exists in oracle - keep it (already in remaining_constraints)
                 print(f"  [DIRECT-VALIDATE] Found in oracle - accepting without queries")
+                validated_constraints.add(constraint)
                 continue  # Skip to next constraint
             else:
                 # Constraint not in oracle - reject it
@@ -205,6 +207,7 @@ def query_driven_refinement(
 
         if not pairs:
             print("  [ACCEPT] No overlapping domains among pairs; accepting constraint.")
+            validated_constraints.add(constraint)
             continue
 
         violation_found = False
@@ -225,6 +228,7 @@ def query_driven_refinement(
             if additional_constraints:
                 model += list(additional_constraints)
 
+            # Include all remaining constraints except the current one being tested (C_G \ {c})
             for other in remaining_constraints:
                 if other is constraint or other in removed_constraints:
                     continue
@@ -263,11 +267,13 @@ def query_driven_refinement(
 
                 if updated_prob >= theta_max:
                     print(f"    -> Probability exceeds theta_max ({theta_max}); accepting constraint.")
+                    validated_constraints.add(constraint)
 
             break
 
         if not violation_found:
             print("  [ACCEPT] No violating assignment found; accepting constraint.")
+            validated_constraints.add(constraint)
 
     final_constraints = [c for c in remaining_constraints if c not in removed_constraints]
     elapsed_total = time.time() - start_time
@@ -303,7 +309,7 @@ def main():
     parser.add_argument("--experiment", type=str, default="sudoku", help="Benchmark name")
     parser.add_argument("--phase1_pickle", type=str, default=None, help="Phase 1 pickle path")
     parser.add_argument("--alpha", type=float, default=0.42, help="Bayesian update parameter")
-    parser.add_argument("--theta_max", type=float, default=0.9, help="Acceptance threshold")
+    parser.add_argument("--theta_max", type=float, default=0.98, help="Acceptance threshold")
     parser.add_argument("--max_queries", type=int, default=500, help="Maximum membership queries")
     parser.add_argument("--timeout", type=int, default=600, help="Overall timeout in seconds")
     parser.add_argument("--solver_timeout", type=int, default=30, help="Solver timeout per query (s)")
