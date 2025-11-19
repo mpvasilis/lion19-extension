@@ -199,104 +199,121 @@ def update_supporting_evidence(P_c, alpha):
     return P_c + (1 - P_c) * (1 - alpha)
 
 
-def mine_binary_constraint_from_examples(var1, var2, positive_examples, negative_examples=None):
+def mine_binary_constraint_from_negative_query(var1, var2, rejected_query, accepted_queries):
     """
-    Learn a binary constraint between var1 and var2 from examples.
-    Returns the most specific constraint that holds in all positive examples
-    and is violated by at least one negative example (if provided).
+    Learn a binary constraint between var1 and var2 that explains why rejected_query was rejected.
+    Returns a constraint that:
+    1. Is VIOLATED in the rejected query (explains rejection)
+    2. Holds in ALL accepted queries (consistent with positive examples)
+    
+    This is the opposite of the previous approach - we learn from rejections!
     """
     import cpmpy as cp
     
     v1_name = str(var1.name) if hasattr(var1, 'name') else str(var1)
     v2_name = str(var2.name) if hasattr(var2, 'name') else str(var2)
     
-    # Check which constraints hold in ALL positive examples
+    # Extract values from rejected query
+    if v1_name not in rejected_query or v2_name not in rejected_query:
+        return None
+    
+    rej_v1, rej_v2 = rejected_query[v1_name], rejected_query[v2_name]
+    
+    # Extract values from accepted queries
+    acc_values = []
+    for ex in accepted_queries:
+        if v1_name in ex and v2_name in ex:
+            acc_values.append((ex[v1_name], ex[v2_name]))
+    
+    if not acc_values:
+        return None
+    
+    # Candidate constraints that could explain the rejection
     candidates = {
-        '>': (lambda vals: all(v1 > v2 for v1, v2 in vals), lambda: var1 > var2),
-        '<': (lambda vals: all(v1 < v2 for v1, v2 in vals), lambda: var1 < var2),
-        '>=': (lambda vals: all(v1 >= v2 for v1, v2 in vals), lambda: var1 >= var2),
-        '<=': (lambda vals: all(v1 <= v2 for v1, v2 in vals), lambda: var1 <= var2),
-        '!=': (lambda vals: all(v1 != v2 for v1, v2 in vals), lambda: var1 != var2),
+        '!=': (lambda v1, v2: v1 != v2, lambda: var1 != var2),
+        '>': (lambda v1, v2: v1 > v2, lambda: var1 > var2),
+        '<': (lambda v1, v2: v1 < v2, lambda: var1 < var2),
+        '>=': (lambda v1, v2: v1 >= v2, lambda: var1 >= var2),
+        '<=': (lambda v1, v2: v1 <= v2, lambda: var1 <= var2),
     }
     
-    # Extract values from positive examples
-    pos_values = []
-    for ex in positive_examples:
-        if v1_name in ex and v2_name in ex:
-            pos_values.append((ex[v1_name], ex[v2_name]))
-    
-    if not pos_values:
-        return None
-    
-    # Find constraints that hold in all positive examples
-    valid_constraints = []
+    # Find constraints that:
+    # 1. Are VIOLATED in rejected query (explain rejection)
+    # 2. Hold in ALL accepted queries (consistent)
     for ctype, (check_fn, build_fn) in candidates.items():
-        if check_fn(pos_values):
-            valid_constraints.append((ctype, build_fn))
-    
-    if not valid_constraints:
-        return None
-    
-    # If we have negative examples, prefer constraints violated by negatives
-    if negative_examples:
-        neg_values = []
-        for ex in negative_examples:
-            if v1_name in ex and v2_name in ex:
-                neg_values.append((ex[v1_name], ex[v2_name]))
+        # Check if violated in rejected query
+        if check_fn(rej_v1, rej_v2):
+            continue  # This constraint is satisfied, can't explain rejection
         
-        if neg_values:
-            for ctype, build_fn in valid_constraints:
-                check_fn = candidates[ctype][0]
-                if not check_fn(neg_values):  # Violated by at least one negative
-                    return build_fn()
+        # Check if holds in all accepted queries
+        if all(check_fn(v1, v2) for v1, v2 in acc_values):
+            return build_fn()
     
-    # Return the first valid constraint (prefer > over >=, < over <=)
-    priority = ['>', '<', '!=', '>=', '<=']
-    for ctype in priority:
-        for c, build_fn in valid_constraints:
-            if c == ctype:
-                return build_fn()
-    
-    return valid_constraints[0][1]() if valid_constraints else None
+    return None
 
 
-def mine_non_alldiff_from_rejection(query, positive_examples, all_variables):
+def mine_non_alldiff_from_rejection(rejected_query, accepted_queries, all_variables, violated_constraints=None):
     """
-    When a query satisfies all candidate AllDiffs but is rejected,
-    mine binary non-AllDiff constraints from positive examples.
+    When a query is rejected by the oracle, learn binary constraints that explain the rejection.
+    
+    KEY INSIGHT: Learn from NEGATIVE examples (rejected queries), not positive examples!
+    We want to find constraints that:
+    1. Are VIOLATED in the rejected query (explain why it was rejected)
+    2. Hold in ALL accepted queries (consistent with what we know is valid)
+    
+    Args:
+        rejected_query: The rejected query assignment
+        accepted_queries: List of accepted query assignments (positive examples)
+        all_variables: All problem variables
+        violated_constraints: Optional list of violated AllDifferent constraints to focus mining on
     """
     import cpmpy as cp
     
     learned = []
-    var_list = list(all_variables)
     
-    print(f"  [MINE] Searching for non-AllDiff violations in rejected query...")
-    print(f"  [MINE] Comparing against {len(positive_examples)} positive examples")
+    # If violated constraints provided, only mine between variables in those constraints
+    if violated_constraints:
+        # Extract unique variables from violated constraints
+        violated_vars = set()
+        for c in violated_constraints:
+            violated_vars.update(get_variables(c))
+        var_list = list(violated_vars)
+        print(f"  [MINE] Learning from REJECTED query: {len(var_list)} variables from {len(violated_constraints)} violated AllDiff constraints")
+    else:
+        var_list = list(all_variables)
+        print(f"  [MINE] Learning from REJECTED query: all {len(var_list)} variables")
     
-    # Compare all variable pairs
+    print(f"  [MINE] Using {len(accepted_queries)} accepted queries as positive evidence")
+    
+    if len(accepted_queries) == 0:
+        print(f"  [MINE] No accepted queries yet - cannot learn constraints")
+        return []
+    
+    # Compare variable pairs - learn constraints violated in rejected but satisfied in accepted
     for i in range(len(var_list)):
         for j in range(i + 1, len(var_list)):
             var1, var2 = var_list[i], var_list[j]
-            constraint = mine_binary_constraint_from_examples(
-                var1, var2, positive_examples, [query]
+            constraint = mine_binary_constraint_from_negative_query(
+                var1, var2, rejected_query, accepted_queries
             )
             if constraint is not None:
                 learned.append(constraint)
     
     if learned:
-        print(f"  [MINE] Discovered {len(learned)} binary constraints")
+        print(f"  [MINE] Discovered {len(learned)} binary constraints from rejection")
         for c in learned[:3]:
             print(f"    - {c}")
         if len(learned) > 3:
             print(f"    ... and {len(learned) - 3} more")
     else:
-        print(f"  [MINE] No binary constraints found")
+        print(f"  [MINE] No binary constraints explain this rejection")
     
     return learned
 
 
 def generate_violation_query(CG, C_validated, probabilities, all_variables, oracle=None,
-                             previous_queries=None, positive_examples=None, learned_non_alldiff=None):
+                             previous_queries=None, positive_examples=None, learned_non_alldiff=None,
+                             maximize_probability=False):
     
     import cpmpy as cp
     import time
@@ -375,12 +392,20 @@ def generate_violation_query(CG, C_validated, probabilities, all_variables, orac
    
     objective = cp.sum([probabilities[c] * gamma[str(c)] for c in CG])
 
-    model.minimize(objective)
+    if maximize_probability:
+        # COLD-START STRATEGY: Violate HIGH probability constraints
+        # More likely to be correct, leading to informative rejections or accepted queries
+        print(f"  Strategy: MAXIMIZE probability (violate high-prob constraints)")
+        model.maximize(objective)
+    else:
+        # NORMAL STRATEGY: Violate LOW probability constraints
+        # More likely to be wrong, efficient for finding counterexamples
+        model.minimize(objective)
 
     print(f"  Solving COP...")
     solve_start = time.time()
 
-    result = model.solve(time_limit=5)
+    result = model.solve(time_limit=30)
     solve_time = time.time() - solve_start
     if not result:
         print("UNSAT")
@@ -557,6 +582,7 @@ def cop_refinement_recursive(CG_cand, C_validated, oracle, probabilities, all_va
         
         print(f"{indent}[QUERY] Generating violation query...")
 
+        # No cold-start logic needed - Phase 1 examples provide baseline
         Y, Viol_e, status, assignment = generate_violation_query(
             CG,
             C_val,
@@ -565,32 +591,16 @@ def cop_refinement_recursive(CG_cand, C_validated, oracle, probabilities, all_va
             oracle,
             previous_queries=negative_query_assignments,
             positive_examples=phase1_positive_examples,
-            learned_non_alldiff=learned_non_alldiff
+            learned_non_alldiff=learned_non_alldiff,
+            maximize_probability=False  # Always use MINIMIZE (efficient)
         )
         
         if status == "UNSAT":
             consecutive_unsat += 1
             print(f"{indent}[UNSAT] No violation query exists (consecutive: {consecutive_unsat})")
             
-            # Special case: If we have learned non-AllDiff constraints and get UNSAT,
-            # it means the candidate AllDiff constraints are incompatible with the
-            # learned constraints. This is strong evidence they're CORRECT.
-            # This applies to both deep recursion AND main loop (depth=0) after mining.
-            if len(learned_non_alldiff) > 0 and (recursion_depth >= 2 or (recursion_depth == 0 and len(C_val) > 0)):
-                # In deep recursion OR at main level after some constraints were validated
-                # (which indicates we've mined binary constraints)
-                print(f"{indent}[UNSAT-MODEL] At depth {recursion_depth} with {len(learned_non_alldiff)} learned constraints")
-                print(f"{indent}[UNSAT-MODEL] UNSAT indicates all {len(CG)} remaining candidates are consistent with learned model")
-                for c in list(CG):
-                    probs[c] = max(probs[c], theta_max)
-                    C_val.append(c)
-                    print(f"{indent}  [VALIDATE-UNSAT] {c} (P={probs[c]:.3f})")
-                CG = set()  # All validated, none remaining
-                break
-            
-            # Standard UNSAT handling when no learned constraints exist yet
             for c in list(CG):
-                if probs[c] >= 0.9:
+                if probs[c] >= 0.7:
                     C_val.append(c)
                     print(f"{indent}  [ACCEPT] {c} (P={probs[c]:.3f})")
             
@@ -677,49 +687,21 @@ def cop_refinement_recursive(CG_cand, C_validated, oracle, probabilities, all_va
             
             # Check if NO AllDiff constraints were violated - must be a non-AllDiff violation
             if len(Viol_e) == 0:
-                print(f"{indent}[DETECT] No AllDiff violations - mining non-AllDiff constraints")
+                print(f"{indent}[DETECT] No AllDiff violations detected - rejected due to hidden non-AllDiff constraints")
+                print(f"{indent}[INFO] Learning from: rejected query vs {len(positive_query_examples)} accepted queries")
+                
+                # Learn from this REJECTED query vs previously ACCEPTED queries
                 new_constraints = mine_non_alldiff_from_rejection(
-                    assignment,
-                    phase1_positive_examples + positive_query_examples,
-                    all_variables
+                    assignment,  # This rejected query
+                    positive_query_examples,  # Previously accepted queries
+                    all_variables,
+                    violated_constraints=None  # No AllDiff constraints to focus on
                 )
                 if new_constraints:
                     learned_non_alldiff.extend(new_constraints)
                     print(f"{indent}[LEARN] Added {len(new_constraints)} non-AllDiff constraints (total: {len(learned_non_alldiff)})")
                 # Continue to next iteration with updated learned constraints
             
-            # Detect if we're stuck: deep recursion with no learned constraints and violating all candidates
-            elif recursion_depth >= 2 and len(learned_non_alldiff) == 0 and len(Viol_e) == len(CG):
-                print(f"{indent}[STUCK] Deep recursion (depth={recursion_depth}), no learned constraints, violating all {len(Viol_e)} candidates")
-                print(f"{indent}[MINE] Attempting to learn non-AllDiff constraints to break out of loop...")
-                new_constraints = mine_non_alldiff_from_rejection(
-                    assignment,
-                    phase1_positive_examples + positive_query_examples,
-                    all_variables
-                )
-                if new_constraints:
-                    learned_non_alldiff.extend(new_constraints)
-                    print(f"{indent}[LEARN] Added {len(new_constraints)} non-AllDiff constraints (total: {len(learned_non_alldiff)})")
-                    # Try again with learned constraints
-                else:
-                    # If we can't learn new constraints and keep getting stuck,
-                    # these AllDiff constraints are consistently violated in rejected queries
-                    # This means they are CORRECT and should be validated
-                    print(f"{indent}[RESOLVE] Cannot mine more constraints - validating all {len(Viol_e)} consistently violated constraints")
-                    for c in list(Viol_e):
-                        probs[c] = max(probs[c], theta_max)  # Set to validation threshold
-                        if c in CG:
-                            CG.remove(c)
-                            C_val.append(c)
-                        print(f"{indent}  [VALIDATE-STUCK] {c} (P={probs[c]:.3f})")
-                    # Return immediately to avoid further disambiguation attempts
-                    duration = time.time() - start_time
-                    print(f"\n{indent}{'-'*50}")
-                    print(f"{indent}Refinement [Depth={recursion_depth}] Complete (Resolved Stuck State)")
-                    print(f"{indent}Validated: {len(C_val)}, Remaining: {len(CG)}, Queries: {queries_used}, Time: {duration:.2f}s")
-                    print(f"{indent}{'-'*50}")
-                    return C_val, CG, probs, queries_used
-                
             elif len(Viol_e) == 1:
                 c = list(Viol_e)[0]
                 print(f"{indent}  [SINGLE VIOLATION] Must be correct: {c}")
@@ -733,7 +715,21 @@ def cop_refinement_recursive(CG_cand, C_validated, oracle, probabilities, all_va
                     print(f"{indent}  [DEFER] {c} (P={probs[c]:.3f} < {theta_max})")
             
             else:
+                # Multiple violations: Learn why this query was rejected
                 print(f"{indent}[DISAMBIGUATE] Recursively refining {len(Viol_e)} constraints...")
+                print(f"{indent}[INFO] Learning from: rejected query vs {len(positive_query_examples)} accepted queries")
+                
+                # Learn from this REJECTED query vs previously ACCEPTED queries
+                # Focus only on variables involved in the violated AllDifferent constraints
+                new_constraints = mine_non_alldiff_from_rejection(
+                    assignment,  # This rejected query
+                    positive_query_examples,  # Previously accepted queries
+                    all_variables,
+                    violated_constraints=list(Viol_e)  # Focus on variables in violated AllDiff constraints
+                )
+                if new_constraints:
+                    learned_non_alldiff.extend(new_constraints)
+                    print(f"{indent}[LEARN] Added {len(new_constraints)} non-AllDiff constraints (total: {len(learned_non_alldiff)})")
                 
                 # S = variables involved in the violated AllDifferent constraints
                 decomposed_viol = []
@@ -857,7 +853,12 @@ def cop_based_refinement(experiment_name, oracle, candidate_constraints, initial
     query_assignments = []
     negative_query_assignments = []
     query_history = []
-    positive_query_examples = []
+    
+    # BOOTSTRAP: Initialize positive_query_examples with Phase 1 examples
+    # This provides the initial "accepted queries" baseline for learning from rejections
+    positive_query_examples = [copy.deepcopy(example) for example in phase1_positive_examples]
+    print(f"[BOOTSTRAP] Initialized with {len(positive_query_examples)} Phase 1 accepted examples for rejection-based learning")
+    
     learned_non_alldiff = []  # Incrementally learned non-AllDifferent constraints
 
     C_validated, CG_remaining, probabilities_final, queries_used = cop_refinement_recursive(
