@@ -668,7 +668,7 @@ def main():
     ]
     
     # Define approaches to compare
-    approaches = ['lion']
+    approaches = ['cop']
     
     # Determine solution configurations per benchmark
     benchmark_solution_map = {
