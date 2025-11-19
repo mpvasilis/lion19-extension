@@ -572,8 +572,25 @@ def cop_refinement_recursive(CG_cand, C_validated, oracle, probabilities, all_va
             consecutive_unsat += 1
             print(f"{indent}[UNSAT] No violation query exists (consecutive: {consecutive_unsat})")
             
+            # Special case: If we have learned non-AllDiff constraints and get UNSAT,
+            # it means the candidate AllDiff constraints are incompatible with the
+            # learned constraints. This is strong evidence they're CORRECT.
+            # This applies to both deep recursion AND main loop (depth=0) after mining.
+            if len(learned_non_alldiff) > 0 and (recursion_depth >= 2 or (recursion_depth == 0 and len(C_val) > 0)):
+                # In deep recursion OR at main level after some constraints were validated
+                # (which indicates we've mined binary constraints)
+                print(f"{indent}[UNSAT-MODEL] At depth {recursion_depth} with {len(learned_non_alldiff)} learned constraints")
+                print(f"{indent}[UNSAT-MODEL] UNSAT indicates all {len(CG)} remaining candidates are consistent with learned model")
+                for c in list(CG):
+                    probs[c] = max(probs[c], theta_max)
+                    C_val.append(c)
+                    print(f"{indent}  [VALIDATE-UNSAT] {c} (P={probs[c]:.3f})")
+                CG = set()  # All validated, none remaining
+                break
+            
+            # Standard UNSAT handling when no learned constraints exist yet
             for c in list(CG):
-                if probs[c] >= 0.7:
+                if probs[c] >= 0.9:
                     C_val.append(c)
                     print(f"{indent}  [ACCEPT] {c} (P={probs[c]:.3f})")
             
@@ -685,7 +702,23 @@ def cop_refinement_recursive(CG_cand, C_validated, oracle, probabilities, all_va
                     print(f"{indent}[LEARN] Added {len(new_constraints)} non-AllDiff constraints (total: {len(learned_non_alldiff)})")
                     # Try again with learned constraints
                 else:
-                    print(f"{indent}[WARN] Mining found no constraints - may continue to be stuck")
+                    # If we can't learn new constraints and keep getting stuck,
+                    # these AllDiff constraints are consistently violated in rejected queries
+                    # This means they are CORRECT and should be validated
+                    print(f"{indent}[RESOLVE] Cannot mine more constraints - validating all {len(Viol_e)} consistently violated constraints")
+                    for c in list(Viol_e):
+                        probs[c] = max(probs[c], theta_max)  # Set to validation threshold
+                        if c in CG:
+                            CG.remove(c)
+                            C_val.append(c)
+                        print(f"{indent}  [VALIDATE-STUCK] {c} (P={probs[c]:.3f})")
+                    # Return immediately to avoid further disambiguation attempts
+                    duration = time.time() - start_time
+                    print(f"\n{indent}{'-'*50}")
+                    print(f"{indent}Refinement [Depth={recursion_depth}] Complete (Resolved Stuck State)")
+                    print(f"{indent}Validated: {len(C_val)}, Remaining: {len(CG)}, Queries: {queries_used}, Time: {duration:.2f}s")
+                    print(f"{indent}{'-'*50}")
+                    return C_val, CG, probs, queries_used
                 
             elif len(Viol_e) == 1:
                 c = list(Viol_e)[0]
