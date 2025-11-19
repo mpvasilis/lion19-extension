@@ -639,7 +639,7 @@ def cop_refinement_recursive(CG_cand, C_validated, oracle, probabilities, all_va
         if answer == True:
             # Counterexample: all violated constraints are incorrect
             print(f"{indent}Oracle: YES (valid) - Remove all {len(Viol_e)} violated constraints")
-            input("Continue...")
+            # input("Continue...")
             for c in Viol_e:
                 if c in CG:
                     CG.remove(c)
