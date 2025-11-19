@@ -580,14 +580,16 @@ def cop_refinement_recursive(CG_cand, C_validated, oracle, probabilities, all_va
             CG = {c for c in CG if probs[c] < 0.7}
             
             if not CG or consecutive_unsat >= 2:
+                accepted_constraints = []
                 for c in list(CG):
                     if probs[c] >= 0.5:
                         C_val.append(c)
+                        accepted_constraints.append(c)
                         print(f"{indent}  [FINAL ACCEPT] {c} (P={probs[c]:.3f})")
                     else:
                         print(f"{indent}  [FINAL REJECT] {c} (P={probs[c]:.3f})")
-                # Clear CG so rejected constraints aren't returned in CG_remaining
-                CG = set()
+                # Keep accepted/deferred constraints in CG so parent can distinguish from rejected
+                CG = set(accepted_constraints)
                 break
             
             continue
@@ -755,7 +757,8 @@ def cop_refinement_recursive(CG_cand, C_validated, oracle, probabilities, all_va
                         probs[c] = probs_recursive[c]
                 
                 ToValidate = [c for c in C_val_recursive if c in Viol_e and c not in C_val]
-                # Remove constraints that: (1) weren't validated AND (2) either have low prob OR were FINAL REJECTed (not in CG_remaining)
+                # Remove constraints that: (1) weren't validated AND (2) either have low prob OR were REJECTed
+                # Note: CG_remaining_recursive now contains ACCEPTED/DEFERed constraints (not REJECTed ones)
                 ToRemove = [c for c in Viol_e if c not in C_val_recursive and 
                            (c not in CG_remaining_recursive or probs[c] <= theta_min)]
                 
