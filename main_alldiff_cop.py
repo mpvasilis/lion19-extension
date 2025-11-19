@@ -714,9 +714,9 @@ def cop_refinement_recursive(CG_cand, C_validated, oracle, probabilities, all_va
                 C_val_filtered = get_con_subset(C_val, S) if C_val else []
                 print(f"{indent}  Relevant validated constraints: {len(C_val_filtered)}/{len(C_val)}")
                 
-                # Filter learned non-AllDiff constraints to relevant scope
-                learned_non_alldiff_filtered = get_con_subset(learned_non_alldiff, S) if learned_non_alldiff else []
-                print(f"{indent}  Relevant learned non-AllDiff: {len(learned_non_alldiff_filtered)}/{len(learned_non_alldiff)}")
+                # Pass the original learned_non_alldiff list (not filtered) so new constraints persist
+                # Filtering was defensive but causes learned constraints to be lost
+                print(f"{indent}  Relevant learned non-AllDiff: {len(learned_non_alldiff)}/{len(learned_non_alldiff)}")
                 
                 recursive_budget = min(max_queries - queries_used, max(10, (max_queries - queries_used) // 2))
                 recursive_timeout = max(10, (timeout - (time.time() - start_time)) / 2)
@@ -744,7 +744,7 @@ def cop_refinement_recursive(CG_cand, C_validated, oracle, probabilities, all_va
                         positive_query_examples=positive_query_examples,
                         positive_signature_cache=positive_signature_cache,
                         phase1_positive_examples=phase1_positive_examples,
-                        learned_non_alldiff=learned_non_alldiff_filtered
+                        learned_non_alldiff=learned_non_alldiff  # Pass original, not filtered!
                     )
                 
                 queries_used += queries_recursive
@@ -769,6 +769,8 @@ def cop_refinement_recursive(CG_cand, C_validated, oracle, probabilities, all_va
                             C_val.append(c)
                         print(f"{indent}  [VALIDATE] {c} (P={current_prob:.3f})")
                     else:
+                        # DEFER but DON'T remove from CG yet - still needs more evidence
+                        # Will continue to be tested in parent's main loop
                         print(f"{indent}  [DEFER] {c} (P={current_prob:.3f} < {theta_max})")
                 
                 for c in ToRemove:
