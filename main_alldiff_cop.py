@@ -629,24 +629,16 @@ def cop_refinement_recursive(CG_cand, C_validated, oracle, probabilities, all_va
         if len(non_none_assignments) <= 10:
             print(f"{indent}[DEBUG] Assignment: {non_none_assignments}")
         
-        # Use manual oracle check for Sudoku-like experiments
-        if 'sudoku' in experiment_name.lower():
-            oracle_vars = getattr(oracle, 'variables_list', None)
-            manual_result = manual_sudoku_oracle_check(non_none_assignments, oracle, oracle_vars)
-            
-            if manual_result is not None:
-                answer = manual_result
-                print(f"{indent}[MANUAL ORACLE] Result: {'YES (valid)' if answer else 'NO (invalid)'}")
-            else:
-                # Fallback to standard oracle if manual check fails
-                print(f"{indent}[MANUAL ORACLE] Failed, using standard oracle")
-                if hasattr(oracle, 'variables_list') and oracle.variables_list is not None:
-                    synchronise_assignments(Y, oracle.variables_list)
-                    answer = oracle.answer_membership_query(oracle.variables_list)
-                else:
-                    answer = oracle.answer_membership_query(Y)
+        # Use manual oracle check for all benchmarks
+        oracle_vars = getattr(oracle, 'variables_list', None)
+        manual_result = manual_sudoku_oracle_check(non_none_assignments, oracle, oracle_vars)
+        
+        if manual_result is not None:
+            answer = manual_result
+            print(f"{indent}[MANUAL ORACLE] Result: {'YES (valid)' if answer else 'NO (invalid)'}")
         else:
-            # Non-Sudoku experiments use standard oracle
+            # Fallback to standard oracle if manual check fails
+            print(f"{indent}[MANUAL ORACLE] Failed, using standard oracle")
             if hasattr(oracle, 'variables_list') and oracle.variables_list is not None:
                 synchronise_assignments(Y, oracle.variables_list)
                 answer = oracle.answer_membership_query(oracle.variables_list)

@@ -103,6 +103,73 @@ def interpret_oracle_response(response):
     return bool(response)
 
 
+def manual_sudoku_oracle_check(assignment, oracle, oracle_variables):
+    """
+    Manually check if an assignment is valid by creating a CP model with TRUE oracle constraints.
+    
+    Args:
+        assignment: Dictionary mapping variable names to values
+        oracle: Oracle object containing TRUE constraints
+        oracle_variables: List/array of oracle variables
+        
+    Returns:
+        True if assignment is valid (satisfiable with true constraints)
+        False if assignment is invalid (unsatisfiable with true constraints)
+        None if check cannot be performed
+    """
+    try:
+        import cpmpy as cp
+        
+        # Get TRUE constraints from oracle
+        if not hasattr(oracle, 'constraints') or not oracle.constraints:
+            print(f"    [ORACLE CHECK] Oracle has no constraints")
+            return None
+        
+        # Create a fresh CP model with TRUE constraints
+        check_model = cp.Model()
+        
+        # Add all TRUE constraints from oracle
+        for c in oracle.constraints:
+            check_model += c
+        
+        print(f"    [ORACLE CHECK] Created model with {len(oracle.constraints)} TRUE constraints")
+        
+        # Create a mapping from variable names to oracle variables
+        var_map = {}
+        if oracle_variables is not None:
+            for var in oracle_variables:
+                var_name = str(getattr(var, 'name', ''))
+                if var_name:
+                    var_map[var_name] = var
+        
+        # Add assignment as additional constraints
+        assignments_added = 0
+        for var_name, value in assignment.items():
+            if value is not None and not isinstance(value, bool):
+                if var_name in var_map:
+                    check_model += (var_map[var_name] == value)
+                    assignments_added += 1
+        
+        print(f"    [ORACLE CHECK] Added {assignments_added} assignment constraints")
+        print(f"    [ORACLE CHECK] Assignment: {assignment}")
+        
+        # Solve the model
+        result = check_model.solve(time_limit=5)
+        
+        if result:
+            print(f"    [ORACLE CHECK] Model is SAT - Assignment is VALID")
+            return True
+        else:
+            print(f"    [ORACLE CHECK] Model is UNSAT - Assignment is INVALID")
+            return False
+            
+    except Exception as e:
+        print(f"    [ORACLE CHECK] Error during check: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
+
+
 def prepare_variable_pairs(scope_vars):
     """Compute candidate variable pairs with their domain intersections and heuristic scores."""
     pairs = []
@@ -153,11 +220,18 @@ def query_driven_refinement(
     validated_constraints = set()  # Track constraints that have been validated/learned
 
     probability_map = {c: probabilities.get(c, 0.3) for c in remaining_constraints}
+    
+    # OPTIMIZATION 1: Sort constraints by probability (ascending) - process low-probability first
+    remaining_constraints.sort(key=lambda c: probability_map.get(c, 0.5))
+    print(f"\n[OPTIMIZATION] Sorted {len(remaining_constraints)} constraints by ascending probability")
 
     total_queries = 0
     solver_calls = 0
     solver_time_acc = 0.0
     pairs_considered = 0
+    
+    # OPTIMIZATION 3: Cache oracle responses to avoid duplicate queries
+    query_cache = {}  # assignment_signature -> oracle_response
 
     for idx, constraint in enumerate(remaining_constraints, start=1):
         if constraint in removed_constraints:
@@ -175,27 +249,6 @@ def query_driven_refinement(
         print(f"\n{'-'*70}")
         print(f"Constraint {idx}/{len(remaining_constraints)}")
         print(constraint)
-        
-        # Pre-filter high-probability constraints (>0.8) by checking directly against oracle
-        high_prob_threshold = 0.8
-        current_prob = probability_map.get(constraint, 0.5)
-        
-        if current_prob > high_prob_threshold:
-            print(f"  [PRE-FILTER] Constraint has high probability P={current_prob:.3f} > {high_prob_threshold}")
-            oracle_constraint_strs = set(str(c) for c in oracle.constraints)
-            constraint_str = str(constraint)
-            
-            if constraint_str in oracle_constraint_strs:
-                # Constraint exists in oracle - keep it (already in remaining_constraints)
-                print(f"  [DIRECT-VALIDATE] Found in oracle - accepting without queries")
-                validated_constraints.add(constraint)
-                continue  # Skip to next constraint
-            else:
-                # Constraint not in oracle - reject it
-                removed_constraints.add(constraint)
-                probability_map.pop(constraint, None)
-                print(f"  [DIRECT-REJECT] Not found in oracle - removing without queries")
-                continue  # Skip to next constraint
 
         scope_vars = list(get_variables([constraint]))
         if len(scope_vars) < 2:
@@ -203,6 +256,13 @@ def query_driven_refinement(
             continue
 
         pairs = prepare_variable_pairs(scope_vars)
+        
+        # OPTIMIZATION 2: Limit number of pairs to test per constraint
+        MAX_PAIRS_TO_TEST = 10
+        if len(pairs) > MAX_PAIRS_TO_TEST:
+            print(f"  [OPTIMIZATION] Testing top {MAX_PAIRS_TO_TEST} of {len(pairs)} pairs")
+            pairs = pairs[:MAX_PAIRS_TO_TEST]
+        
         pairs_considered += len(pairs)
 
         if not pairs:
@@ -249,7 +309,6 @@ def query_driven_refinement(
                 continue
 
             violation_found = True
-            total_queries += 1
 
             synchronise_assignments(solver_vars, oracle_vars)
             
@@ -271,10 +330,28 @@ def query_driven_refinement(
                 print(f"       Scope variables: {relevant_assignment}")
                 print(f"       Full assignment has {len(assignment_dict)} variables")
             
-            answer = oracle.answer_membership_query(oracle_vars)
-            is_valid = interpret_oracle_response(answer)
-
-            print(f"    -> Oracle response: {'YES' if is_valid else 'NO'}")
+            # OPTIMIZATION 3: Check cache before querying oracle
+            assignment_sig = tuple(sorted((v.name, v.value()) for v in solver_vars if v.value() is not None))
+            if assignment_sig in query_cache:
+                is_valid = query_cache[assignment_sig]
+                print(f"    -> [CACHED] Oracle response: {'YES' if is_valid else 'NO'}")
+            else:
+                total_queries += 1  # Only count actual oracle queries
+                
+                # Use manual oracle check for all benchmarks
+                manual_result = manual_sudoku_oracle_check(assignment_dict, oracle, oracle_vars)
+                
+                if manual_result is not None:
+                    answer = manual_result
+                    print(f"    -> [MANUAL ORACLE] Result: {'YES (valid)' if answer else 'NO (invalid)'}")
+                else:
+                    # Fallback to standard oracle if manual check fails
+                    print(f"    -> [MANUAL ORACLE] Failed, using standard oracle")
+                    answer = oracle.answer_membership_query(oracle_vars)
+                
+                is_valid = interpret_oracle_response(answer)
+                query_cache[assignment_sig] = is_valid
+                print(f"    -> Oracle response: {'YES' if is_valid else 'NO'}")
 
             if is_valid:
                 # Oracle confirms the assignment is valid, so the constraint is refuted
