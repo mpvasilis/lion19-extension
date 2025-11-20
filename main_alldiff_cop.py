@@ -34,7 +34,8 @@ def variables_to_assignment(variables):
         if value is None and hasattr(var, "_value"):
             value = getattr(var, "_value")
 
-        if value is not None:
+        # Filter out boolean values before storing
+        if value is not None and not isinstance(value, bool):
             assignment[str(name)] = value
 
     return assignment
@@ -92,6 +93,23 @@ def display_sudoku_grid(variables, title="Sudoku Grid", debug=False):
                 else:
                     val = None
                 
+                # Filter out invalid values (booleans, non-integers, out of range)
+                if val is not None:
+                    # Skip boolean values
+                    if isinstance(val, bool):
+                        val = None
+                    # Ensure it's a valid integer in Sudoku range
+                    elif isinstance(val, (int, float)):
+                        try:
+                            val = int(val)
+                            # Sudoku values should be 1-9
+                            if val < 1 or val > 9:
+                                val = None
+                        except (ValueError, TypeError):
+                            val = None
+                    else:
+                        val = None
+                
                 if val is not None:
                     grid[row][col] = val
             except Exception as e:
@@ -140,7 +158,8 @@ def synchronise_assignments(solver_vars, oracle_vars):
         if value is None and hasattr(var, "_value"):
             value = getattr(var, "_value")
         
-        if value is not None:
+        # Filter out boolean values before storing
+        if value is not None and not isinstance(value, bool):
             value_map[str(name)] = value
     
     # Apply values to oracle variables
@@ -206,6 +225,73 @@ def update_supporting_evidence(P_c, alpha):
     return P_c + (1 - P_c) * (1 - alpha)
 
 
+def manual_sudoku_oracle_check(assignment, oracle, oracle_variables):
+    """
+    Manually check if an assignment is valid by creating a CP model with TRUE oracle constraints.
+    
+    Args:
+        assignment: Dictionary mapping variable names to values
+        oracle: Oracle object containing TRUE constraints
+        oracle_variables: List/array of oracle variables
+        
+    Returns:
+        True if assignment is valid (satisfiable with true constraints)
+        False if assignment is invalid (unsatisfiable with true constraints)
+        None if check cannot be performed
+    """
+    try:
+        import cpmpy as cp
+        
+        # Get TRUE constraints from oracle
+        if not hasattr(oracle, 'constraints') or not oracle.constraints:
+            print(f"    [ORACLE CHECK] Oracle has no constraints")
+            return None
+        
+        # Create a fresh CP model with TRUE constraints
+        check_model = cp.Model()
+        
+        # Add all TRUE constraints from oracle
+        for c in oracle.constraints:
+            check_model += c
+        
+        print(f"    [ORACLE CHECK] Created model with {len(oracle.constraints)} TRUE constraints")
+        
+        # Create a mapping from variable names to oracle variables
+        var_map = {}
+        if oracle_variables is not None:
+            for var in oracle_variables:
+                var_name = str(getattr(var, 'name', ''))
+                if var_name:
+                    var_map[var_name] = var
+        
+        # Add assignment as additional constraints
+        assignments_added = 0
+        for var_name, value in assignment.items():
+            if value is not None and not isinstance(value, bool):
+                if var_name in var_map:
+                    check_model += (var_map[var_name] == value)
+                    assignments_added += 1
+        
+        print(f"    [ORACLE CHECK] Added {assignments_added} assignment constraints")
+        print(f"    [ORACLE CHECK] Assignment: {assignment}")
+        
+        # Solve the model
+        result = check_model.solve(time_limit=5)
+        
+        if result:
+            print(f"    [ORACLE CHECK] Model is SAT - Assignment is VALID")
+            return True
+        else:
+            print(f"    [ORACLE CHECK] Model is UNSAT - Assignment is INVALID")
+            return False
+            
+    except Exception as e:
+        print(f"    [ORACLE CHECK] Error during check: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
+
+
 def generate_violation_query(CG, C_validated, probabilities, all_variables, oracle=None,
                              previous_queries=None, positive_examples=None):
     
@@ -216,24 +302,26 @@ def generate_violation_query(CG, C_validated, probabilities, all_variables, orac
 
     model = cp.Model()
 
-    # Add all non-AllDifferent constraints from oracle as hard constraints
-    if oracle is not None:
-        print(f"  Oracle provided: {len(oracle.constraints)} total constraints")
-        non_alldiff_constraints = []
-        alldiff_count = 0
+    # Add ALL TRUE constraints from oracle as hard constraints
+    # This ensures generated assignments are valid according to TRUE constraints
+    oracle_alldiff_constraints = []
+    oracle_other_constraints = []
+    if oracle is not None and hasattr(oracle, 'constraints'):
+        print(f"  Oracle provided: {len(oracle.constraints)} total TRUE constraints")
+        
         for c in oracle.constraints:
             if isinstance(c, AllDifferent) or "alldifferent" in str(c).lower():
-                alldiff_count += 1
+                oracle_alldiff_constraints.append(c)
             else:
-                non_alldiff_constraints.append(c)
+                oracle_other_constraints.append(c)
         
-        print(f"  Oracle breakdown: {alldiff_count} AllDifferent, {len(non_alldiff_constraints)} non-AllDifferent")
+        print(f"  Oracle: {len(oracle_alldiff_constraints)} TRUE AllDifferent, {len(oracle_other_constraints)} TRUE other constraints")
         
-        # if non_alldiff_constraints:
-        #     print(f"  Adding {len(non_alldiff_constraints)} non-AllDifferent constraints as hard constraints")
-        #     for c in non_alldiff_constraints:
-        #         model += c
-
+        # Add ALL TRUE oracle constraints to the model as hard constraints
+        for c in oracle.constraints:
+            model += c
+        
+        print(f"  Added {len(oracle.constraints)} TRUE oracle constraints to COP model")
     else:
         print(f"  WARNING: No oracle provided to generate_violation_query!")
 
@@ -253,49 +341,47 @@ def generate_violation_query(CG, C_validated, probabilities, all_variables, orac
     if exclusion_assignments:
         for idx, assignment in enumerate(exclusion_assignments):
             diff_terms = []
-            for var in all_variables:
-                name = getattr(var, "name", None)
-                if name is None:
-                    continue
-                key = str(name)
-                if key not in assignment:
-                    continue
+            for var in model_vars:
                 diff_terms.append(var != assignment[key])
 
             if diff_terms:
                 model += cp.any(diff_terms)
 
-    # if positive_examples:
-    #     consistency_terms = []
-    #     for example in positive_examples:
-    #         if not isinstance(example, dict) or not example:
-    #             continue
-    #         eq_terms = []
-    #         for var in all_variables:
-    #             name = getattr(var, "name", None)
-    #             if name is None:
-    #                 continue
-    #             key = str(name)
-    #             if key in example:
-    #                 eq_terms.append(var == example[key])
-    #         if eq_terms:
-    #             consistency_terms.append(cp.all(eq_terms))
-
-    #     if consistency_terms:
-    #         model += cp.any(consistency_terms)
-
     gamma = {str(c): cp.boolvar(name=f"gamma_{i}") for i, c in enumerate(CG)}
 
     for c in CG:
         c_str = str(c)
-        model += (gamma[c_str] == ~c)
+        
+        # For AllDifferent constraints, ensure minimal violation (only 2 vars equal)
+        if isinstance(c, AllDifferent):
+            # Get variables from the AllDifferent constraint
+            alldiff_vars = c.args
+            
+            # When gamma[c] is True (constraint violated), enforce exactly one pair is equal
+            # Count pairs that are equal
+            equal_pairs = []
+            for i in range(len(alldiff_vars)):
+                for j in range(i+1, len(alldiff_vars)):
+                    pair_equal = cp.boolvar(name=f"eq_{c_str}_{i}_{j}")
+                    model += (pair_equal == (alldiff_vars[i] == alldiff_vars[j]))
+                    equal_pairs.append(pair_equal)
+            
+            if equal_pairs:
+                # gamma[c] == True means constraint is violated (at least one pair equal)
+                # We want exactly 1 pair equal when violated
+                model += (gamma[c_str]).implies(cp.sum(equal_pairs) == 1)
+                # If no pairs are equal, constraint is satisfied
+                model += (~gamma[c_str]).implies(cp.sum(equal_pairs) == 0)
+        else:
+            # For non-AllDifferent constraints, standard violation
+            model += (gamma[c_str] == ~c)
     
     gamma_list = list(gamma.values())
     model += (cp.sum(gamma_list) >= 1)  
 
     # Objective: minimize sum of probabilities of violated constraints
     # Prefer to violate constraints with low probability (likely incorrect)
-    objective = cp.sum([probabilities[c] * gamma[str(c)] for c in CG])
+    objective = cp.sum([(1-probabilities[c])     * gamma[str(c)] for c in CG])
 
     model.minimize(objective)
 
@@ -322,36 +408,21 @@ def generate_violation_query(CG, C_validated, probabilities, all_variables, orac
     if result:
         print(f"  Solved in {solve_time:.2f}s - found violation query")
         
-        # Since we added all_variables to the model first, they should have values directly
-        # But let's also get all variables from the model to be safe
+        # Get all variables from the solved model
         model_vars = get_variables(model.constraints)
         
-        values_set = sum(1 for v in model_vars if v.value() is not None)
-        print(f"  Variables with values: {values_set}/{len(model_vars)}")
-        
-        # Create a comprehensive value mapping
-        value_map = {}
+        # Filter to include only the original problem variables, not helper variables
+        # (exclude gamma and pair_equal boolean variables)
+        Y = []
         for v in model_vars:
-            if hasattr(v, 'name') and v.value() is not None:
-                value_map[str(v.name)] = v.value()
+            var_name = str(getattr(v, 'name', ''))
+            # Exclude helper variables created for the COP
+            if not var_name.startswith('gamma_') and not var_name.startswith('eq_'):
+                Y.append(v)
         
-        # Apply values to all_variables to ensure consistency
-        if all_variables is not None:
-            print(f"  Mapping values to {len(all_variables)} original variables")
-            mapped_count = 0
-            for orig_var in all_variables:
-                if hasattr(orig_var, 'name'):
-                    var_name = str(orig_var.name)
-                    if var_name in value_map:
-                        # Set the value on the original variable
-                        if hasattr(orig_var, '_value'):
-                            orig_var._value = value_map[var_name]
-                        mapped_count += 1
-            print(f"  Successfully mapped {mapped_count}/{len(all_variables)} variables")
-            
-            Y = all_variables
-        else:
-            Y = model_vars
+        values_set = sum(1 for v in Y if v.value() is not None)
+        print(f"  Variables with values: {values_set}/{len(Y)}")
+    
 
         # Check violations using get_kappa
         Viol_e = get_kappa(CG, Y)
@@ -365,7 +436,6 @@ def generate_violation_query(CG, C_validated, probabilities, all_variables, orac
                 gamma_violations.append(c)
         
         if len(gamma_violations) != len(Viol_e):
-            print(f"  WARNING: Mismatch detected!")
             print(f"    Gamma indicates {len(gamma_violations)} violations")
             print(f"    get_kappa found {len(Viol_e)} violations")
             print(f"  This may indicate variable synchronization issues.")
@@ -487,32 +557,6 @@ def cop_refinement_recursive(CG_cand, C_validated, oracle, probabilities, all_va
         
         print(f"\n{indent}[Iter {iteration}] {len(C_val)} validated, {len(CG)} candidates, {queries_used}q used")
         
-        # Pre-filter high-probability constraints (>0.8) by checking directly against oracle
-        high_prob_threshold = 0.8
-        high_prob_constraints = [c for c in CG if probs[c] > high_prob_threshold]
-        
-        if high_prob_constraints:
-            print(f"{indent}[PRE-FILTER] Found {len(high_prob_constraints)} constraints with P(c) > {high_prob_threshold}")
-            oracle_constraint_strs = set(str(c) for c in oracle.constraints)
-            
-            for c in high_prob_constraints:
-                c_str = str(c)
-                if c_str in oracle_constraint_strs:
-                    # Constraint exists in oracle - validate it
-                    CG.remove(c)
-                    C_val.append(c)
-                    print(f"{indent}  [DIRECT-VALIDATE] {c} (P={probs[c]:.3f}) - found in oracle")
-                else:
-                    # Constraint not in oracle - reject it
-                    CG.remove(c)
-                    probs[c] *= alpha  # Apply penalty as if we got a counterexample
-                    print(f"{indent}  [DIRECT-REJECT] {c} (P={probs[c]:.3f}) - not in oracle")
-            
-            # If we processed all candidates, we're done
-            if not CG:
-                print(f"{indent}[STOP] All candidates processed via direct check")
-                break
-        
         # Generate violation query
         print(f"{indent}[QUERY] Generating violation query...")
 
@@ -557,9 +601,9 @@ def cop_refinement_recursive(CG_cand, C_validated, oracle, probabilities, all_va
             print(f"{indent}[WARN] Generated query has no assigned values; skipping")
             continue
 
-        if assignment_signature_value in query_signature_cache:
-            print(f"{indent}[SKIP] Duplicate query detected; skipping oracle call")
-            continue
+        # if assignment_signature_value in query_signature_cache:
+        #     print(f"{indent}[SKIP] Duplicate query detected; skipping oracle call")
+        #     continue
 
         query_signature_cache.add(assignment_signature_value)
         assignment_snapshot = assignment.copy()
@@ -577,12 +621,38 @@ def cop_refinement_recursive(CG_cand, C_validated, oracle, probabilities, all_va
         
         # Ask oracle
         print(f"{indent}[ORACLE] Asking...")
-        # Synchronize solver variables to oracle variables before querying
-        if hasattr(oracle, 'variables_list') and oracle.variables_list is not None:
-            synchronise_assignments(Y, oracle.variables_list)
-            answer = oracle.answer_membership_query(oracle.variables_list)
+        
+        # Debug: Show what assignment is being sent to oracle
+        assignment_for_oracle = variables_to_assignment(Y)
+        non_none_assignments = {k: v for k, v in assignment_for_oracle.items() if v is not None}
+        print(f"{indent}[DEBUG] Sending {len(non_none_assignments)} assigned variables to oracle")
+        if len(non_none_assignments) <= 10:
+            print(f"{indent}[DEBUG] Assignment: {non_none_assignments}")
+        
+        # Use manual oracle check for Sudoku-like experiments
+        if 'sudoku' in experiment_name.lower():
+            oracle_vars = getattr(oracle, 'variables_list', None)
+            manual_result = manual_sudoku_oracle_check(non_none_assignments, oracle, oracle_vars)
+            
+            if manual_result is not None:
+                answer = manual_result
+                print(f"{indent}[MANUAL ORACLE] Result: {'YES (valid)' if answer else 'NO (invalid)'}")
+            else:
+                # Fallback to standard oracle if manual check fails
+                print(f"{indent}[MANUAL ORACLE] Failed, using standard oracle")
+                if hasattr(oracle, 'variables_list') and oracle.variables_list is not None:
+                    synchronise_assignments(Y, oracle.variables_list)
+                    answer = oracle.answer_membership_query(oracle.variables_list)
+                else:
+                    answer = oracle.answer_membership_query(Y)
         else:
-            answer = oracle.answer_membership_query(Y)
+            # Non-Sudoku experiments use standard oracle
+            if hasattr(oracle, 'variables_list') and oracle.variables_list is not None:
+                synchronise_assignments(Y, oracle.variables_list)
+                answer = oracle.answer_membership_query(oracle.variables_list)
+            else:
+                answer = oracle.answer_membership_query(Y)
+        
         queries_used += 1
 
         record = {
@@ -1265,4 +1335,3 @@ if __name__ == "__main__":
     print(f"  - Positive examples saved to: {positive_examples_path}")
     print(f"  - Query log saved to: {query_history_path}")
     print(f"  - CP implication log saved to: {cp_implication_log_path}")
-
