@@ -352,7 +352,7 @@ def generate_violation_query(CG, C_validated, probabilities, all_variables, orac
     
     if bias_violations:
         bias_violation_term = cp.sum(bias_violations)
-        objective =  constraint_violation_term +  bias_weight * bias_violation_term
+        objective =  constraint_violation_term +  10000 * bias_violation_term
     else:
         objective = constraint_violation_term
 
@@ -431,7 +431,7 @@ def generate_violation_query(CG, C_validated, probabilities, all_variables, orac
         
         assignment = variables_to_assignment(Y)
         
-        return Y, Viol_e, "SAT", assignment
+        return Y, gamma_violations, "SAT", assignment
     else:
         print(f"  UNSAT after {solve_time:.2f}s - cannot find violation query")
         return None, [], "UNSAT", {}
