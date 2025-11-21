@@ -65,10 +65,34 @@ def load_phase1_data(pickle_path):
 
 def display_sudoku_grid(variables, title="Sudoku Grid", debug=False):
     
-    print(f"\n{title}")
-    print("  " + "-" * 37)
+    # First pass: detect grid dimensions
+    max_row = -1
+    max_col = -1
+    
+    for var in variables:
+        if hasattr(var, 'name') and ('[' in str(var.name)) and (',' in str(var.name)):
+            try:
+                var_name = str(var.name)
+                parts = var_name.split('[')[1].split(']')[0].split(',')
+                row = int(parts[0])
+                col = int(parts[1])
+                max_row = max(max_row, row)
+                max_col = max(max_col, col)
+            except:
+                continue
+    
+    # Default to 9x9 if no valid variables found
+    if max_row < 0 or max_col < 0:
+        max_row, max_col = 8, 8
+    
+    rows = max_row + 1
+    cols = max_col + 1
+    
+    print(f"\n{title} ({rows}x{cols})")
+    separator_width = cols * 4 + 1
+    print("  " + "-" * separator_width)
 
-    grid = [[None for _ in range(9)] for _ in range(9)]
+    grid = [[None for _ in range(cols)] for _ in range(rows)]
 
     if debug and len(variables) > 0:
         print(f"\n  DEBUG: Checking first 3 variables...")
@@ -78,7 +102,7 @@ def display_sudoku_grid(variables, title="Sudoku Grid", debug=False):
                   f"type={type(var)}")
 
     for var in variables:
-        if hasattr(var, 'name') and 'grid[' in str(var.name):
+        if hasattr(var, 'name') and ('[' in str(var.name)) and (',' in str(var.name)):
 
             try:
                 var_name = str(var.name)
@@ -103,7 +127,8 @@ def display_sudoku_grid(variables, title="Sudoku Grid", debug=False):
                         try:
                             val = int(val)
                             
-                            if val < 1 or val > 9:
+                            # Accept any positive integer value (not just 1-9)
+                            if val < 0:
                                 val = None
                         except (ValueError, TypeError):
                             val = None
@@ -117,26 +142,24 @@ def display_sudoku_grid(variables, title="Sudoku Grid", debug=False):
                     print(f"  DEBUG: Error parsing {var.name}: {e}")
                 continue
 
-    for i in range(9):
-        if i > 0 and i % 3 == 0:
-            print("  " + "-" * 37)
-        
+    # Display the grid
+    for i in range(rows):
         row_str = "  |"
-        for j in range(9):
-            if j > 0 and j % 3 == 0:
-                row_str += " |"
+        for j in range(cols):
             val = grid[i][j]
             if val is None:
-                row_str += " . "
+                row_str += "  . "
             else:
-                row_str += f" {val} "
+                # Format with width to handle larger numbers
+                row_str += f" {val:>2} "
         row_str += "|"
         print(row_str)
     
-    print("  " + "-" * 37)
+    print("  " + "-" * separator_width)
 
     filled = sum(1 for row in grid for cell in row if cell is not None)
-    print(f"  Filled cells: {filled}/81")
+    total_cells = rows * cols
+    print(f"  Filled cells: {filled}/{total_cells}")
 
 
 def synchronise_assignments(solver_vars, oracle_vars):
@@ -352,7 +375,7 @@ def generate_violation_query(CG, C_validated, probabilities, all_variables, orac
     
     if bias_violations:
         bias_violation_term = cp.sum(bias_violations)
-        objective =  constraint_violation_term +  10000 * bias_violation_term
+        objective =  constraint_violation_term +  10 * bias_violation_term
     else:
         objective = constraint_violation_term
 
@@ -361,7 +384,7 @@ def generate_violation_query(CG, C_validated, probabilities, all_variables, orac
     print(f"  Solving COP...")
     solve_start = time.time()
 
-    result = model.solve(time_limit=5)
+    result = model.solve(time_limit=60)
     solve_time = time.time() - solve_start
     if not result:
         print("UNSAT")
@@ -431,7 +454,7 @@ def generate_violation_query(CG, C_validated, probabilities, all_variables, orac
         
         assignment = variables_to_assignment(Y)
         
-        return Y, gamma_violations, "SAT", assignment
+        return Y, Viol_e, "SAT", assignment
     else:
         print(f"  UNSAT after {solve_time:.2f}s - cannot find violation query")
         return None, [], "UNSAT", {}
