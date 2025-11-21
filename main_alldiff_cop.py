@@ -317,12 +317,9 @@ def generate_violation_query(CG, C_validated, probabilities, all_variables, orac
 
     C_validated_dec = toplevel_list([c.decompose()[0] for c in C_validated])
 
-    # Add ALL validated constraints to ensure the query respects all TRUE constraints
-    # (not just those overlapping with CG variables)
     for c in C_validated_dec:
         model += c
     
-    # Get variables from CG for exclusion constraints
     model_vars = get_variables(CG)
 
     exclusion_assignments = []
@@ -345,7 +342,6 @@ def generate_violation_query(CG, C_validated, probabilities, all_variables, orac
     for c in CG:
         c_str = str(c)
         
-        # Treat all constraints uniformly: gamma[c] = 1 means constraint is violated
         model += (gamma[c_str] == ~c)
     
     gamma_list = list(gamma.values())
@@ -373,18 +369,17 @@ def generate_violation_query(CG, C_validated, probabilities, all_variables, orac
     
     constraint_violation_term = cp.sum([probabilities[c]* gamma[str(c)] for c in CG])
     
-    if bias_violations:
-        bias_violation_term = cp.sum(bias_violations)
-        objective =  constraint_violation_term +  10 * bias_violation_term
-    else:
-        objective = constraint_violation_term
+    bias_violation_term = cp.sum(bias_violations)
+    objective = constraint_violation_term + 10 * bias_violation_term
+    
+    # objective = constraint_violation_term
 
     model.minimize(objective)
 
     print(f"  Solving COP...")
     solve_start = time.time()
 
-    result = model.solve(time_limit=60)
+    result = model.solve(time_limit=5)
     solve_time = time.time() - solve_start
     if not result:
         print("UNSAT")
@@ -428,29 +423,15 @@ def generate_violation_query(CG, C_validated, probabilities, all_variables, orac
         for v in model_vars:
             var_name = str(getattr(v, 'name', ''))
             
-            # Exclude auxiliary variables (gamma for violations, beta for bias)
             if not var_name.startswith('gamma_') and not var_name.startswith('beta_'):
                 Y.append(v)
         
         values_set = sum(1 for v in Y if v.value() is not None)
         print(f"  Variables with values: {values_set}/{len(Y)}")
     
-
-        
         Viol_e = get_kappa(CG, Y)
         print(f"  Violating {len(Viol_e)}/{len(CG)} constraints")
         
-        
-        gamma_violations = []
-        for i, c in enumerate(CG):
-            gi = gamma[str(c)].value()
-            if gi:
-                gamma_violations.append(c)
-        
-        if len(gamma_violations) != len(Viol_e):
-            print(f"    Gamma indicates {len(gamma_violations)} violations")
-            print(f"    get_kappa found {len(Viol_e)} violations")
-            print(f"  This may indicate variable synchronization issues.")
         
         assignment = variables_to_assignment(Y)
         
@@ -723,7 +704,7 @@ def cop_refinement_recursive(CG_cand, C_validated, oracle, probabilities, all_va
                 C_val_filtered = get_con_subset(C_val, S) if C_val else []
                 print(f"{indent}  Relevant validated constraints: {len(C_val_filtered)}/{len(C_val)}")
                 
-                recursive_budget = min(max_queries - queries_used, max(10, (max_queries - queries_used) // 2))
+                recursive_budget = min(max_queries - queries_used, max(10, (max_queries - queries_used) * 2 // 5))
                 recursive_timeout = max(10, (timeout - (time.time() - start_time)) / 2)
                 
                 print(f"{indent}  Recursive budget: {recursive_budget}q, {recursive_timeout:.0f}s")
