@@ -273,6 +273,15 @@ def manual_sudoku_oracle_check(assignment, oracle, oracle_variables):
         return None
 
 
+def interpret_oracle_response(response):
+    
+    if isinstance(response, bool):
+        return response
+    if isinstance(response, str):
+        return response.strip().lower() in {"yes", "y", "true", "1"}
+    return bool(response)
+
+
 def generate_violation_query(CG, C_validated, probabilities, all_variables, oracle=None,
                              previous_queries=None, positive_examples=None, B_fixed=None, bias_weight=0.5):
     
@@ -343,7 +352,7 @@ def generate_violation_query(CG, C_validated, probabilities, all_variables, orac
     
     if bias_violations:
         bias_violation_term = cp.sum(bias_violations)
-        objective =  constraint_violation_term +  bias_violation_term
+        objective =  constraint_violation_term +  bias_weight * bias_violation_term
     else:
         objective = constraint_violation_term
 
@@ -596,11 +605,11 @@ def cop_refinement_recursive(CG_cand, C_validated, oracle, probabilities, all_va
         for c in Viol_e:
             print(f"{indent}  - {c} (P={probs[c]:.3f})")
         
-        if recursion_depth == 0 and 'sudoku' in experiment_name.lower() and len(all_variables) == 81:
-            try:
-                display_sudoku_grid(Y, title=f"{indent}Violation Query Assignment", debug=False)
-            except Exception as e:
-                print(f"{indent}Error displaying grid: {e}")
+        # if recursion_depth == 0 and 'sudoku' in experiment_name.lower() and len(all_variables) == 81:
+        try:
+            display_sudoku_grid(Y, title=f"{indent}Violation Query Assignment", debug=False)
+        except Exception as e:
+            print(f"{indent}Error displaying grid: {e}")
         
         
         print(f"{indent}[ORACLE] Asking...")
@@ -617,16 +626,18 @@ def cop_refinement_recursive(CG_cand, C_validated, oracle, probabilities, all_va
         manual_result = manual_sudoku_oracle_check(non_none_assignments, oracle, oracle_vars)
         
         if manual_result is not None:
-            answer = manual_result
-            print(f"{indent}[MANUAL ORACLE] Result: {'YES (valid)' if answer else 'NO (invalid)'}")
+            answer_raw = manual_result
+            print(f"{indent}[MANUAL ORACLE] Result: {'YES (valid)' if answer_raw else 'NO (invalid)'}")
         else:
             
             print(f"{indent}[MANUAL ORACLE] Failed, using standard oracle")
             if hasattr(oracle, 'variables_list') and oracle.variables_list is not None:
                 synchronise_assignments(Y, oracle.variables_list)
-                answer = oracle.answer_membership_query(oracle.variables_list)
+                answer_raw = oracle.answer_membership_query(oracle.variables_list)
             else:
-                answer = oracle.answer_membership_query(Y)
+                answer_raw = oracle.answer_membership_query(Y)
+        
+        answer = interpret_oracle_response(answer_raw)
         
         queries_used += 1
 
@@ -634,14 +645,14 @@ def cop_refinement_recursive(CG_cand, C_validated, oracle, probabilities, all_va
             'assignment': assignment,
             'assignment_signature': assignment_signature_value,
             'violated_constraints': [str(c) for c in Viol_e],
-            'answer': bool(answer),
+            'answer': answer,
             'depth': recursion_depth,
             'iteration': iteration,
             'timestamp': time.time()
         }
         query_history.append(record)
         
-        if answer == True:
+        if answer:
             
             print(f"{indent}Oracle: YES (valid) - Remove all {len(Viol_e)} violated constraints")
             for c in Viol_e:
