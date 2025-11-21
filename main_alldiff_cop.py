@@ -348,7 +348,7 @@ def generate_violation_query(CG, C_validated, probabilities, all_variables, orac
         
         print(f"  Added {len(bias_violations)} bias violation indicators")
     
-    constraint_violation_term = cp.sum([(1-probabilities[c])* gamma[str(c)] for c in CG])
+    constraint_violation_term = cp.sum([probabilities[c]* gamma[str(c)] for c in CG])
     
     if bias_violations:
         bias_violation_term = cp.sum(bias_violations)
