@@ -12,7 +12,7 @@ from cpmpy.expressions.globalconstraints import AllDifferent
 from pycona.utils import get_kappa, get_con_subset
 from benchmarks_global import construct_sudoku, construct_jsudoku, construct_latin_square
 from benchmarks_global import construct_graph_coloring_register, construct_graph_coloring_scheduling
-from benchmarks_global import construct_sudoku_greater_than
+from benchmarks_global import construct_sudoku_greater_than, construct_sudoku_4x4_gt
 from benchmarks_global import construct_examtt_simple as ces_global
 from benchmarks_global import construct_examtt_variant1, construct_examtt_variant2
 from benchmarks_global import construct_nurse_rostering as nr_global
@@ -306,7 +306,7 @@ def interpret_oracle_response(response):
 
 
 def generate_violation_query(CG, C_validated, probabilities, all_variables, oracle=None,
-                             previous_queries=None, positive_examples=None, B_fixed=None, bias_weight=0.5):
+                             previous_queries=None, positive_examples=None, B_fixed=None, bias_weight=0.5, timeout=600):
     
     import cpmpy as cp
     import time
@@ -316,17 +316,27 @@ def generate_violation_query(CG, C_validated, probabilities, all_variables, orac
     model = cp.Model()
 
     C_validated_dec = toplevel_list([c.decompose()[0] for c in C_validated])
+    print(f"  C_validated_dec: {len(C_validated_dec)}")
 
     for c in C_validated_dec:
         model += c
-    
-    model_vars = get_variables(CG)
 
+    model_vars = all_variables
+    # FIX: Use all variables to ensure global consistency with B_fixed.
+    # Restricting to CG variables ignores constraints linking them to the rest of the grid.
+    # model_vars = get_variables(list(CG))
+    model_vars = all_variables
+    # print(f"  Model vars: {len(model_vars)}")
+    
     exclusion_assignments = []
     if previous_queries:
+        print(f"  Using previous queries: {len(previous_queries)}")
         exclusion_assignments.extend(previous_queries)
+    else:
+        print(f"  No previous queries, using positive examples")
 
     if exclusion_assignments:
+        print(f"  Using previous queries: {len(exclusion_assignments)}")
         for idx, assignment in enumerate(exclusion_assignments):
             diff_terms = []
             for var in model_vars:
@@ -335,6 +345,7 @@ def generate_violation_query(CG, C_validated, probabilities, all_variables, orac
                     diff_terms.append(var != assignment[var_name])
 
             if diff_terms:
+                # Only print summary, not full constraint list (too verbose)
                 model += cp.any(diff_terms)
 
     gamma = {str(c): cp.boolvar(name=f"gamma_{i}") for i, c in enumerate(CG)}
@@ -349,34 +360,69 @@ def generate_violation_query(CG, C_validated, probabilities, all_variables, orac
 
     
     
+    # STRATEGY: Hard-First
+    # 1. Try to generate a query that respects B_fixed (HARD).
+    #    If successful, we have a valid board that violates CG. This is the best query.
+    # 2. If UNSAT, it means CG is implied by B_fixed (we can't violate CG without violating B_fixed).
+    #    Fallback to Soft B_fixed to generate a "best effort" query (which will likely be Invalid).
+    
+    if B_fixed is not None and len(B_fixed) > 0:
+        print(f"  [STRATEGY] Trying Hard B_fixed first...")
+        model_hard = cp.Model(model.constraints) # Copy constraints
+        
+        # Add B_fixed as HARD
+        relevant_bias = get_con_subset(B_fixed, model_vars)
+        for bias_c in relevant_bias:
+            model_hard += bias_c
+            
+        # Add objective (just minimize violation prob)
+        # We don't need bias term since it's hard
+        obj_hard = cp.sum([(1-probabilities[c])* gamma[str(c)] for c in CG])
+        model_hard.minimize(obj_hard)
+        
+        if model_hard.solve(time_limit=timeout/2):
+             print(f"  [STRATEGY] Found valid query with Hard B_fixed!")
+             # Extract result similar to below
+             Y = []
+             for v in model_vars:
+                 var_name = str(getattr(v, 'name', ''))
+                 if not var_name.startswith('gamma_') and not var_name.startswith('beta_'):
+                     Y.append(v)
+             
+             Viol_e = get_kappa(CG, Y)
+             assignment = variables_to_assignment(Y)
+             return Y, Viol_e, "SAT", assignment, False # implied_by_bias=False
+        else:
+             print(f"  [STRATEGY] Hard B_fixed UNSAT - Candidate implied by Bias? Fallback to Soft.")
+             implied_by_bias = True
+
+    # Fallback to Soft (Original Logic)
     bias_violations = []
     if B_fixed is not None and len(B_fixed) > 0:
         print(f"  Processing B_fixed bias: {len(B_fixed)} constraints")
         
-        cg_vars = get_variables(list(CG))
-        
-        relevant_bias = get_con_subset(B_fixed, cg_vars)
-        
-        print(f"  Relevant B_fixed constraints (overlap with CG scope): {len(relevant_bias)}/{len(B_fixed)}")
+        # Use model_vars (all_variables) to include global context
+        relevant_bias = get_con_subset(B_fixed, model_vars)
+        print(f"  Relevant B_fixed constraints (overlap with model scope): {len(relevant_bias)}/{len(B_fixed)}")
         
         for i, bias_c in enumerate(relevant_bias):
             beta_i = cp.boolvar(name=f"beta_{i}")
             model += (beta_i == ~bias_c)
-
             bias_violations.append(beta_i)
         
         print(f"  Added {len(bias_violations)} bias violation indicators")
+            
+    constraint_violation_term = cp.sum([(1-probabilities[c])* gamma[str(c)] for c in CG])
     
-    constraint_violation_term = cp.sum([probabilities[c]* gamma[str(c)] for c in CG])
+    # Dynamic weight: ensure satisfying B_fixed is more important than violating ALL candidates
+    dynamic_bias_weight = len(CG) + 10
     
     bias_violation_term = cp.sum(bias_violations)
-    objective = constraint_violation_term + 10 * bias_violation_term
+    objective = constraint_violation_term + dynamic_bias_weight * bias_violation_term
     
-    # objective = constraint_violation_term
-
     model.minimize(objective)
 
-    print(f"  Solving COP...")
+    print(f"  Solving COP (Soft)...")
     solve_start = time.time()
 
     result = model.solve(time_limit=5)
@@ -435,10 +481,10 @@ def generate_violation_query(CG, C_validated, probabilities, all_variables, orac
         
         assignment = variables_to_assignment(Y)
         
-        return Y, Viol_e, "SAT", assignment
+        return Y, Viol_e, "SAT", assignment, implied_by_bias
     else:
         print(f"  UNSAT after {solve_time:.2f}s - cannot find violation query")
-        return None, [], "UNSAT", {}
+        return None, [], "UNSAT", {}, implied_by_bias
 
 
 
@@ -532,9 +578,9 @@ def cop_refinement_recursive(CG_cand, C_validated, oracle, probabilities, all_va
             print(f"{indent}[STOP] Query budget exhausted ({queries_used}/{max_queries})")
             break
         
-        if time.time() - start_time > timeout:
-            print(f"{indent}[STOP] Timeout reached")
-            break
+        # if time.time() - start_time > timeout:
+        #     print(f"{indent}[STOP] Timeout reached")
+        #     break
         
         if not CG:
             print(f"{indent}[STOP] No more candidates")
@@ -554,7 +600,7 @@ def cop_refinement_recursive(CG_cand, C_validated, oracle, probabilities, all_va
         
         print(f"{indent}[QUERY] Generating violation query...")
 
-        Y, Viol_e, status, assignment = generate_violation_query(
+        Y, Viol_e, status, assignment, implied_by_bias = generate_violation_query(
             CG,
             C_val,
             probs,
@@ -563,32 +609,20 @@ def cop_refinement_recursive(CG_cand, C_validated, oracle, probabilities, all_va
             previous_queries=negative_query_assignments,
             positive_examples=phase1_positive_examples,
             B_fixed=B_fixed,
-            bias_weight=bias_weight
+            bias_weight=bias_weight,
+            timeout=timeout
         )
         
         if status == "UNSAT":
             consecutive_unsat += 1
             print(f"{indent}[UNSAT] No violation query exists (consecutive: {consecutive_unsat})")
             
-            
             for c in list(CG):
-                if probs[c] >= 0.7:
-                    C_val.append(c)
-                    print(f"{indent}  [ACCEPT] {c} (P={probs[c]:.3f})")
+                C_val.append(c)
+                print(f"{indent}  [ACCEPT] {c} (P={probs[c]:.3f})")
             
-            CG = {c for c in CG if probs[c] < 0.7}
-            
-            if not CG or consecutive_unsat >= 2:
-                
-                for c in list(CG):
-                    if probs[c] >= 0.5:
-                        C_val.append(c)
-                        print(f"{indent}  [FINAL ACCEPT] {c} (P={probs[c]:.3f})")
-                    else:
-                        print(f"{indent}  [FINAL REJECT] {c} (P={probs[c]:.3f})")
-                break
-            
-            continue
+            CG = set()
+            break
         
         consecutive_unsat = 0
 
@@ -677,6 +711,24 @@ def cop_refinement_recursive(CG_cand, C_validated, oracle, probabilities, all_va
             negative_query_assignments.append(assignment_snapshot)
             # input("Press Enter to continue...")
             
+            # CHECK FOR IMPLIED BY BIAS
+            if implied_by_bias:
+                print(f"{indent}  [IMPLIED] Candidates implied by B_fixed (Hard UNSAT + Oracle NO)")
+                print(f"{indent}  [IMPLIED] Validating all {len(Viol_e)} constraints as they cannot be violated validly.")
+                for c in Viol_e:
+                     probs[c] = update_supporting_evidence(probs[c], alpha) # Boost confidence
+                     # If implied, we might want to boost MORE, but standard update is safe.
+                     if probs[c] >= theta_max:
+                         if c in CG:
+                             CG.remove(c)
+                             C_val.append(c)
+                         print(f"{indent}  [VALIDATE] {c} (P={probs[c]:.3f})")
+                     else:
+                         print(f"{indent}  [DEFER] {c} (P={probs[c]:.3f} < {theta_max})")
+                
+                # Skip recursion since we handled them
+                continue
+
             if len(Viol_e) == 1:
                 
                 c = list(Viol_e)[0]
@@ -748,7 +800,21 @@ def cop_refinement_recursive(CG_cand, C_validated, oracle, probabilities, all_va
                 
                 print(f"{indent}[DISAMBIGUATE] Results: {len(ToValidate)} validated, {len(ToRemove)} removed")
                 
+                # If disambiguation made no progress and used queries, update all violated constraints
+                if len(ToValidate) == 0 and len(ToRemove) == 0 and queries_recursive > 0:
+                    print(f"{indent}[DISAMBIGUATE] No progress after {queries_recursive}q - updating all {len(Viol_e)} constraints")
+                    for c in Viol_e:
+                        old_prob = probs[c]
+                        probs[c] = update_supporting_evidence(probs[c], alpha)
+                        print(f"{indent}  [UPDATE] {c} (P={old_prob:.3f} -> {probs[c]:.3f})")
+                        
+                        # If probability exceeds threshold, validate the constraint
+                        if probs[c] >= theta_max and c in CG:
+                            CG.remove(c)
+                            C_val.append(c)
+                            print(f"{indent}  [VALIDATE] {c} reached threshold (P={probs[c]:.3f})")
                 
+                # Process validated and removed constraints
                 for c in ToValidate:
                     current_prob = probs.get(c, 0.0)
                     if current_prob >= theta_max:
@@ -908,6 +974,14 @@ def construct_instance(experiment_name):
     
     elif 'jsudoku' in experiment_name.lower():
         result = construct_jsudoku(grid_size=9)
+
+        if len(result) == 3:
+            instance, oracle, _ = result
+        else:
+            instance, oracle = result
+    
+    elif 'sudoku_4x4_gt' in experiment_name.lower() or 'sudoku_4x4_greater' in experiment_name.lower():
+        result = construct_sudoku_4x4_gt(2, 2, 4)
 
         if len(result) == 3:
             instance, oracle, _ = result
