@@ -53,6 +53,8 @@ def construct_sudoku_greater_than(block_size_row, block_size_col, grid_size):
     for r1, c1, r2, c2 in true_vertical_gt:
         if r1 < grid_size and r2 < grid_size and c1 < grid_size and c2 < grid_size:
             model += (grid[r1, c1] > grid[r2, c2])
+    
+    
 
     C_T = list(set(toplevel_list(model.constraints)))
 

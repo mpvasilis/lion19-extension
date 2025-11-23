@@ -21,6 +21,12 @@ def main():
             'num_overfitted': 18  
         },
         {
+            'name': 'sudoku_4x4_gt',
+            'description': '4x4 Sudoku with Greater-Than Constraints',
+            'num_examples': 5,
+            'num_overfitted': 10
+        },
+        {
             'name': 'jsudoku',
             'description': 'Jigsaw Sudoku (9x9 with irregular regions)',
             'num_examples': 5,

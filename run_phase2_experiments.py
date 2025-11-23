@@ -304,6 +304,11 @@ def main():
             'description': 'Sudoku with Greater-Than Constraints'
         },
         {
+            'name': 'sudoku_4x4_gt',
+            'pickle': 'phase1_output/sudoku_4x4_gt_phase1.pkl',
+            'description': '4x4 Sudoku with Greater-Than Constraints'
+        },
+        {
             'name': 'examtt_v1',
             'pickle': 'phase1_output/examtt_v1_phase1.pkl',
             'description': 'Exam Timetabling Variant 1 (Small)'

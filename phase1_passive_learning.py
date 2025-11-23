@@ -18,7 +18,7 @@ from cpmpy.transformations.get_variables import get_variables
 
 from benchmarks_global import construct_sudoku, construct_jsudoku, construct_latin_square
 from benchmarks_global import construct_graph_coloring_register, construct_graph_coloring_scheduling
-from benchmarks_global import construct_sudoku_greater_than
+from benchmarks_global import construct_sudoku_greater_than, construct_sudoku_4x4_gt
 from benchmarks_global import construct_examtt_simple as ces_global
 from benchmarks_global import construct_examtt_variant1, construct_examtt_variant2
 from benchmarks_global import construct_nurse_rostering as nr_global
@@ -64,6 +64,18 @@ def construct_instance(benchmark_name):
     elif 'jsudoku' in benchmark_name.lower():
         print("Constructing 9x9 JSudoku (Jigsaw Sudoku)...")
         result = construct_jsudoku(grid_size=9)
+        
+        if len(result) == 3:
+            instance, oracle, overfitted_constraints = result
+            print(f"  Received {len(overfitted_constraints)} overfitted constraints from benchmark")
+            return instance, oracle, overfitted_constraints
+        else:
+            instance, oracle = result
+            return instance, oracle
+    
+    elif 'sudoku_4x4_gt' in benchmark_name.lower() or 'sudoku_4x4_greater' in benchmark_name.lower():
+        print("Constructing 4x4 Sudoku with Greater-Than constraints...")
+        result = construct_sudoku_4x4_gt(2, 2, 4)
         
         if len(result) == 3:
             instance, oracle, overfitted_constraints = result
@@ -657,7 +669,7 @@ def extract_grid_info(variables):
     }
 
 
-def discover_non_implied_pairs(variables, positive_examples, target_constraints, grid_info=None, max_pairs=25, max_checks=2000):
+def discover_non_implied_pairs(variables, positive_examples, target_constraints, grid_info=None, max_pairs=25, max_checks=2000, random_seed=None):
 
     if grid_info is None or not positive_examples:
         return []
@@ -669,7 +681,8 @@ def discover_non_implied_pairs(variables, positive_examples, target_constraints,
     var_list = list(coords.keys())
     unique_pairs = []
     attempts = 0
-    rng = random.Random(42)
+    # Use provided seed or default to 42 for backwards compatibility
+    rng = random.Random(random_seed if random_seed is not None else 42)
 
     while len(unique_pairs) < max_pairs and attempts < max_checks:
         attempts += 1
@@ -918,6 +931,13 @@ def run_phase1(benchmark_name, output_dir='phase1_output', num_examples=5, num_o
     # Start timing Phase 1 execution
     phase1_start_time = time.time()
     
+    # Seed random number generator based on benchmark name to ensure different overfitted constraints
+    # for different variants/benchmarks
+    import hashlib
+    seed_value = int(hashlib.md5(benchmark_name.encode()).hexdigest()[:8], 16)
+    random.seed(seed_value)
+    print(f"\n[SEED] Random seed set to {seed_value} (based on benchmark: {benchmark_name})")
+    
     print(f"\n{'='*70}")
     print(f"Phase 1: Passive Learning - {benchmark_name}")
     print(f"{'='*70}")
@@ -1008,7 +1028,7 @@ def run_phase1(benchmark_name, output_dir='phase1_output', num_examples=5, num_o
     grid_info = extract_grid_info(instance.X)
     if grid_info and grid_info.get('blocks'):
         print(f"\nDetected {len(grid_info.get('blocks', {}))} block groups for overfitted generation")
-    pair_seeds = discover_non_implied_pairs(instance.X, positive_examples, all_target_constraints, grid_info=grid_info)
+    pair_seeds = discover_non_implied_pairs(instance.X, positive_examples, all_target_constraints, grid_info=grid_info, random_seed=seed_value)
     if pair_seeds:
         print(f"  Identified {len(pair_seeds)} non-implied variable pairs for overfitted seeding")
 
@@ -1214,7 +1234,7 @@ if __name__ == "__main__":
         description='Phase 1: Passive Learning for HCAR'
     )
     parser.add_argument('--benchmark', type=str, required=True,
-                       choices=['sudoku', 'sudoku_gt', 'examtt', 'examtt_v1', 'examtt_v2', 'nurse', 'uefa', 
+                       choices=['sudoku', 'sudoku_gt', 'sudoku_4x4_gt', 'examtt', 'examtt_v1', 'examtt_v2', 'nurse', 'uefa', 
                                'graph_coloring_register', 'graph_coloring_scheduling', 'latin_square', 'jsudoku'],
                        help='Benchmark name')
     parser.add_argument('--output_dir', type=str, default='phase1_output',

@@ -20,8 +20,10 @@ from resilient_growacq import ResilientGrowAcq
 from benchmarks_global import construct_sudoku, construct_jsudoku, construct_latin_square
 from benchmarks_global import construct_graph_coloring_register, construct_graph_coloring_scheduling
 from benchmarks_global import construct_examtt_simple as ces_global
+from benchmarks_global import construct_sudoku_4x4_gt
 from benchmarks import construct_sudoku_binary, construct_jsudoku_binary, construct_latin_square_binary
 from benchmarks import construct_graph_coloring_binary_register, construct_graph_coloring_binary_scheduling, construct_examtt_simple
+from benchmarks import construct_sudoku_4x4_gt_binary
 
 
 def compute_solution_metrics(learned_model, learned_constraints, target_constraints, variables, max_solutions=100, timeout_per_model=300):
@@ -196,6 +198,10 @@ def construct_instance(experiment_name):
         n = 9
         instance_binary, oracle_binary = construct_jsudoku_binary(grid_size=9)
         result = construct_jsudoku(grid_size=9)
+        instance_global, oracle_global = (result[0], result[1]) if len(result) == 3 else result
+    elif 'sudoku_4x4_gt' in experiment_name.lower():
+        instance_binary, oracle_binary = construct_sudoku_4x4_gt_binary(2, 2, 4)
+        result = construct_sudoku_4x4_gt(2, 2, 4)
         instance_global, oracle_global = (result[0], result[1]) if len(result) == 3 else result
     elif 'sudoku' in experiment_name.lower():
         n = 9
