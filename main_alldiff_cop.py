@@ -406,15 +406,10 @@ def generate_violation_query(CG, C_validated, probabilities, all_variables, orac
     
     objective = constraint_violation_term
     
-    if bias_violations:
-        bias_violation_term = cp.sum(bias_violations)
-        objective += 10 * bias_violation_term
-        
-    if similarity_terms:
-        # Add similarity penalty
-        # We sum up all similarities across all history
-        total_similarity = cp.sum(similarity_terms)
-        objective += diversity_weight * total_similarity
+    # if bias_violations:
+    #     bias_violation_term = cp.sum(bias_violations)
+    #     objective += 10 * bias_violation_term
+  
 
     model.minimize(objective)
 
@@ -507,79 +502,6 @@ def generate_violation_query(CG, C_validated, probabilities, all_variables, orac
     else:
         print(f"  UNSAT after {solve_time:.2f}s - cannot find violation query")
         return None, [], "UNSAT", {}, False
-
-
-
-def generate_counterexample_query(constraint_to_falsify, C_validated_except, all_variables, 
-                                   previous_queries=None, B_fixed=None, bias_weight=0.5):
-    """
-    Generate a query that satisfies all constraints in C_validated_except 
-    but VIOLATES constraint_to_falsify.
-    
-    This is used to search for counterexamples to newly validated constraints.
-    If oracle accepts such a query, it proves constraint_to_falsify is spurious.
-    
-    Args:
-        constraint_to_falsify: Constraint to violate
-        C_validated_except: All OTHER validated constraints (must satisfy these)
-        all_variables: All problem variables
-        previous_queries: Previous queries to exclude
-        B_fixed: Bias constraints
-        bias_weight: Weight for bias violations
-    
-    Returns:
-        (assignment, status) where status is "SAT" or "UNSAT"
-    """
-    import cpmpy as cp
-    import time
-    
-    model = cp.Model()
-    
-    # Add all OTHER validated constraints as hard constraints
-    C_validated_dec = toplevel_list([c.decompose()[0] for c in C_validated_except])
-    for c in C_validated_dec:
-        model += c
-    
-    # VIOLATE the constraint we're trying to falsify
-    model += ~constraint_to_falsify
-    
-    # Exclude previous queries
-    if previous_queries:
-        model_vars = get_variables([constraint_to_falsify])
-        for assignment in previous_queries:
-            diff_terms = []
-            for var in model_vars:
-                var_name = str(getattr(var, 'name', ''))
-                if var_name in assignment:
-                    diff_terms.append(var != assignment[var_name])
-            if diff_terms:
-                model += cp.any(diff_terms)
-    
-    # Optionally: minimize bias violations to make query more "natural"
-    if B_fixed:
-        bias_violations = []
-        cg_vars = get_variables([constraint_to_falsify])
-        relevant_bias = get_con_subset(B_fixed, cg_vars)
-        
-        for i, bias_c in enumerate(relevant_bias):
-            beta_i = cp.boolvar(name=f"beta_counter_{i}")
-            model += (beta_i == ~bias_c)
-            bias_violations.append(beta_i)
-        
-        if bias_violations:
-            model.minimize(cp.sum(bias_violations))
-    
-    # Solve
-    result = model.solve(time_limit=5)
-    
-    if result:
-        # Found counterexample!
-        model_vars = get_variables(model.constraints)
-        Y = [v for v in model_vars if not str(getattr(v, 'name', '')).startswith('beta_counter_')]
-        assignment = variables_to_assignment(Y)
-        return assignment, "SAT"
-    else:
-        return {}, "UNSAT"
 
 
 
@@ -772,70 +694,6 @@ def cop_refinement_recursive(CG_cand, C_validated, oracle, probabilities, all_va
         for c in Viol_e:
             print(f"{indent}  - {c} (P={probs[c]:.3f})")
         
-        # Check for stagnation: If query violates ALL candidates and we have > 1 candidate,
-        # we might be stuck in a loop of finding the same full violation.
-        # Try to force a split.
-        if len(Viol_e) == len(CG) and len(CG) > 1:
-            print(f"{indent}[INFO] Query violates ALL {len(CG)} candidates. Checking if splitting is possible...")
-            
-            # Try to find a query that violates strictly fewer constraints
-            Y_split, Viol_e_split, status_split, assignment_split, _ = generate_violation_query(
-                CG,
-                C_val,
-                probs,
-                all_variables,
-                oracle,
-                previous_queries=negative_query_assignments,
-                positive_examples=current_level_positive_examples,
-                B_fixed=B_fixed,
-                bias_weight=bias_weight,
-                diversity_assignments=query_assignments,
-                diversity_weight=0.1,
-                max_violations=len(CG) - 1 # Force strict subset violation
-            )
-            
-            if status_split == "UNSAT":
-                print(f"{indent}[INFO] Splitting is UNSAT. Constraints are likely equivalent.")
-                print(f"{indent}[INFO] Since previous query (violating all) was generated, at least one must be true (if Oracle says NO).")
-                print(f"{indent}[INFO] Equivalence implies ALL are true. Validating ALL {len(CG)} constraints.")
-                
-                # Validate all
-                for c in list(CG):
-                    CG.remove(c)
-                    C_val.append(c)
-                    print(f"{indent}  [VALIDATE ALL] {c} (P={probs[c]:.3f})")
-                    validation_log.append({
-                        'constraint': str(c),
-                        'method': 'equivalent_set',
-                        'probability': probs[c],
-                        'depth': recursion_depth,
-                        'iteration': iteration,
-                        'set_size': len(CG)
-                    })
-                
-                # Continue to next iteration (CG is empty now, loop will finish)
-                continue
-            else:
-                print(f"{indent}[INFO] Splitting is SAT. Using split query.")
-                # Use the split query instead
-                Y = Y_split
-                Viol_e = Viol_e_split
-                assignment = assignment_split
-                assignment_signature_value = assignment_signature(assignment)
-                
-                # Update cache and history with the NEW assignment
-                if assignment_signature_value is None:
-                     print(f"{indent}[WARN] Split query has no assigned values; skipping")
-                     continue
-                     
-                query_signature_cache.add(assignment_signature_value)
-                assignment_snapshot = assignment.copy()
-                query_assignments.append(assignment_snapshot)
-                
-                print(f"{indent}Split query violating {len(Viol_e)} constraints")
-                for c in Viol_e:
-                    print(f"{indent}  - {c} (P={probs[c]:.3f})")
-
         # if recursion_depth == 0 and 'sudoku' in experiment_name.lower() and len(all_variables) == 81:
         try:
             display_sudoku_grid(Y, title=f"{indent}Violation Query Assignment", debug=False)
@@ -923,86 +781,6 @@ def cop_refinement_recursive(CG_cand, C_validated, oracle, probabilities, all_va
                         'iteration': iteration,
                         'query_id': len(query_history) - 1
                     })
-                    
-                    # SOUNDNESS CHECK: Search for counterexample
-                    # Try to find an assignment that satisfies all OTHER validated constraints
-                    # but violates this newly validated constraint
-                    print(f"{indent}  [COUNTEREXAMPLE SEARCH] Attempting to falsify {c}...")
-                    
-                    C_validated_except = [c_other for c_other in C_val if c_other is not c]
-                    counter_assignment, counter_status = generate_counterexample_query(
-                        constraint_to_falsify=c,
-                        C_validated_except=C_validated_except,
-                        all_variables=all_variables,
-                        previous_queries=negative_query_assignments,
-                        B_fixed=B_fixed,
-                        bias_weight=bias_weight
-                    )
-                    
-                    if counter_status == "SAT":
-                        # Found a counterexample! Ask oracle
-                        print(f"{indent}  [COUNTEREXAMPLE] Found assignment violating {c}")
-                        queries_used += 1
-                        
-                        # Display counterexample
-                        try:
-                            display_sudoku_grid_from_assignment(counter_assignment, 
-                                                                title=f"{indent}  Counterexample Query",
-                                                                debug=False)
-                        except:
-                            pass
-                        
-                        print(f"{indent}  [ORACLE] Asking about counterexample...")
-                        
-                        # Convert assignment to variables for oracle
-                        counter_vars = []
-                        for var in all_variables:
-                            var_name = str(getattr(var, 'name', ''))
-                            if var_name in counter_assignment:
-                                var._value = counter_assignment[var_name]
-                            else:
-                                var._value = None
-                            counter_vars.append(var)
-                        
-                        # Ask oracle
-                        if hasattr(oracle, 'variables_list') and oracle.variables_list is not None:
-                            synchronise_assignments(counter_vars, oracle.variables_list)
-                            counter_answer_raw = oracle.answer_membership_query(oracle.variables_list)
-                        else:
-                            counter_answer_raw = oracle.answer_membership_query(counter_vars)
-                        
-                        counter_answer = interpret_oracle_response(counter_answer_raw)
-                        
-                        if counter_answer:
-                            # Oracle ACCEPTS the counterexample!
-                            # This proves c is SPURIOUS
-                            print(f"{indent}  [SPURIOUS] Oracle accepted violation of {c}!")
-                            print(f"{indent}  [INVALIDATE] Removing {c} from validated set")
-                            
-                            # Remove from validated, add back to candidates
-                            C_val.remove(c)
-                            CG.add(c)
-                            
-                            # Penalize probability heavily
-                            probs[c] *= (alpha ** 2)  # Double penalty
-                            
-                            # Log the invalidation
-                            validation_log.append({
-                                'constraint': str(c),
-                                'method': 'counterexample_invalidation',
-                                'probability': probs[c],
-                                'depth': recursion_depth,
-                                'iteration': iteration
-                            })
-                        else:
-                            # Oracle REJECTS the counterexample
-                            # Additional confirmation that c is true
-                            print(f"{indent}  [CONFIRM] Oracle rejected counterexample - {c} confirmed")
-                    else:
-                        # Could not find counterexample (UNSAT)
-                        # This is good - no counterexample exists
-                        print(f"{indent}  [NO COUNTEREXAMPLE] Cannot violate {c} while satisfying others - likely true")
-                        
                 else:
                     print(f"{indent}  [DEFER] {c} (P={probs[c]:.3f} < {theta_max})")
             
@@ -1033,6 +811,16 @@ def cop_refinement_recursive(CG_cand, C_validated, oracle, probabilities, all_va
                 
                 C_val_filtered = get_con_subset(C_val, S) if C_val else []
                 print(f"{indent}  Relevant validated constraints: {len(C_val_filtered)}/{len(C_val)}")
+                
+                # Include non-disambiguated constraints from CG as hard constraints
+                # These are constraints in CG that are not in Viol_e
+                other_cg_constraints = [c for c in CG if c not in Viol_e]
+                if other_cg_constraints:
+                    relevant_other_cg = get_con_subset(other_cg_constraints, S)
+                    print(f"{indent}  Relevant non-disambiguated constraints: {len(relevant_other_cg)}/{len(other_cg_constraints)}")
+                    C_val_filtered.extend(relevant_other_cg)
+                else:
+                    print(f"{indent}  No other non-disambiguated constraints to include")
                 
                 recursive_budget = min(max_queries - queries_used, max(10, (max_queries - queries_used) // 2))
                 recursive_timeout = max(10, (timeout - (time.time() - start_time)) / 2)
