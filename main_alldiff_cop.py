@@ -306,8 +306,7 @@ def interpret_oracle_response(response):
 
 
 def generate_violation_query(CG, C_validated, probabilities, all_variables, oracle=None,
-                             previous_queries=None, positive_examples=None, B_fixed=None, bias_weight=0.5,
-                             diversity_assignments=None, diversity_weight=0.1, max_violations=None):
+                             previous_queries=None, positive_examples=None, B_fixed=None, bias_weight=0.5):
     
     import cpmpy as cp
     import time
@@ -352,12 +351,6 @@ def generate_violation_query(CG, C_validated, probabilities, all_variables, orac
     gamma_list = list(gamma.values())
     model += (cp.sum(gamma_list) >= 1)
     
-    if max_violations is not None:
-        print(f"  [CONSTRAINT] Forcing split: max_violations <= {max_violations}")
-        model += (cp.sum(gamma_list) <= max_violations)  
-
-    
-    
     bias_violations = []
     relevant_bias = []
     
@@ -378,37 +371,13 @@ def generate_violation_query(CG, C_validated, probabilities, all_variables, orac
         
         print(f"  Added {len(bias_violations)} bias violation indicators")
     
-    # Diversity / Hamming Distance Maximization
-    similarity_terms = []
-    if diversity_assignments and diversity_weight > 0:
-        print(f"  Adding diversity terms for {len(diversity_assignments)} previous assignments (w={diversity_weight})")
-        
-        # We want to MINIMIZE similarity (maximize Hamming distance)
-        # Similarity = sum(var == val) for all vars in assignment
-        
-        # Only consider variables that are actually in the model (CG scope)
-        # to avoid creating variables that aren't constrained
-        relevant_vars = {str(v.name): v for v in model_vars}
-        
-        for i, prev_assign in enumerate(diversity_assignments):
-            match_indicators = []
-            for var_name, val in prev_assign.items():
-                if var_name in relevant_vars:
-                    # Create indicator: 1 if match, 0 if different
-                    # We want to minimize matches
-                    match_indicators.append(relevant_vars[var_name] == val)
-            
-            if match_indicators:
-                # Sum of matches for this previous assignment
-                similarity_terms.append(cp.sum(match_indicators))
-    
     constraint_violation_term = cp.sum([probabilities[c]* gamma[str(c)] for c in CG])
     
     objective = constraint_violation_term
     
-    # if bias_violations:
-    #     bias_violation_term = cp.sum(bias_violations)
-    #     objective += 10 * bias_violation_term
+    if bias_violations:
+        bias_violation_term = cp.sum(bias_violations)
+        objective += 10 * bias_violation_term
   
 
     model.minimize(objective)
@@ -455,11 +424,6 @@ def generate_violation_query(CG, C_validated, probabilities, all_variables, orac
         else:
             print(f"  No B_fixed bias constraints violated.")
     
-    if similarity_terms:
-        # Calculate actual similarity after solve
-        sim_val = total_similarity.value()
-        print(f"  Diversity Penalty: {sim_val} matches (weighted: {sim_val * diversity_weight})")
-
     if result:
         print(f"  Solved in {solve_time:.2f}s - found violation query")
         
@@ -646,9 +610,7 @@ def cop_refinement_recursive(CG_cand, C_validated, oracle, probabilities, all_va
             previous_queries=negative_query_assignments,
             positive_examples=current_level_positive_examples,
             B_fixed=B_fixed,
-            bias_weight=bias_weight,
-            diversity_assignments=query_assignments, # Pass all previous queries for diversity
-            diversity_weight=0.1 # Default weight
+            bias_weight=bias_weight
         )
         
         if status == "UNSAT":
