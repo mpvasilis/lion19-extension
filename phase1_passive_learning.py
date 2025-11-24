@@ -705,9 +705,129 @@ def discover_non_implied_pairs(variables, positive_examples, target_constraints,
     return unique_pairs
 
 
-def generate_overfitted_alldifferent(variables, positive_examples, target_alldiffs, count=4, max_attempts=10000, grid_info=None, pair_seeds=None):
+def generate_adjacent_overfitted_constraints(grid_info, target_alldiffs, positive_examples, variables, count=4):
+    """
+    Generate overfitted constraints by combining adjacent rows, columns, or blocks.
+    Example: row[0] + row[1], col[0] + col[1], block[0,0] + block[0,1]
+    """
+    print(f"\nGenerating {count} adjacent overfitted constraints...")
+    
+    if not grid_info:
+        print("  No grid info available, cannot generate adjacent patterns")
+        return []
+    
+    # Build target constraint signatures for checking
+    target_strs = set()
+    for c in target_alldiffs:
+        scope_vars = get_variables([c])
+        var_names = tuple(sorted([v.name for v in scope_vars]))
+        target_strs.add(var_names)
+    
+    rows_dict = grid_info.get('rows', {})
+    cols_dict = grid_info.get('cols', {})
+    blocks_dict = grid_info.get('blocks', {})
+    
+    overfitted = []
+    candidates = []
+    
+    # Generate adjacent rows (row i + row i+1)
+    if rows_dict:
+        sorted_rows = sorted(rows_dict.keys())
+        for i in range(len(sorted_rows) - 1):
+            row1 = sorted_rows[i]
+            row2 = sorted_rows[i + 1]
+            combined_vars = rows_dict[row1] + rows_dict[row2]
+            if len(combined_vars) >= 6:  # Must have enough variables
+                candidates.append(('adjacent_rows', f"rows {row1}+{row2}", combined_vars))
+    
+    # Generate adjacent columns (col i + col i+1)
+    if cols_dict:
+        sorted_cols = sorted(cols_dict.keys())
+        for i in range(len(sorted_cols) - 1):
+            col1 = sorted_cols[i]
+            col2 = sorted_cols[i + 1]
+            combined_vars = cols_dict[col1] + cols_dict[col2]
+            if len(combined_vars) >= 6:
+                candidates.append(('adjacent_cols', f"cols {col1}+{col2}", combined_vars))
+    
+    # Generate adjacent blocks (horizontally and vertically adjacent)
+    if blocks_dict:
+        sorted_blocks = sorted(blocks_dict.keys())
+        for i, block1 in enumerate(sorted_blocks):
+            for block2 in sorted_blocks[i+1:]:
+                # Check if blocks are adjacent (horizontally or vertically)
+                row1, col1 = block1
+                row2, col2 = block2
+                
+                # Horizontally adjacent: same row, consecutive columns
+                if row1 == row2 and abs(col1 - col2) == 1:
+                    combined_vars = blocks_dict[block1] + blocks_dict[block2]
+                    if len(combined_vars) >= 6:
+                        candidates.append(('adjacent_blocks_h', f"blocks {block1}+{block2}", combined_vars))
+                
+                # Vertically adjacent: same column, consecutive rows
+                elif col1 == col2 and abs(row1 - row2) == 1:
+                    combined_vars = blocks_dict[block1] + blocks_dict[block2]
+                    if len(combined_vars) >= 6:
+                        candidates.append(('adjacent_blocks_v', f"blocks {block1}+{block2}", combined_vars))
+    
+    print(f"  Generated {len(candidates)} candidate adjacent patterns")
+    
+    # Filter candidates to ensure they're not in target and are valid
+    random.shuffle(candidates)
+    
+    for pattern_type, description, var_subset in candidates:
+        if len(overfitted) >= count:
+            break
+        
+        # Check if this pattern is already a target constraint
+        var_names = tuple(sorted([v.name for v in var_subset]))
+        if var_names in target_strs:
+            continue
+        
+        # Check if AllDifferent holds in positive examples
+        is_valid = True
+        for example in positive_examples:
+            values = []
+            for var in var_subset:
+                if var.name in example:
+                    values.append(example[var.name])
+                else:
+                    is_valid = False
+                    break
+            
+            if not is_valid:
+                break
+            
+            # Check if values are all different
+            if len(values) != len(set(values)):
+                is_valid = False
+                break
+        
+        if not is_valid:
+            continue
+        
+        # Check if constraint is not implied by target
+        constraint = AllDifferent(var_subset)
+        if is_constraint_implied(constraint, target_alldiffs, variables):
+            print(f"  [SKIP] {description} implied by target")
+            continue
+        
+        overfitted.append(constraint)
+        target_strs.add(var_names)
+        print(f"  Generated overfitted {len(overfitted)}/{count}: {pattern_type} ({description}), scope={len(var_subset)}")
+    
+    if len(overfitted) < count:
+        print(f"  Warning: Could only generate {len(overfitted)} adjacent patterns (requested {count})")
+    
+    return overfitted
+
+
+def generate_overfitted_alldifferent(variables, positive_examples, target_alldiffs, count=4, max_attempts=10000, grid_info=None, pair_seeds=None, skip_consistency_check=False):
 
     print(f"\nGenerating {count} overfitted AllDifferent constraints...")
+    if skip_consistency_check:
+        print(f"  [MODE] Skipping E+ consistency check - generating block-level spurious constraints")
 
     target_strs = set()
     target_sets = []  
@@ -727,6 +847,26 @@ def generate_overfitted_alldifferent(variables, positive_examples, target_alldif
     if grid_info:
         block_mappings = [(bid, vars_in_block) for bid, vars_in_block in grid_info.get('blocks', {}).items() if len(vars_in_block) > 1]
         coords = grid_info.get('coords', {})
+        
+        # Extract block size information
+        block_size = grid_info.get('block_size', (3, 3))  # Default for 9x9 Sudoku
+        rows_dict = grid_info.get('rows', {})
+        cols_dict = grid_info.get('cols', {})
+        
+        if coords and rows_dict:
+            # Infer grid dimensions
+            max_row = max(row for row, col, block in coords.values())
+            max_col = max(col for row, col, block in coords.values())
+            grid_rows = max_row + 1
+            grid_cols = max_col + 1
+        else:
+            grid_rows, grid_cols = 9, 9  # Default
+            
+        print(f"  Grid info: {grid_rows}x{grid_cols}, block size: {block_size}")
+    else:
+        block_size = None
+        grid_rows, grid_cols = None, None
+        
     attempts = 0
 
     def is_valid_all_diff(var_subset):
@@ -748,7 +888,10 @@ def generate_overfitted_alldifferent(variables, positive_examples, target_alldif
         generation_mode = 'standard'
         roll = random.random()
 
-        if pair_seeds and roll < 0.2:
+        # If skip_consistency_check is True, prioritize wrong block generation
+        if skip_consistency_check and coords and block_size and roll < 0.8:
+            generation_mode = 'wrong_block'
+        elif pair_seeds and roll < 0.2:
             generation_mode = 'pair'
         elif block_mappings and roll < 0.4:
             generation_mode = 'block'
@@ -757,7 +900,100 @@ def generate_overfitted_alldifferent(variables, positive_examples, target_alldif
         elif roll >= 0.6 and roll < 0.8:
             generation_mode = 'wide'
 
-        if generation_mode == 'pair' and pair_seeds:
+        if generation_mode == 'wrong_block' and coords and block_size:
+            # Generate a wrong block by shifting or resizing the original blocks
+            block_h, block_w = block_size
+            
+            # Choose a random modification type
+            mod_type = random.choice(['shift_row', 'shift_col', 'bigger', 'smaller', 'overlap'])
+            
+            # Pick a random starting position for the block
+            base_row = random.randint(0, grid_rows - block_h - 1) if grid_rows > block_h else 0
+            base_col = random.randint(0, grid_cols - block_w - 1) if grid_cols > block_w else 0
+            
+            block_vars = []
+            
+            if mod_type == 'shift_row':
+                # Shift the block by 1 row (down)
+                shift = 1
+                for r in range(block_h):
+                    for c in range(block_w):
+                        row_idx = (base_row + r + shift) % grid_rows
+                        col_idx = base_col + c
+                        if col_idx < grid_cols:
+                            # Find variable with this position
+                            for var, (vr, vc, vb) in coords.items():
+                                if vr == row_idx and vc == col_idx:
+                                    block_vars.append(var)
+                                    break
+            
+            elif mod_type == 'shift_col':
+                # Shift the block by 1 column (right)
+                shift = 1
+                for r in range(block_h):
+                    for c in range(block_w):
+                        row_idx = base_row + r
+                        col_idx = (base_col + c + shift) % grid_cols
+                        if row_idx < grid_rows:
+                            # Find variable with this position
+                            for var, (vr, vc, vb) in coords.items():
+                                if vr == row_idx and vc == col_idx:
+                                    block_vars.append(var)
+                                    break
+            
+            elif mod_type == 'bigger':
+                # Make block bigger (add 1 row or column)
+                extra_rows = 1 if random.random() < 0.5 and (base_row + block_h + 1) <= grid_rows else 0
+                extra_cols = 1 if extra_rows == 0 and (base_col + block_w + 1) <= grid_cols else 0
+                
+                for r in range(block_h + extra_rows):
+                    for c in range(block_w + extra_cols):
+                        row_idx = base_row + r
+                        col_idx = base_col + c
+                        if row_idx < grid_rows and col_idx < grid_cols:
+                            for var, (vr, vc, vb) in coords.items():
+                                if vr == row_idx and vc == col_idx:
+                                    block_vars.append(var)
+                                    break
+            
+            elif mod_type == 'smaller':
+                # Make block smaller (remove 1 row or column)
+                remove_rows = 1 if random.random() < 0.5 and block_h > 2 else 0
+                remove_cols = 1 if remove_rows == 0 and block_w > 2 else 0
+                
+                for r in range(block_h - remove_rows):
+                    for c in range(block_w - remove_cols):
+                        row_idx = base_row + r
+                        col_idx = base_col + c
+                        if row_idx < grid_rows and col_idx < grid_cols:
+                            for var, (vr, vc, vb) in coords.items():
+                                if vr == row_idx and vc == col_idx:
+                                    block_vars.append(var)
+                                    break
+            
+            elif mod_type == 'overlap':
+                # Create a block that overlaps two original blocks
+                # Take half from one block, half from adjacent block
+                mid_row = block_h // 2
+                for r in range(block_h):
+                    for c in range(block_w):
+                        if r < mid_row:
+                            row_idx = base_row + r
+                        else:
+                            row_idx = base_row + r + block_h  # Jump to next block row
+                        col_idx = base_col + c
+                        
+                        if row_idx < grid_rows and col_idx < grid_cols:
+                            for var, (vr, vc, vb) in coords.items():
+                                if vr == row_idx and vc == col_idx:
+                                    block_vars.append(var)
+                                    break
+            
+            if len(block_vars) >= 3:
+                var_subset = block_vars
+                print(f"  Generated wrong block ({mod_type}): {len(var_subset)} variables")
+        
+        elif generation_mode == 'pair' and pair_seeds:
             base_pair = random.choice(pair_seeds)
             subset_pool = [v for v in var_list if v not in base_pair]
             random.shuffle(subset_pool)
@@ -838,7 +1074,8 @@ def generate_overfitted_alldifferent(variables, positive_examples, target_alldif
         if is_subset_of_target:
             continue  
 
-        if is_valid_all_diff(var_subset):
+        # Skip E+ consistency check if requested (for block-level spurious constraints)
+        if skip_consistency_check or is_valid_all_diff(var_subset):
 
             constraint = AllDifferent(var_subset)
             if is_constraint_implied(constraint, implication_base, variables):
@@ -847,7 +1084,11 @@ def generate_overfitted_alldifferent(variables, positive_examples, target_alldif
             overfitted.append(constraint)
             target_strs.add(var_names)  
             implication_base.append(constraint)
-            print(f"  Generated overfitted constraint {len(overfitted)}/{count}: scope size = {scope_size}")
+            
+            if skip_consistency_check:
+                print(f"  Generated overfitted constraint {len(overfitted)}/{count}: scope size = {scope_size} [NO E+ CHECK]")
+            else:
+                print(f"  Generated overfitted constraint {len(overfitted)}/{count}: scope size = {scope_size}")
 
     
     
@@ -966,7 +1207,7 @@ def run_phase1(benchmark_name, output_dir='phase1_output', num_examples=5, num_o
 
     # For examtt problems, disable combinatorial search to avoid too many candidates
     # Structured patterns should be sufficient
-    use_combinatorial = True  # Disabled to reduce candidate count
+    use_combinatorial = False  # Disabled to reduce candidate count
     min_scope = 9
     max_scope = 11
     
@@ -1075,14 +1316,32 @@ def run_phase1(benchmark_name, output_dir='phase1_output', num_examples=5, num_o
             print(
                 f"\n[MOCK] Have {len(overfitted_constraints)} overfitted constraints ({len(detected_overfitted)} from detection, {len(alldiff_overfitteds)} from benchmark); generating {needed} more to reach target of {num_overfitted}."
             )
-            additional_overfitteds = generate_overfitted_alldifferent(
-                instance.X,
-                positive_examples,
-                all_target_constraints + overfitted_constraints,
-                count=needed,
+            
+            # First try to generate adjacent patterns
+            print(f"[ADJACENT MODE] Generating {needed} adjacent patterns")
+            additional_overfitteds = generate_adjacent_overfitted_constraints(
                 grid_info=grid_info,
-                pair_seeds=pair_seeds
+                target_alldiffs=all_target_constraints + overfitted_constraints,
+                positive_examples=positive_examples,
+                variables=instance.X,
+                count=needed
             )
+            
+            # If not enough adjacent patterns, fall back to random generation
+            if len(additional_overfitteds) < needed:
+                still_needed = needed - len(additional_overfitteds)
+                print(f"[FALLBACK] Only got {len(additional_overfitteds)} adjacent patterns, generating {still_needed} random ones")
+                random_overfitteds = generate_overfitted_alldifferent(
+                    instance.X,
+                    positive_examples,
+                    all_target_constraints + overfitted_constraints + additional_overfitteds,
+                    count=still_needed,
+                    grid_info=grid_info,
+                    pair_seeds=pair_seeds,
+                    skip_consistency_check=True
+                )
+                additional_overfitteds.extend(random_overfitteds)
+            
             overfitted_constraints.extend(additional_overfitteds)
         elif len(overfitted_constraints) > num_overfitted:
             print(
@@ -1101,24 +1360,51 @@ def run_phase1(benchmark_name, output_dir='phase1_output', num_examples=5, num_o
         if len(overfitted_constraints) > 10:
             print(f"       ... and {len(overfitted_constraints) - 10} more")
     else:
-        # No benchmark overfitted constraints, use detected ones first
-        if len(detected_overfitted) >= num_overfitted:
-            overfitted_constraints = detected_overfitted[:num_overfitted]
-            print(f"\nUsing {len(overfitted_constraints)} detected overfitted patterns (no additional generation needed)")
-        else:
-            # Use detected ones and generate more
-            overfitted_constraints = list(detected_overfitted)
-            needed = num_overfitted - len(overfitted_constraints)
-            print(f"\nUsing {len(detected_overfitted)} detected overfitted patterns, generating {needed} more")
-            additional_overfitteds = generate_overfitted_alldifferent(
-                instance.X,
-                positive_examples,
-                all_target_constraints + overfitted_constraints,
-                count=needed,
-                grid_info=grid_info,
-                pair_seeds=pair_seeds
-            )
-            overfitted_constraints.extend(additional_overfitteds)
+        # No benchmark overfitted constraints provided
+        # Generate overfitted constraints using adjacent patterns (rows, cols, blocks)
+        print(f"\n[ADJACENT MODE] No benchmark overfitted constraints, generating {num_overfitted} adjacent patterns")
+        
+        overfitted_constraints = generate_adjacent_overfitted_constraints(
+            grid_info=grid_info,
+            target_alldiffs=all_target_constraints,
+            positive_examples=positive_examples,
+            variables=instance.X,
+            count=num_overfitted
+        )
+        
+        # If we couldn't generate enough adjacent patterns, fall back to detected ones or random generation
+        if len(overfitted_constraints) < num_overfitted:
+            print(f"\n[FALLBACK] Only generated {len(overfitted_constraints)} adjacent patterns, using detected patterns as fallback")
+            # Add detected overfitted patterns
+            for c in detected_overfitted:
+                if len(overfitted_constraints) >= num_overfitted:
+                    break
+                # Check if not duplicate
+                scope_vars = get_variables([c])
+                var_names = tuple(sorted([v.name for v in scope_vars]))
+                existing_sigs = set()
+                for existing_c in overfitted_constraints:
+                    existing_vars = get_variables([existing_c])
+                    existing_sig = tuple(sorted([v.name for v in existing_vars]))
+                    existing_sigs.add(existing_sig)
+                
+                if var_names not in existing_sigs:
+                    overfitted_constraints.append(c)
+            
+            # If still not enough, generate random ones
+            if len(overfitted_constraints) < num_overfitted:
+                needed = num_overfitted - len(overfitted_constraints)
+                print(f"\n[RANDOM] Still need {needed} more, generating random overfitted constraints")
+                additional_overfitteds = generate_overfitted_alldifferent(
+                    instance.X,
+                    positive_examples,
+                    all_target_constraints + overfitted_constraints,
+                    count=needed,
+                    grid_info=grid_info,
+                    pair_seeds=pair_seeds,
+                    skip_consistency_check=True
+                )
+                overfitted_constraints.extend(additional_overfitteds)
 
     CG = all_target_constraints + overfitted_constraints
     print(f"\nCombined CG (before dedup): {len(all_target_constraints)} target + {len(overfitted_constraints)} overfitted = {len(CG)} total")
