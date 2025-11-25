@@ -34,7 +34,7 @@ from threading import Lock
 
 PYTHON_EXECUTABLE = sys.executable or 'python3'
 
-# Benchmark display names for formatted output
+
 BENCHMARK_DISPLAY_NAMES = {
     'sudoku': 'Sudoku',
     'sudoku_gt': 'Sudoku-GT',
@@ -46,7 +46,7 @@ BENCHMARK_DISPLAY_NAMES = {
     'nurse': 'Nurse'
 }
 
-# Target constraint counts for each benchmark
+
 TARGET_CONSTRAINTS = {
     'sudoku': 27,
     'sudoku_gt': 37,
@@ -55,12 +55,12 @@ TARGET_CONSTRAINTS = {
     'graph_coloring_register': 5,
     'examtt_v1': 7,
     'examtt_v2': 9,
-    'nurse': 13  # Adjust based on actual
+    'nurse': 13  
 }
 
-# Benchmark-specific overfitted constraint counts (InvC) keyed by solution count
-# These values are used to set the number of overfitted constraints during Phase 1
-# passive learning for each benchmark.
+
+
+
 BENCHMARK_OVERFITTED_CONSTRAINTS = {
     'sudoku': {
         2: 20,
@@ -94,7 +94,7 @@ BENCHMARK_OVERFITTED_CONSTRAINTS = {
     },
 }
 
-# Default inverse relationship used when a benchmark does not have a bespoke mapping
+
 DEFAULT_OVERFITTED_CONSTRAINTS = {
     2: 50,
     5: 20,
@@ -131,20 +131,20 @@ def run_command(cmd, description):
 def run_phase1_with_timing(experiment, num_examples, num_overfitted, output_dir='solution_variance_output'):
     """Run Phase 1 with timing and return the time taken. Skip if pickle already exists."""
     
-    # Create custom output directory for this configuration
+
     config_output_dir = f"{output_dir}/{experiment}_sol{num_examples}_overfitted{num_overfitted}"
     os.makedirs(config_output_dir, exist_ok=True)
     
-    # Check if Phase 1 pickle already exists
+
     phase1_pickle = f"{config_output_dir}/{experiment}_phase1.pkl"
     
     if os.path.exists(phase1_pickle):
-        # Verify the pickle is valid and extract Phase 1 time if available
+
         try:
             with open(phase1_pickle, 'rb') as f:
                 phase1_data = pickle.load(f)
             
-            # Extract Phase 1 time from metadata if available
+
             phase1_time = 0.0
             if isinstance(phase1_data, dict) and 'metadata' in phase1_data:
                 phase1_time = phase1_data['metadata'].get('phase1_time', 0.0)
@@ -178,19 +178,19 @@ def run_phase1_with_timing(experiment, num_examples, num_overfitted, output_dir=
     elapsed_time = end_time - start_time
     
     if success:
-        # Store the Phase 1 execution time in the pickle metadata
+
         try:
             if os.path.exists(phase1_pickle):
                 with open(phase1_pickle, 'rb') as f:
                     phase1_data = pickle.load(f)
                 
-                # Add Phase 1 time to metadata
+
                 if isinstance(phase1_data, dict):
                     if 'metadata' not in phase1_data:
                         phase1_data['metadata'] = {}
                     phase1_data['metadata']['phase1_time'] = elapsed_time
                     
-                    # Save the updated pickle
+
                     with open(phase1_pickle, 'wb') as f:
                         pickle.dump(phase1_data, f)
                     print(f"[INFO] Stored Phase 1 execution time ({elapsed_time:.2f}s) in pickle metadata")
@@ -215,7 +215,7 @@ def run_phase2(
 ):
     """Run Phase 2 with the given Phase 1 pickle using specified approach (cop or lion)."""
     
-    # Select the appropriate script based on approach
+
     script_map = {
         'cop': 'main_alldiff_cop.py',
         'lion': 'main_alldiff_lion19.py'
@@ -223,9 +223,9 @@ def run_phase2(
     
     script = script_map.get(approach.lower(), 'main_alldiff_cop.py')
     
-    # Different scripts output different filenames
-    # COP outputs: {experiment}_phase2.pkl
-    # LION outputs: {experiment}_lion19_phase2.pkl
+
+
+
     filename_map = {
         'cop': f"{experiment}_phase2.pkl",
         'lion': f"{experiment}_lion19_phase2.pkl"
@@ -242,11 +242,11 @@ def run_phase2(
     success, _ = run_command(cmd, f"Phase 2 ({approach.upper()}): {experiment}")
     
     if success:
-        # Both scripts output to "phase2_output" directory
+
         default_output = "phase2_output"
         source_pickle = os.path.join(default_output, filename_map[approach.lower()])
 
-        # Move to approach-specific directory for organization
+
         base_output_dir = f"phase2_output_{approach.lower()}"
         if config_tag:
             target_dir = os.path.join(base_output_dir, experiment)
@@ -262,7 +262,7 @@ def run_phase2(
         os.makedirs(target_dir, exist_ok=True)
         target_pickle = os.path.join(target_dir, dest_filename)
 
-        # Move the file
+
         if os.path.exists(source_pickle):
             shutil.move(source_pickle, target_pickle)
             print(f"\n[INFO] Moved {source_pickle} to {target_pickle}")
@@ -311,12 +311,12 @@ def extract_metrics(
 ):
     """Extract all metrics from phase outputs for the results table (Phase 2 only)."""
     
-    # Load Phase 1 data
+
     phase1_data = load_phase1_pickle(phase1_pickle_path)
     if phase1_data is None:
         return None
     
-    # Load Phase 2 data
+
     phase2_data = load_phase2_pickle(phase2_pickle_path) if phase2_pickle_path else None
     if phase2_data is None:
         print(f"[WARNING] Skipping metrics extraction due to missing Phase 2 data: {phase2_pickle_path}")
@@ -333,63 +333,63 @@ def extract_metrics(
     
     metrics = {}
     
-    # Problem name
+
     metrics['Prob.'] = BENCHMARK_DISPLAY_NAMES.get(benchmark_name, benchmark_name)
     
-    # Approach (COP or LION)
+
     metrics['Approach'] = approach.upper()
     
-    # Number of solutions
+
     metrics['Sols'] = num_solutions
     
-    # StartC: Starting candidate constraints from Phase 1
+
     StartC = len(phase1_data.get('CG', []))
     metrics['StartC'] = StartC
     
-    # Implied: Number of constraints implied by target model (Phase 2 CP check)
+
     metrics['Implied'] = implied_constraints if implied_constraints is not None else 'N/A'
     metrics['NotImplied'] = not_implied_constraints if not_implied_constraints is not None else 'N/A'
     
-    # CT: Target constraint count
+
     metrics['CT'] = TARGET_CONSTRAINTS.get(benchmark_name, 'N/A')
     
-    # Bias: Size of generated bias (from Phase 2 data)
+
     raw_bias = len(phase2_data.get('B_fixed', []))
     metrics['Bias'] = raw_bias
     
-    # ViolQ: Violation queries from Phase 2
+
     metrics['ViolQ'] = phase2_stats.get('queries', 0)
     
-    # InvC: Invalid constraints (StartC - validated)
+
     validated_count = validated_globals
     metrics['InvC'] = StartC - validated_count
     
-    # MQuQ: MQuAcq queries from Phase 3 (not run, so 0)
+
     metrics['MQuQ'] = 0
     
-    # TQ: Total queries (ViolQ + MQuQ)
+
     metrics['TQ'] = metrics['ViolQ'] + metrics['MQuQ']
     
-    # Phase 1 Time (passive learning time)
+
     metrics['P1T(s)'] = round(phase1_time, 2)
     
-    # VT(s): Phase 2 violation time
+
     phase2_time = phase2_stats.get('time', 0)
     metrics['VT(s)'] = round(phase2_time, 2)
     
-    # MQuT(s): Phase 3 MQuAcq time (not run, so 0)
+
     metrics['MQuT(s)'] = 0.0
     
-    # TT(s): Total time (P1T + VT + MQuT)
+
     metrics['TT(s)'] = round(metrics['P1T(s)'] + metrics['VT(s)'] + metrics['MQuT(s)'], 2)
     
-    # Baseline metrics (not applicable for this experiment)
+
     metrics['ALQ'] = 'N/A'
     metrics['PAQ'] = 'N/A'
     metrics['ALT(s)'] = 'N/A'
     metrics['PAT(s)'] = 'N/A'
     
-    # Evaluation metrics (not available without Phase 3)
+
     metrics['precision'] = 0.0
     metrics['recall'] = 0.0
     metrics['s_precision'] = 0.0
@@ -430,7 +430,7 @@ def process_benchmark_config(benchmark, num_solutions, approaches):
     
     config_metrics = []
     
-    # Run Phase 1 once (shared for both approaches)
+
     phase1_success, phase1_pickle, phase1_time = run_phase1_with_timing(
         benchmark, num_solutions, num_overfitteds
     )
@@ -439,14 +439,14 @@ def process_benchmark_config(benchmark, num_solutions, approaches):
         print(f"\n[THREAD ERROR] Phase 1 failed for {benchmark} with {num_solutions} solutions")
         return config_metrics
     
-    # Run both COP and LION approaches for this configuration
+
     for approach in approaches:
         print(f"\n{'-'*60}")
         print(f"[TASK] Running {approach.upper()} approach for {benchmark} ({config_tag})")
         print(f"[TASK] Phase 2 only (Phase 3 skipped)")
         print(f"{'-'*60}\n")
         
-        # Run Phase 2 with the specified approach
+
         phase2_success, phase2_pickle = run_phase2(
             benchmark,
             phase1_pickle,
@@ -458,7 +458,7 @@ def process_benchmark_config(benchmark, num_solutions, approaches):
             print(f"\n[TASK ERROR] Phase 2 ({approach.upper()}) failed for {benchmark}")
             continue
         
-        # Extract metrics (Phase 2-only)
+
         try:
             metrics = extract_metrics(
                 benchmark,
@@ -488,17 +488,17 @@ def append_metrics_to_csv(metrics_list, csv_path, metrics_lock):
         return
     
     with metrics_lock:
-        # Check if file exists to determine if we need to write headers
+
         file_exists = os.path.exists(csv_path)
         
         with open(csv_path, 'a') as f:
-            # Write header if file doesn't exist
+
             if not file_exists:
                 f.write("Prob.,Approach,Sols,StartC,Implied,NotImplied,InvC,CT,Bias,ViolQ,MQuQ,TQ,ALQ,PAQ,")
                 f.write("P1T(s),VT(s),MQuT(s),TT(s),ALT(s),PAT(s),")
                 f.write("precision,recall,s_precision,s_recall\n")
             
-            # Write data rows
+
             for m in metrics_list:
                 f.write(f"{m['Prob.']},{m['Approach']},{m['Sols']},{m['StartC']},{m['Implied']},{m['NotImplied']},{m['InvC']},")
                 f.write(f"{m['CT']},{m['Bias']},{m['ViolQ']},{m['MQuQ']},{m['TQ']},")
@@ -530,21 +530,26 @@ def main():
     print(f"NOTE: This script runs experiments only through Phase 2 (Phase 3 is skipped)")
     print(f"{'='*80}\n")
     
-    # Define benchmarks to test
+
     benchmarks = [
-        #   'sudoku',
-        #  'sudoku_gt',
-        #  'graph_coloring_register',
-        # 'examtt_v1',
-        #  'examtt_v2',
-        #  'nurse',
-         'jsudoku',
+"sodoku",
+"sodoku_gt",
+"graph_coloring_register",
+"examtt_v1",
+"examtt_v2",
+"nurse",
+"jsudoku",
+
+
+
+
+
     ]
     
-    # Define approaches to compare
+
     approaches = ['cop','lion']
     
-    # Determine solution configurations per benchmark
+
     benchmark_solution_map = {
         benchmark: get_solution_counts_for_benchmark(benchmark)
         for benchmark in benchmarks
@@ -561,18 +566,18 @@ def main():
         print(f"  - {display_name}: {mapped_constraints}")
     print(f"{'='*80}\n")
 
-    # Storage for collected metrics (thread-safe)
+
     all_metrics = []
     metrics_lock = Lock()
     
-    # Setup output directory and intermediate results files
+
     output_dir = 'solution_variance_output_phase2'
     os.makedirs(output_dir, exist_ok=True)
     
     intermediate_csv_path = f"{output_dir}/intermediate_results.csv"
     progress_path = f"{output_dir}/progress.txt"
     
-    # Initialize files (create with headers)
+
     with open(intermediate_csv_path, 'w') as f:
         f.write("Prob.,Approach,Sols,StartC,Implied,NotImplied,InvC,CT,Bias,ViolQ,MQuQ,TQ,ALQ,PAQ,")
         f.write("P1T(s),VT(s),MQuT(s),TT(s),ALT(s),PAT(s),")
@@ -581,7 +586,7 @@ def main():
     print(f"[INFO] Intermediate results will be saved to: {intermediate_csv_path}")
     print(f"[INFO] Progress tracking file: {progress_path}\n")
     
-    # Create list of all tasks (benchmark, solution_config combinations)
+
     tasks = []
     for benchmark, solution_counts in benchmark_solution_map.items():
         for num_solutions in solution_counts:
@@ -593,10 +598,10 @@ def main():
     print(f"Phase 3 is skipped for all experiments")
     print(f"Processing sequentially...\n")
     
-    # Initialize progress tracking
+
     update_progress_file(0, total_tasks, progress_path, metrics_lock)
     
-    # Process tasks sequentially
+
     for index, (benchmark, num_solutions, approach_list) in enumerate(tasks, start=1):
         print(f"\n{'='*80}")
         print(f"[TASK {index}/{total_tasks}] Processing: {benchmark} | Solutions={num_solutions}")
@@ -605,14 +610,14 @@ def main():
         try:
             config_metrics = process_benchmark_config(benchmark, num_solutions, approach_list)
             
-            # Thread-safe addition to all_metrics
+
             with metrics_lock:
                 all_metrics.extend(config_metrics)
             
-            # Write intermediate results immediately
+
             append_metrics_to_csv(config_metrics, intermediate_csv_path, metrics_lock)
             
-            # Update progress tracking
+
             update_progress_file(index, total_tasks, progress_path, metrics_lock)
             
             print(f"\n{'='*80}")
@@ -626,17 +631,17 @@ def main():
             import traceback
             traceback.print_exc()
             
-            # Still update progress even on failure
+
             update_progress_file(index, total_tasks, progress_path, metrics_lock)
     
-    # All tasks completed
+
     print(f"\n{'='*80}")
     print(f"ALL TASKS COMPLETED")
     print(f"{'='*80}")
     print(f"Total metrics collected: {len(all_metrics)}")
     print(f"{'='*80}\n")
     
-    # Generate summary report
+
     print(f"\n\n{'='*80}")
     print(f"EXPERIMENT SUMMARY (PHASE 2 ONLY)")
     print(f"{'='*80}\n")
@@ -647,18 +652,18 @@ def main():
     print(f"\n[INFO] Intermediate results during execution: {intermediate_csv_path}")
     print(f"[INFO] Generating final summary reports...\n")
     
-    # Generate formatted text report (matching HCAR format)
+
     report_path = f"{output_dir}/variance_results_phase2.txt"
     with open(report_path, 'w') as f:
         f.write("Solution Variance Experiment Results - Phase 2 Only (COP vs LION Comparison)\n")
         f.write("="*140 + "\n\n")
         
-        # Header line
+
         f.write(f"{'Prob.':<15} {'Approach':<9} {'Sols':<6} {'StartC':<8} {'Implied':<9} {'NotImp.':<9} {'InvC':<6} {'CT':<5} {'Bias':<6} ")
         f.write(f"{'ViolQ':<7} {'MQuQ':<7} {'TQ':<6} {'ALQ':<5} {'PAQ':<5} ")
         f.write(f"{'P1T(s)':<8} {'VT(s)':<8} {'MQuT(s)':<9} {'TT(s)':<8} {'ALT(s)':<7} {'PAT(s)':<7}\n")
         
-        # Data rows
+
         for m in all_metrics:
             f.write(f"{m['Prob.']:<15} {m['Approach']:<9} {m['Sols']:<6} {m['StartC']:<8} {str(m['Implied']):<9} {str(m['NotImplied']):<9} {m['InvC']:<6} ")
             f.write(f"{str(m['CT']):<5} {m['Bias']:<6} ")
@@ -690,7 +695,7 @@ def main():
     
     print(f"[SAVED] Formatted results saved to: {report_path}")
     
-    # Print to console
+
     print(f"\n{'Prob.':<15} {'Approach':<9} {'Sols':<6} {'StartC':<8} {'Implied':<9} {'NotImp.':<9} {'InvC':<6} {'CT':<5} {'Bias':<6} ")
     print(f"{'ViolQ':<7} {'MQuQ':<7} {'TQ':<6} {'P1T(s)':<8} {'VT(s)':<8} {'MQuT(s)':<9} {'TT(s)':<8}")
     print("="*120)
@@ -700,15 +705,15 @@ def main():
         print(f"{m['ViolQ']:<7} {m['MQuQ']:<7} {m['TQ']:<6} ", end="")
         print(f"{m['P1T(s)']:<8} {m['VT(s)']:<8} {m['MQuT(s)']:<9} {m['TT(s)']:<8}")
     
-    # Generate CSV output
+
     csv_path = f"{output_dir}/variance_results_phase2.csv"
     with open(csv_path, 'w') as f:
-        # Header
+
         f.write("Prob.,Approach,Sols,StartC,Implied,NotImplied,InvC,CT,Bias,ViolQ,MQuQ,TQ,ALQ,PAQ,")
         f.write("P1T(s),VT(s),MQuT(s),TT(s),ALT(s),PAT(s),")
         f.write("precision,recall,s_precision,s_recall\n")
         
-        # Data
+
         for m in all_metrics:
             f.write(f"{m['Prob.']},{m['Approach']},{m['Sols']},{m['StartC']},{m['Implied']},{m['NotImplied']},{m['InvC']},")
             f.write(f"{m['CT']},{m['Bias']},{m['ViolQ']},{m['MQuQ']},{m['TQ']},")
@@ -719,13 +724,13 @@ def main():
     
     print(f"[SAVED] CSV results saved to: {csv_path}")
     
-    # Generate comparison summary (COP vs LION side-by-side)
+
     comparison_path = f"{output_dir}/cop_vs_lion_comparison_phase2.txt"
     with open(comparison_path, 'w') as f:
         f.write("COP vs LION Comparison Summary (Phase 2 Only)\n")
         f.write("="*120 + "\n\n")
         
-        # Group by benchmark and solution count
+
         grouped = {}
         for m in all_metrics:
             key = (m['Prob.'], m['Sols'])
@@ -744,7 +749,7 @@ def main():
                 f.write(f"{'Metric':<20} {'COP':<15} {'LION':<15} {'Difference':<15}\n")
                 f.write("-" * 100 + "\n")
                 
-                # Query metrics
+
                 f.write(f"{'ViolQ':<20} {cop.get('ViolQ', 0):<15} {lion.get('ViolQ', 0):<15} ")
                 f.write(f"{lion.get('ViolQ', 0) - cop.get('ViolQ', 0):<15}\n")
                 
@@ -754,7 +759,7 @@ def main():
                 f.write(f"{'Total Queries':<20} {cop.get('TQ', 0):<15} {lion.get('TQ', 0):<15} ")
                 f.write(f"{lion.get('TQ', 0) - cop.get('TQ', 0):<15}\n")
                 
-                # Time metrics
+
                 f.write(f"{'VT(s)':<20} {cop.get('VT(s)', 0):<15} {lion.get('VT(s)', 0):<15} ")
                 f.write(f"{lion.get('VT(s)', 0) - cop.get('VT(s)', 0):<15.2f}\n")
                 
@@ -764,11 +769,11 @@ def main():
                 f.write(f"{'Total Time (s)':<20} {cop.get('TT(s)', 0):<15} {lion.get('TT(s)', 0):<15} ")
                 f.write(f"{lion.get('TT(s)', 0) - cop.get('TT(s)', 0):<15.2f}\n")
                 
-                # Accuracy metrics (not available without Phase 3)
+
                 f.write(f"{'Precision (%)':<20} {'N/A':<15} {'N/A':<15} {'N/A':<15}\n")
                 f.write(f"{'Recall (%)':<20} {'N/A':<15} {'N/A':<15} {'N/A':<15}\n")
                 
-                # Implied constraints
+
                 cop_implied = cop.get('Implied', 'N/A')
                 lion_implied = lion.get('Implied', 'N/A')
                 if isinstance(cop_implied, (int, float)) and isinstance(lion_implied, (int, float)):
@@ -778,7 +783,7 @@ def main():
                     diff_str = f"{'N/A':<15}"
                 f.write(f"{'Implied':<20} {str(cop_implied):<15} {str(lion_implied):<15} {diff_str}\n")
                 
-                # Winner determination
+
                 f.write("\nWinner: ")
                 if cop.get('ViolQ', 0) < lion.get('ViolQ', 0):
                     f.write("COP (fewer violation queries)\n")
@@ -798,7 +803,7 @@ def main():
     
     print(f"[SAVED] COP vs LION comparison saved to: {comparison_path}")
     
-    # Save detailed JSON
+
     json_path = f"{output_dir}/variance_experiment_detailed_phase2.json"
     summary_overfitted_mapping = {
         benchmark: {
