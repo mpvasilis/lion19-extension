@@ -13,7 +13,7 @@ from cpmpy.transformations.get_variables import get_variables
 
 from cpmpy.expressions.globalconstraints import AllDifferent
 
-from main_alldiff_cop import (  # pylint: disable=wrong-import-position
+from main_alldiff_cop import (  
     construct_instance,
     load_phase1_data,
     extract_alldifferent_constraints,
@@ -120,21 +120,21 @@ def manual_sudoku_oracle_check(assignment, oracle, oracle_variables):
     try:
         import cpmpy as cp
         
-        # Get TRUE constraints from oracle
+
         if not hasattr(oracle, 'constraints') or not oracle.constraints:
             print(f"    [ORACLE CHECK] Oracle has no constraints")
             return None
         
-        # Create a fresh CP model with TRUE constraints
+
         check_model = cp.Model()
         
-        # Add all TRUE constraints from oracle
+
         for c in oracle.constraints:
             check_model += c
         
         print(f"    [ORACLE CHECK] Created model with {len(oracle.constraints)} TRUE constraints")
         
-        # Create a mapping from variable names to oracle variables
+
         var_map = {}
         if oracle_variables is not None:
             for var in oracle_variables:
@@ -142,7 +142,7 @@ def manual_sudoku_oracle_check(assignment, oracle, oracle_variables):
                 if var_name:
                     var_map[var_name] = var
         
-        # Add assignment as additional constraints
+
         assignments_added = 0
         for var_name, value in assignment.items():
             if value is not None and not isinstance(value, bool):
@@ -153,7 +153,7 @@ def manual_sudoku_oracle_check(assignment, oracle, oracle_variables):
         print(f"    [ORACLE CHECK] Added {assignments_added} assignment constraints")
         print(f"    [ORACLE CHECK] Assignment: {assignment}")
         
-        # Solve the model
+
         result = check_model.solve(time_limit=5)
         
         if result:
@@ -217,11 +217,11 @@ def query_driven_refinement(
 
     remaining_constraints = list(candidate_constraints)
     removed_constraints = set()
-    validated_constraints = set()  # Track constraints that have been validated/learned
+    validated_constraints = set()  
 
     probability_map = {c: probabilities.get(c, 0.3) for c in remaining_constraints}
     
-    # OPTIMIZATION 1: Sort constraints by probability (ascending) - process low-probability first
+
     remaining_constraints.sort(key=lambda c: probability_map.get(c, 0.5))
     print(f"\n[OPTIMIZATION] Sorted {len(remaining_constraints)} constraints by ascending probability")
 
@@ -230,8 +230,8 @@ def query_driven_refinement(
     solver_time_acc = 0.0
     pairs_considered = 0
     
-    # OPTIMIZATION 3: Cache oracle responses to avoid duplicate queries
-    query_cache = {}  # assignment_signature -> oracle_response
+
+    query_cache = {}  
 
     for idx, constraint in enumerate(remaining_constraints, start=1):
         if constraint in removed_constraints:
@@ -257,7 +257,7 @@ def query_driven_refinement(
 
         pairs = prepare_variable_pairs(scope_vars)
         
-        # OPTIMIZATION 2: Limit number of pairs to test per constraint
+
         MAX_PAIRS_TO_TEST = 10
         if len(pairs) > MAX_PAIRS_TO_TEST:
             print(f"  [OPTIMIZATION] Testing top {MAX_PAIRS_TO_TEST} of {len(pairs)} pairs")
@@ -285,15 +285,23 @@ def query_driven_refinement(
 
             model = cp.Model()
 
+            # Add B_fixed (binary constraints from Phase 1) if explicitly requested
             if additional_constraints:
                 model += list(additional_constraints)
 
-            # Include all candidate constraints except the current one being tested
-            # C'_G = (C_G \ {c}) ∪ {xi = v, xj = v}
-            for other in remaining_constraints:
-                if other is constraint or other in removed_constraints:
-                    continue
-                model += other
+            # Add VALIDATED constraints (already learned/accepted constraints)
+            # These are constraints we've already confirmed are valid through oracle queries
+            # Including them helps generate more realistic violations
+            for validated_c in validated_constraints:
+                model += validated_c
+            
+            if validated_constraints:
+                print(f"    [MODEL] Including {len(validated_constraints)} validated constraints")
+
+            # NOTE: We do NOT add untested candidate constraints here.
+            # Adding them would over-constrain the model and prevent finding violations
+            # for spurious constraints (since true constraints in the candidate set 
+            # would block all violations).
 
             model += (xi == test_value)
             model += (xj == test_value)
@@ -312,40 +320,40 @@ def query_driven_refinement(
 
             synchronise_assignments(solver_vars, oracle_vars)
             
-            # Print the violating assignment
+
             print(f"    -> Violating assignment found:")
             assignment_dict = {}
             for var in solver_vars:
                 if hasattr(var, 'value') and var.value() is not None:
                     assignment_dict[var.name] = var.value()
             
-            # Print assignment in a compact format
+
             if len(assignment_dict) <= 20:
-                # For small assignments, print all values
+
                 print(f"       {assignment_dict}")
             else:
-                # For large assignments, print only relevant variables in the constraint scope
+
                 scope_names = {var.name for var in scope_vars}
                 relevant_assignment = {k: v for k, v in assignment_dict.items() if k in scope_names}
                 print(f"       Scope variables: {relevant_assignment}")
                 print(f"       Full assignment has {len(assignment_dict)} variables")
             
-            # OPTIMIZATION 3: Check cache before querying oracle
+
             assignment_sig = tuple(sorted((v.name, v.value()) for v in solver_vars if v.value() is not None))
             if assignment_sig in query_cache:
                 is_valid = query_cache[assignment_sig]
                 print(f"    -> [CACHED] Oracle response: {'YES' if is_valid else 'NO'}")
             else:
-                total_queries += 1  # Only count actual oracle queries
+                total_queries += 1  
                 
-                # Use manual oracle check for all benchmarks
+
                 manual_result = manual_sudoku_oracle_check(assignment_dict, oracle, oracle_vars)
                 
                 if manual_result is not None:
                     answer = manual_result
                     print(f"    -> [MANUAL ORACLE] Result: {'YES (valid)' if answer else 'NO (invalid)'}")
                 else:
-                    # Fallback to standard oracle if manual check fails
+
                     print(f"    -> [MANUAL ORACLE] Failed, using standard oracle")
                     answer = oracle.answer_membership_query(oracle_vars)
                 
@@ -354,13 +362,13 @@ def query_driven_refinement(
                 print(f"    -> Oracle response: {'YES' if is_valid else 'NO'}")
 
             if is_valid:
-                # Oracle confirms the assignment is valid, so the constraint is refuted
+
                 removed_constraints.add(constraint)
                 probability_map.pop(constraint, None)
                 print("    -> Constraint refuted by valid counterexample. Removing from candidate set.")
-                break  # Move to next constraint
+                break  
             else:
-                # Oracle rejects the assignment, so the constraint is supported
+
                 updated_prob = update_supporting_evidence(probability_map.get(constraint, 0.5), alpha)
                 probability_map[constraint] = updated_prob
                 print(f"    -> Constraint supported. Updated probability: {updated_prob:.3f}")
@@ -368,9 +376,9 @@ def query_driven_refinement(
                 if updated_prob >= theta_max:
                     print(f"    -> Probability exceeds theta_max ({theta_max}); accepting constraint.")
                     validated_constraints.add(constraint)
-                    break  # Move to next constraint
+                    break  
                 
-                # Continue to next pair to gather more evidence
+
                 print(f"    -> Probability {updated_prob:.3f} < theta_max ({theta_max}); continuing to next pair.")
 
         if not violation_found:
@@ -607,7 +615,7 @@ def main():
             'target_constraint_count': len(target_constraint_list)
         }
 
-    # Add cp_implication to stats
+
     stats['cp_implication'] = cp_implication_results
 
     phase2_output = {
@@ -642,7 +650,7 @@ def main():
     with open(phase2_pickle_path, "wb") as f:
         pickle.dump(phase2_output, f)
 
-    # Save CP implication log
+
     cp_implication_log_path = os.path.join(phase2_output_dir, f"{args.experiment}_lion19_cp_implication.log")
     if cp_implication_results.get('skipped', False):
         log_contents = [
