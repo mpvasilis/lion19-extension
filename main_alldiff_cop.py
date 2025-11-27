@@ -255,31 +255,35 @@ def manual_sudoku_oracle_check(assignment, oracle, oracle_variables):
         check_model = cp.Model()
         
         
-        for c in oracle.constraints:
-            check_model += c
+        
         
         print(f"    [ORACLE CHECK] Created model with {len(oracle.constraints)} TRUE constraints")
         
         
         var_map = {}
-        if oracle_variables is not None:
-            for var in oracle_variables:
-                var_name = str(getattr(var, 'name', ''))
-                if var_name:
-                    var_map[var_name] = var
+        for var in oracle_variables:
+            var_name = str(getattr(var, 'name', ''))
+            if var_name:
+                var_map[var_name] = var
         
         
         assignments_added = 0
         for var_name, value in assignment.items():
-            if value is not None and not isinstance(value, bool):
-                if var_name in var_map:
-                    check_model += (var_map[var_name] == value)
-                    assignments_added += 1
+            if var_name in var_map:
+                check_model += (var_map[var_name] == value)
+                print(var_map[var_name] == value)
+                assignments_added += 1
+
+
+        con_subset= get_con_subset(oracle.constraints,set(get_variables(assignment)))
+        print("con",con_subset)
+        for c in con_subset:
+            check_model += c
         
         print(f"    [ORACLE CHECK] Added {assignments_added} assignment constraints")
         print(f"    [ORACLE CHECK] Assignment: {assignment}")
         
-        
+        print(check_model)
         result = check_model.solve(time_limit=5)
         
         if result:
@@ -317,12 +321,9 @@ def generate_violation_query(CG, C_validated, probabilities, all_variables, orac
 
     C_validated_dec = toplevel_list([c.decompose()[0] for c in C_validated])
 
-    # Add ALL validated constraints to ensure the query respects all TRUE constraints
-    # (not just those overlapping with CG variables)
     for c in C_validated_dec:
         model += c
     
-    # Get variables from CG for exclusion constraints
     model_vars = get_variables(CG)
 
     exclusion_assignments = []
@@ -345,7 +346,6 @@ def generate_violation_query(CG, C_validated, probabilities, all_variables, orac
     for c in CG:
         c_str = str(c)
         
-        # Treat all constraints uniformly: gamma[c] = 1 means constraint is violated
         model += (gamma[c_str] == ~c)
     
     gamma_list = list(gamma.values())
@@ -667,7 +667,7 @@ def cop_refinement_recursive(CG_cand, C_validated, oracle, probabilities, all_va
         
         
         assignment_for_oracle = variables_to_assignment(Y)
-        non_none_assignments = {k: v for k, v in assignment_for_oracle.items() if v is not None}
+        non_none_assignments = {k: v for k, v in assignment_for_oracle.items()}
         print(f"{indent}[DEBUG] Sending {len(non_none_assignments)} assigned variables to oracle")
         if len(non_none_assignments) <= 10:
             print(f"{indent}[DEBUG] Assignment: {non_none_assignments}")
@@ -682,11 +682,8 @@ def cop_refinement_recursive(CG_cand, C_validated, oracle, probabilities, all_va
         else:
             
             print(f"{indent}[MANUAL ORACLE] Failed, using standard oracle")
-            if hasattr(oracle, 'variables_list') and oracle.variables_list is not None:
-                synchronise_assignments(Y, oracle.variables_list)
-                answer_raw = oracle.answer_membership_query(oracle.variables_list)
-            else:
-                answer_raw = oracle.answer_membership_query(Y)
+            
+            answer_raw = oracle.answer_membership_query(Y)
         
         answer = interpret_oracle_response(answer_raw)
         
@@ -721,7 +718,9 @@ def cop_refinement_recursive(CG_cand, C_validated, oracle, probabilities, all_va
             
             print(f"{indent}Oracle: NO (invalid) - Disambiguate {len(Viol_e)} violated constraints")
             negative_query_assignments.append(assignment_snapshot)
-            # input("Press Enter to continue...")
+            for c in Viol_e:
+                if str(c) =="alldifferent(grid[0,1],grid[2,3],grid[1,0],grid[0,0])":
+                    input("Press Enter to continue...")
             
             if len(Viol_e) == 1:
                 
@@ -762,7 +761,12 @@ def cop_refinement_recursive(CG_cand, C_validated, oracle, probabilities, all_va
                     # This is conservative: if k=2, each gets half the update of single-violation
                     probs[c] = update_supporting_evidence(probs[c], alpha ** (1.0 / k))
                     print(f"{indent}  [UPDATE] {c}: P={old_prob:.3f} -> {probs[c]:.3f} (k={k})")
-                
+                    if probs[c] >= theta_max:
+                        if c in CG:
+                            CG.remove(c)
+                            C_val.append(c)
+                            print(f"{c} appended to C_val")
+                    
                 
                 decomposed_viol = []
                 for c in Viol_e:
