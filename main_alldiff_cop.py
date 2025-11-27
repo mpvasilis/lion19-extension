@@ -268,15 +268,17 @@ def manual_sudoku_oracle_check(assignment, oracle, oracle_variables):
         
         
         assignments_added = 0
+        assigned_vars = []
         for var_name, value in assignment.items():
             if var_name in var_map:
                 check_model += (var_map[var_name] == value)
                 print(var_map[var_name] == value)
                 assignments_added += 1
+                assigned_vars.append(var_map[var_name])
 
-
-        con_subset= get_con_subset(oracle.constraints,set(get_variables(assignment)))
-        print("con",con_subset)
+        # Get oracle constraints that involve the assigned variables
+        con_subset = get_con_subset(oracle.constraints, set(assigned_vars))
+        print(f"con_subset: {len(con_subset)} relevant constraints")
         for c in con_subset:
             check_model += c
         
