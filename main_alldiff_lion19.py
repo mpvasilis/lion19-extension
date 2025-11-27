@@ -316,6 +316,7 @@ def query_driven_refinement(
     additional_constraints=None,
     random_seed=42,
     use_all_candidates_in_model=True,
+    enable_post_validation=True,
 ):
     """
     Run the LION19 Query-Driven refinement on the candidate constraints.
@@ -344,6 +345,8 @@ def query_driven_refinement(
         additional_constraints: Optional B_fixed constraints from Phase 1
         random_seed: Random seed for reproducibility
         use_all_candidates_in_model: If True, include all other candidates (C_G \\ {c}) in model M'
+        enable_post_validation: If True, run post-validation filtering (good for tightly-coupled 
+            constraints like Sudoku, but may remove valid independent constraints)
     
     Returns:
         Tuple of (final_constraints, probability_map, stats, removed_constraints)
@@ -542,54 +545,61 @@ def query_driven_refinement(
     # Initial set of constraints (before post-validation filtering)
     initial_validated = [c for c in remaining_constraints if c not in removed_constraints]
     
-    # POST-VALIDATION FILTERING: Remove constraints not implied by others
-    # A spurious constraint c is one where (C_validated \ {c}) does NOT imply c
-    # i.e., we can find an assignment satisfying all other validated constraints but violating c
-    # NOTE: We do NOT use B_fixed here because it may be over-fitted and imply spurious constraints
-    print(f"\n[POST-VALIDATION] Checking {len(initial_validated)} constraints for mutual consistency...")
-    
-    final_constraints = []
-    post_validation_removed = []
-    
-    for constraint in initial_validated:
-        # Build model with all OTHER validated constraints (no B_fixed - it may be over-fitted)
-        # NOTE: Use 'is not' for object identity comparison (not '!=' which may not work for CPMpy objects)
-        other_constraints = [c for c in initial_validated if c is not constraint]
-        
-        if not other_constraints:
-            # If this is the only constraint, accept it
-            final_constraints.append(constraint)
-            continue
-        
-        # Try to find an assignment that satisfies all others but violates this one
-        test_model = cp.Model()
-        
-        # Add other validated constraints ONLY (not B_fixed)
-        for other_c in other_constraints:
-            test_model += other_c
-        
-        # Add violation of current constraint
-        violation_expr = build_constraint_violation(constraint)
-        test_model += violation_expr
-        
-        can_violate = test_model.solve(time_limit=5)
-        
-        if can_violate:
-            # Found an assignment satisfying others but violating this one
-            # This constraint is NOT implied by the others -> likely spurious
-            print(f"  [SPURIOUS] {constraint}")
-            removed_constraints.add(constraint)
-            post_validation_removed.append(constraint)
-        else:
-            # No violation possible -> constraint is implied by others (or is essential)
-            final_constraints.append(constraint)
-    
-    if post_validation_removed:
-        print(f"[POST-VALIDATION] Removed {len(post_validation_removed)} spurious constraints")
+    # POST-VALIDATION FILTERING (optional): Remove constraints not implied by others
+    if not enable_post_validation:
+        print(f"\n[POST-VALIDATION] Disabled - keeping all {len(initial_validated)} validated constraints")
+        final_constraints = initial_validated
+        post_validation_removed = []
+        elapsed_total = time.time() - start_time
     else:
-        print(f"[POST-VALIDATION] All constraints passed mutual consistency check")
-    
-    elapsed_total = time.time() - start_time
+        # POST-VALIDATION FILTERING: Remove constraints not implied by others
+        # A spurious constraint c is one where (C_validated \ {c}) does NOT imply c
+        # i.e., we can find an assignment satisfying all other validated constraints but violating c
+        # NOTE: We do NOT use B_fixed here because it may be over-fitted and imply spurious constraints
+        print(f"\n[POST-VALIDATION] Checking {len(initial_validated)} constraints for mutual consistency...")
+        
+        final_constraints = []
+        post_validation_removed = []
+        
+        for constraint in initial_validated:
+            # Build model with all OTHER validated constraints (no B_fixed - it may be over-fitted)
+            # NOTE: Use 'is not' for object identity comparison (not '!=' which may not work for CPMpy objects)
+            other_constraints = [c for c in initial_validated if c is not constraint]
+            
+            if not other_constraints:
+                # If this is the only constraint, accept it
+                final_constraints.append(constraint)
+                continue
+            
+            # Try to find an assignment that satisfies all others but violates this one
+            test_model = cp.Model()
+            
+            # Add other validated constraints ONLY (not B_fixed)
+            for other_c in other_constraints:
+                test_model += other_c
+            
+            # Add violation of current constraint
+            violation_expr = build_constraint_violation(constraint)
+            test_model += violation_expr
+            
+            can_violate = test_model.solve(time_limit=5)
+            
+            if can_violate:
+                # Found an assignment satisfying others but violating this one
+                # This constraint is NOT implied by the others -> likely spurious
+                print(f"  [SPURIOUS] {constraint}")
+                removed_constraints.add(constraint)
+                post_validation_removed.append(constraint)
+            else:
+                # No violation possible -> constraint is implied by others (or is essential)
+                final_constraints.append(constraint)
+        
+        if post_validation_removed:
+            print(f"[POST-VALIDATION] Removed {len(post_validation_removed)} spurious constraints")
+        else:
+            print(f"[POST-VALIDATION] All constraints passed mutual consistency check")
+        
+        elapsed_total = time.time() - start_time
 
     stats = {
         "queries": total_queries,
@@ -655,11 +665,17 @@ def main():
         default=False,
         help="Include all other candidates (C_G \\ {c}) in model M' (original LION19 paper behavior)",
     )
+    parser.add_argument(
+        "--no_post_validation",
+        action="store_true",
+        help="Disable post-validation filtering (use for problems with independent constraints)",
+    )
 
     args = parser.parse_args()
     
     # Default: start with empty model, only include validated constraints
     use_all_candidates_in_model = args.use_all_candidates
+    enable_post_validation = not args.no_post_validation
 
     print(f"\n{'='*70}")
     print("HCAR AllDifferent - LION19 Query-Driven Phase 2")
@@ -679,7 +695,8 @@ def main():
     print(f"  Prior probability: {args.prior}")
     print(f"  Random seed: {args.random_seed}")
     print(f"  Use B_fixed constraints: {args.use_bias}")
-    print(f"  Model M' includes: {'All candidates (C_G \\ {c})' if use_all_candidates_in_model else 'Only validated constraints'}")
+    print(f"  Model M' includes: {'All candidates (C_G \\ {{c}})' if use_all_candidates_in_model else 'Only validated constraints'}")
+    print(f"  Post-validation: {'Enabled' if enable_post_validation else 'Disabled'}")
     print(f"{'='*70}\n")
 
     instance, oracle = construct_instance(args.experiment)
@@ -733,6 +750,7 @@ def main():
         additional_constraints=additional_constraints,
         random_seed=args.random_seed,
         use_all_candidates_in_model=use_all_candidates_in_model,
+        enable_post_validation=enable_post_validation,
     )
 
     target_constraints = extract_alldifferent_constraints(oracle)
