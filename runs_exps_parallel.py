@@ -224,6 +224,29 @@ def run_phase2(
 ):
     """Run Phase 2 with the given Phase 1 pickle using specified approach (cop or lion)."""
     
+    # For COP approach, check if Phase 2 pickle already exists in solution_variance_output_phase2/
+    if approach.lower() == 'cop' and config_tag:
+        existing_pickle_dir = os.path.join("solution_variance_output_phase2", experiment)
+        existing_pickle_name = f"{experiment}_{config_tag}_phase2.pkl"
+        existing_pickle_path = os.path.join(existing_pickle_dir, existing_pickle_name)
+        
+        if os.path.exists(existing_pickle_path):
+            # Verify the pickle is valid
+            try:
+                with open(existing_pickle_path, 'rb') as f:
+                    phase2_data = pickle.load(f)
+                
+                print(f"\n{'='*80}")
+                print(f"[SKIP] Phase 2 COP pickle already exists: {existing_pickle_path}")
+                print(f"[SKIP] Reusing existing Phase 2 COP results")
+                print(f"{'='*80}\n")
+                
+                # Return success with the existing pickle path
+                return True, existing_pickle_path
+            except Exception as e:
+                print(f"\n[WARNING] Existing Phase 2 COP pickle is corrupted: {e}")
+                print(f"[WARNING] Re-running Phase 2 COP...")
+    
     # Select the appropriate script based on approach
     script_map = {
         'cop': 'main_alldiff_cop.py',
