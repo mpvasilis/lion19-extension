@@ -278,16 +278,17 @@ def run_phase2(
         default_output = "phase2_output"
         source_pickle = os.path.join(default_output, filename_map[approach.lower()])
 
-        # Move to approach-specific directory for organization
-        base_output_dir = f"phase2_output_{approach.lower()}"
+        # Output to solution_variance_output_phase2 to match runs_exps_phase2_only.py
         if config_tag:
-            target_dir = os.path.join(base_output_dir, experiment)
+            target_dir = os.path.join("solution_variance_output_phase2", experiment)
             file_suffix_map = {
                 'cop': 'phase2.pkl',
                 'lion': 'lion19_phase2.pkl'
             }
             dest_filename = f"{experiment}_{config_tag}_{file_suffix_map[approach.lower()]}"
         else:
+            # Fallback for backward compatibility
+            base_output_dir = f"phase2_output_{approach.lower()}"
             target_dir = base_output_dir
             dest_filename = filename_map[approach.lower()]
 
