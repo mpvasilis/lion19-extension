@@ -224,9 +224,9 @@ def run_phase2(
 ):
     """Run Phase 2 with the given Phase 1 pickle using specified approach (cop or lion)."""
     
-    # For COP approach, check if Phase 2 pickle already exists in solution_variance_output_phase2/
+    # For COP approach, check if Phase 2 pickle already exists in solution_variance_output/
     if approach.lower() == 'cop' and config_tag:
-        existing_pickle_dir = os.path.join("solution_variance_output_phase2", experiment)
+        existing_pickle_dir = os.path.join("solution_variance_output", experiment)
         existing_pickle_name = f"{experiment}_{config_tag}_phase2.pkl"
         existing_pickle_path = os.path.join(existing_pickle_dir, existing_pickle_name)
         
@@ -278,9 +278,9 @@ def run_phase2(
         default_output = "phase2_output"
         source_pickle = os.path.join(default_output, filename_map[approach.lower()])
 
-        # Output to solution_variance_output_phase2 to match runs_exps_phase2_only.py
+        # Output to solution_variance_output to match existing structure
         if config_tag:
-            target_dir = os.path.join("solution_variance_output_phase2", experiment)
+            target_dir = os.path.join("solution_variance_output", experiment)
             file_suffix_map = {
                 'cop': 'phase2.pkl',
                 'lion': 'lion19_phase2.pkl'
@@ -328,13 +328,14 @@ def run_phase3(experiment, phase2_pickle, *, approach='cop', config_tag=None):
         # Phase 3 outputs to "phase3_output" directory by default
         default_output = "phase3_output"
 
-        # Move outputs to approach-specific directory
-        base_output_dir = f"phase3_output_{approach.lower()}"
+        # Move outputs to solution_variance_output to keep everything organized
         if config_tag:
-            target_dir = os.path.join(base_output_dir, experiment)
+            target_dir = os.path.join("solution_variance_output", experiment)
             results_json_name = f"{experiment}_{config_tag}_phase3_results.json"
             final_model_name = f"{experiment}_{config_tag}_final_model.pkl"
         else:
+            # Fallback for backward compatibility
+            base_output_dir = f"phase3_output_{approach.lower()}"
             target_dir = base_output_dir
             results_json_name = f"{experiment}_phase3_results.json"
             final_model_name = f"{experiment}_final_model.pkl"
@@ -374,11 +375,12 @@ def load_phase1_pickle(pickle_path):
 
 
 def load_phase3_results(benchmark_name, approach='cop', config_tag=None):
-    """Load Phase 3 JSON results from approach-specific directory."""
-    output_dir = f"phase3_output_{approach.lower()}"
+    """Load Phase 3 JSON results from solution_variance_output directory."""
     if config_tag:
-        json_path = os.path.join(output_dir, benchmark_name, f"{benchmark_name}_{config_tag}_phase3_results.json")
+        json_path = os.path.join("solution_variance_output", benchmark_name, f"{benchmark_name}_{config_tag}_phase3_results.json")
     else:
+        # Fallback for backward compatibility
+        output_dir = f"phase3_output_{approach.lower()}"
         json_path = os.path.join(output_dir, f"{benchmark_name}_phase3_results.json")
     if not os.path.exists(json_path):
         return None
@@ -715,7 +717,7 @@ def main():
     all_metrics = []
     
     # Setup output directory and intermediate results files
-    output_dir = 'solution_variance_output_parallel'
+    output_dir = 'solution_variance_output'
     os.makedirs(output_dir, exist_ok=True)
     
     intermediate_csv_path = f"{output_dir}/intermediate_results.csv"
