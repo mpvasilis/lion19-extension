@@ -50,8 +50,8 @@ BENCHMARK_DISPLAY_NAMES = {
 # Target constraint counts for each benchmark
 TARGET_CONSTRAINTS = {
     'sudoku': 27,
-    'sudoku_gt': 37,
-    'jsudoku': 31,
+    'sudoku_gt': 27,
+    'jsudoku': 27,
     'latin_square': 18,
     'graph_coloring_register': 5,
     'examtt_v1': 7,
