@@ -681,8 +681,8 @@ def main():
     
     # Define benchmarks to test
     benchmarks = [
+         'sudoku_gt',
         'sudoku',
-        'sudoku_gt',
         'graph_coloring_register',
         'examtt_v1',
         'examtt_v2',
