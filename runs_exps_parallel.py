@@ -29,6 +29,7 @@ import time
 import pickle
 import shutil
 import subprocess
+import statistics
 from datetime import datetime
 from threading import Lock
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -221,31 +222,33 @@ def run_phase2(
     max_queries=5000,
     timeout=1200,
     config_tag=None,
+    run_number=None,
 ):
     """Run Phase 2 with the given Phase 1 pickle using specified approach (cop or lion)."""
     
+    # TEMPORARILY DISABLED: Phase 2 pickle cache check for k-fold validation
     # For COP approach, check if Phase 2 pickle already exists in solution_variance_output/
-    if approach.lower() == 'cop' and config_tag:
-        existing_pickle_dir = os.path.join("solution_variance_output", experiment)
-        existing_pickle_name = f"{experiment}_{config_tag}_phase2.pkl"
-        existing_pickle_path = os.path.join(existing_pickle_dir, existing_pickle_name)
-        
-        if os.path.exists(existing_pickle_path):
-            # Verify the pickle is valid
-            try:
-                with open(existing_pickle_path, 'rb') as f:
-                    phase2_data = pickle.load(f)
-                
-                print(f"\n{'='*80}")
-                print(f"[SKIP] Phase 2 COP pickle already exists: {existing_pickle_path}")
-                print(f"[SKIP] Reusing existing Phase 2 COP results")
-                print(f"{'='*80}\n")
-                
-                # Return success with the existing pickle path
-                return True, existing_pickle_path
-            except Exception as e:
-                print(f"\n[WARNING] Existing Phase 2 COP pickle is corrupted: {e}")
-                print(f"[WARNING] Re-running Phase 2 COP...")
+    # if approach.lower() == 'cop' and config_tag:
+    #     existing_pickle_dir = os.path.join("solution_variance_output", experiment)
+    #     existing_pickle_name = f"{experiment}_{config_tag}_phase2.pkl"
+    #     existing_pickle_path = os.path.join(existing_pickle_dir, existing_pickle_name)
+    #     
+    #     if os.path.exists(existing_pickle_path):
+    #         # Verify the pickle is valid
+    #         try:
+    #             with open(existing_pickle_path, 'rb') as f:
+    #                 phase2_data = pickle.load(f)
+    #             
+    #             print(f"\n{'='*80}")
+    #             print(f"[SKIP] Phase 2 COP pickle already exists: {existing_pickle_path}")
+    #             print(f"[SKIP] Reusing existing Phase 2 COP results")
+    #             print(f"{'='*80}\n")
+    #             
+    #             # Return success with the existing pickle path
+    #             return True, existing_pickle_path
+    #         except Exception as e:
+    #             print(f"\n[WARNING] Existing Phase 2 COP pickle is corrupted: {e}")
+    #             print(f"[WARNING] Re-running Phase 2 COP...")
     
     # Select the appropriate script based on approach
     script_map = {
@@ -285,7 +288,11 @@ def run_phase2(
                 'cop': 'phase2.pkl',
                 'lion': 'lion19_phase2.pkl'
             }
-            dest_filename = f"{experiment}_{config_tag}_{file_suffix_map[approach.lower()]}"
+            # Include run number in filename if provided
+            if run_number is not None:
+                dest_filename = f"{experiment}_{config_tag}_run{run_number}_{file_suffix_map[approach.lower()]}"
+            else:
+                dest_filename = f"{experiment}_{config_tag}_{file_suffix_map[approach.lower()]}"
         else:
             # Fallback for backward compatibility
             base_output_dir = f"phase2_output_{approach.lower()}"
@@ -309,7 +316,7 @@ def run_phase2(
         return False, None
 
 
-def run_phase3(experiment, phase2_pickle, *, approach='cop', config_tag=None):
+def run_phase3(experiment, phase2_pickle, *, approach='cop', config_tag=None, run_number=None):
     """Run Phase 3 with the given Phase 2 pickle."""
     
     cmd = [
@@ -331,8 +338,13 @@ def run_phase3(experiment, phase2_pickle, *, approach='cop', config_tag=None):
         # Move outputs to solution_variance_output to keep everything organized
         if config_tag:
             target_dir = os.path.join("solution_variance_output", experiment)
-            results_json_name = f"{experiment}_{config_tag}_phase3_results.json"
-            final_model_name = f"{experiment}_{config_tag}_final_model.pkl"
+            # Include run number in filename if provided
+            if run_number is not None:
+                results_json_name = f"{experiment}_{config_tag}_run{run_number}_phase3_results.json"
+                final_model_name = f"{experiment}_{config_tag}_run{run_number}_final_model.pkl"
+            else:
+                results_json_name = f"{experiment}_{config_tag}_phase3_results.json"
+                final_model_name = f"{experiment}_{config_tag}_final_model.pkl"
         else:
             # Fallback for backward compatibility
             base_output_dir = f"phase3_output_{approach.lower()}"
@@ -374,10 +386,13 @@ def load_phase1_pickle(pickle_path):
         return None
 
 
-def load_phase3_results(benchmark_name, approach='cop', config_tag=None):
+def load_phase3_results(benchmark_name, approach='cop', config_tag=None, run_number=None):
     """Load Phase 3 JSON results from solution_variance_output directory."""
     if config_tag:
-        json_path = os.path.join("solution_variance_output", benchmark_name, f"{benchmark_name}_{config_tag}_phase3_results.json")
+        if run_number is not None:
+            json_path = os.path.join("solution_variance_output", benchmark_name, f"{benchmark_name}_{config_tag}_run{run_number}_phase3_results.json")
+        else:
+            json_path = os.path.join("solution_variance_output", benchmark_name, f"{benchmark_name}_{config_tag}_phase3_results.json")
     else:
         # Fallback for backward compatibility
         output_dir = f"phase3_output_{approach.lower()}"
@@ -414,6 +429,7 @@ def extract_metrics(
     approach='cop',
     config_tag=None,
     phase2_pickle_path=None,
+    run_number=None,
 ):
     """Extract all metrics from phase outputs for the results table."""
     
@@ -438,7 +454,7 @@ def extract_metrics(
         not_implied_constraints = cp_implication.get('not_implied_count')
     
     # Attempt to load Phase 3 results (may be missing for some configs)
-    phase3_results = load_phase3_results(benchmark_name, approach=approach, config_tag=config_tag)
+    phase3_results = load_phase3_results(benchmark_name, approach=approach, config_tag=config_tag, run_number=run_number)
     phase3_available = phase3_results is not None
     
     if not phase3_available:
@@ -548,7 +564,7 @@ def calculate_overfitted_constraints(benchmark, num_solutions):
 
 
 def process_benchmark_config(benchmark, num_solutions, approaches, task_index, total_tasks, 
-                              intermediate_csv_path, progress_path):
+                              intermediate_csv_path, progress_path, run_number=None):
     """
     Worker function to process a single benchmark configuration.
     Runs Phase 1 once, then both COP and LION approaches.
@@ -557,8 +573,9 @@ def process_benchmark_config(benchmark, num_solutions, approaches, task_index, t
     num_overfitteds = calculate_overfitted_constraints(benchmark, num_solutions)
     config_tag = f"sol{num_solutions}_of{num_overfitteds}"
     
+    run_info = f" Run {run_number}" if run_number is not None else ""
     print(f"\n{'='*80}")
-    print(f"[TASK {task_index}/{total_tasks}] Processing: {benchmark} | Solutions={num_solutions}, overfitted={num_overfitteds}")
+    print(f"[TASK {task_index}/{total_tasks}] Processing: {benchmark} | Solutions={num_solutions}, overfitted={num_overfitteds}{run_info}")
     print(f"{'='*80}\n")
     
     config_metrics = []
@@ -584,10 +601,11 @@ def process_benchmark_config(benchmark, num_solutions, approaches, task_index, t
             phase1_pickle,
             approach=approach,
             config_tag=config_tag,
+            run_number=run_number,
         )
         
         if not phase2_success:
-            print(f"\n[TASK ERROR] Phase 2 ({approach.upper()}) failed for {benchmark}")
+            print(f"\n[TASK ERROR] Phase 2 ({approach.UPPER()}) failed for {benchmark}")
             continue
         
         # Run Phase 3 with the specified approach
@@ -598,6 +616,7 @@ def process_benchmark_config(benchmark, num_solutions, approaches, task_index, t
                 phase2_pickle,
                 approach=approach,
                 config_tag=config_tag,
+                run_number=run_number,
             )
             
             if not phase3_success:
@@ -618,6 +637,7 @@ def process_benchmark_config(benchmark, num_solutions, approaches, task_index, t
                 approach=approach,
                 config_tag=config_tag,
                 phase2_pickle_path=phase2_pickle,
+                run_number=run_number,
             )
             if metrics:
                 config_metrics.append(metrics)
@@ -673,11 +693,69 @@ def update_progress_file(completed, total, progress_path, metrics_lock):
             f.write(f"{'='*60}\n")
 
 
-def main():
+def aggregate_metrics_across_runs(aggregated_metrics, num_runs):
+    """Aggregate metrics across multiple runs, computing averages and standard deviations."""
+    aggregated_results = []
+
+    for (benchmark, sols, approach), metrics_list in aggregated_metrics.items():
+        if len(metrics_list) == 0:
+            continue
+
+        # Initialize aggregated metric with the same structure
+        agg_metric = {
+            'Prob.': benchmark,
+            'Approach': approach,
+            'Sols': sols,
+            'Runs': len(metrics_list)
+        }
+
+        # Numeric fields to aggregate
+        numeric_fields = [
+            'StartC', 'Implied', 'NotImplied', 'InvC', 'CT', 'Bias', 'ViolQ', 'MQuQ', 'TQ',
+            'P1T(s)', 'VT(s)', 'MQuT(s)', 'TT(s)',
+            'precision', 'recall', 's_precision', 's_recall'
+        ]
+
+        # For each numeric field, compute mean and std
+        for field in numeric_fields:
+            values = []
+            for m in metrics_list:
+                val = m.get(field, 0)
+                # Skip N/A values
+                if isinstance(val, (int, float)) and not (isinstance(val, str) and val == 'N/A'):
+                    values.append(float(val))
+
+            if values:
+                mean_val = statistics.mean(values)
+                if len(values) > 1:
+                    std_val = statistics.stdev(values)
+                else:
+                    std_val = 0.0
+
+                # Store as formatted strings for display
+                if field in ['P1T(s)', 'VT(s)', 'MQuT(s)', 'TT(s)',
+                           'precision', 'recall', 's_precision', 's_recall']:
+                    agg_metric[field] = f"{mean_val:.2f}±{std_val:.2f}"
+                    agg_metric[f"{field}_mean"] = mean_val
+                    agg_metric[f"{field}_std"] = std_val
+                else:
+                    agg_metric[field] = f"{mean_val:.1f}±{std_val:.1f}"
+                    agg_metric[f"{field}_mean"] = mean_val
+                    agg_metric[f"{field}_std"] = std_val
+            else:
+                agg_metric[field] = 'N/A'
+
+        aggregated_results.append(agg_metric)
+
+    return aggregated_results
+
+
+def main(num_runs=10):
     """Run the complete solution variance experiment with parallel execution using 4 threads."""
     
     print(f"\n{'='*80}")
     print(f"SOLUTION VARIANCE EXPERIMENTS - COP vs LION COMPARISON (PARALLEL - 4 THREADS)")
+    print(f"Running each experiment {num_runs} times for validation")
     print(f"{'='*80}")
     print(f"Starting at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"{'='*80}\n")
@@ -716,6 +794,9 @@ def main():
     # Storage for collected metrics (thread-safe)
     all_metrics = []
     
+    # Storage for aggregating results across runs
+    aggregated_metrics = {}  # Key: (benchmark, num_solutions, approach), Value: list of metrics
+    
     # Setup output directory and intermediate results files
     output_dir = 'solution_variance_output'
     os.makedirs(output_dir, exist_ok=True)
@@ -733,15 +814,17 @@ def main():
     print(f"[INFO] Intermediate results will be saved to: {intermediate_csv_path}")
     print(f"[INFO] Progress tracking file: {progress_path}\n")
     
-    # Create list of all tasks (benchmark, solution_config combinations)
+    # Create list of all tasks (benchmark, solution_config, run_number combinations)
     tasks = []
     for benchmark, solution_counts in benchmark_solution_map.items():
         for num_solutions in solution_counts:
-            tasks.append((benchmark, num_solutions, approaches))
+            for run_num in range(1, num_runs + 1):
+                tasks.append((benchmark, num_solutions, approaches, run_num))
     
     total_tasks = len(tasks)
     print(f"Total tasks to process: {total_tasks}")
     print(f"Each task runs Phase 1 followed by COP (Phase 2+3) and LION (Phase 2+3)")
+    print(f"Each experiment configuration will be run {num_runs} times")
     print(f"Processing in parallel with 4 threads...\n")
     
     # Initialize progress tracking
@@ -763,16 +846,25 @@ def main():
                 index + 1,
                 total_tasks,
                 intermediate_csv_path,
-                progress_path
-            ): (benchmark, num_solutions, index + 1)
-            for index, (benchmark, num_solutions, approach_list) in enumerate(tasks)
+                progress_path,
+                run_num
+            ): (benchmark, num_solutions, index + 1, run_num)
+            for index, (benchmark, num_solutions, approach_list, run_num) in enumerate(tasks)
         }
         
         # Process completed tasks as they finish
         for future in as_completed(future_to_task):
-            benchmark, num_solutions, task_index = future_to_task[future]
+            benchmark, num_solutions, task_index, run_num = future_to_task[future]
             try:
                 config_metrics, returned_index = future.result()
+                
+                # Store metrics for aggregation
+                for metric in config_metrics:
+                    key = (metric['Prob.'], metric['Sols'], metric['Approach'])
+                    with metrics_lock:
+                        if key not in aggregated_metrics:
+                            aggregated_metrics[key] = []
+                        aggregated_metrics[key].append(metric)
                 
                 # Thread-safe addition to all_metrics
                 with metrics_lock:
@@ -787,13 +879,13 @@ def main():
                     update_progress_file(completed_count, total_tasks, progress_path, metrics_lock)
                 
                 print(f"\n{'='*80}")
-                print(f"[PROGRESS] Completed {completed_count}/{total_tasks}: {benchmark} with {num_solutions} solutions")
+                print(f"[PROGRESS] Completed {completed_count}/{total_tasks}: {benchmark} with {num_solutions} solutions (Run {run_num})")
                 print(f"[PROGRESS] Collected {len(config_metrics)} metric sets from this task")
                 print(f"[PROGRESS] Results appended to: {intermediate_csv_path}")
                 print(f"{'='*80}\n")
                 
             except Exception as e:
-                print(f"\n[ERROR] Task {task_index} failed for {benchmark} with {num_solutions} solutions: {e}")
+                print(f"\n[ERROR] Task {task_index} failed for {benchmark} with {num_solutions} solutions (Run {run_num}): {e}")
                 import traceback
                 traceback.print_exc()
                 
@@ -807,7 +899,12 @@ def main():
     print(f"ALL TASKS COMPLETED")
     print(f"{'='*80}")
     print(f"Total metrics collected: {len(all_metrics)}")
+    print(f"Total configurations tested: {len(aggregated_metrics)}")
     print(f"{'='*80}\n")
+    
+    # Aggregate results across runs
+    print(f"Aggregating results across {num_runs} runs per configuration...\n")
+    aggregated_results = aggregate_metrics_across_runs(aggregated_metrics, num_runs)
     
     # Generate summary report
     print(f"\n\n{'='*80}")
@@ -820,10 +917,37 @@ def main():
     print(f"\n[INFO] Intermediate results during execution: {intermediate_csv_path}")
     print(f"[INFO] Generating final summary reports...\n")
     
-    # Generate formatted text report (matching HCAR format)
-    report_path = f"{output_dir}/variance_results.txt"
+    # Generate aggregated formatted text report
+    report_path = f"{output_dir}/variance_results_aggregated.txt"
     with open(report_path, 'w') as f:
-        f.write("Solution Variance Experiment Results (COP vs LION Comparison)\n")
+        f.write(f"Solution Variance Experiment Results (COP vs LION Comparison) - AGGREGATED OVER {num_runs} RUNS\n")
+        f.write("="*150 + "\n\n")
+        
+        # Header line with Runs column
+        f.write(f"{'Prob.':<15} {'Approach':<9} {'Sols':<6} {'Runs':<6} {'StartC':<10} {'Implied':<11} {'NotImp.':<11} {'InvC':<8} {'CT':<5} {'Bias':<8} ")
+        f.write(f"{'ViolQ':<9} {'MQuQ':<9} {'TQ':<8} ")
+        f.write(f"{'P1T(s)':<12} {'VT(s)':<12} {'MQuT(s)':<13} {'TT(s)':<12}\n")
+        
+        # Data rows
+        for m in sorted(aggregated_results, key=lambda x: (x['Prob.'], x['Sols'], x['Approach'])):
+            f.write(f"{m['Prob.']:<15} {m['Approach']:<9} {m['Sols']:<6} {m['Runs']:<6} {m['StartC']:<10} {str(m['Implied']):<11} {str(m['NotImplied']):<11} {m['InvC']:<8} ")
+            f.write(f"{str(m['CT']):<5} {m['Bias']:<8} ")
+            f.write(f"{m['ViolQ']:<9} {m['MQuQ']:<9} {m['TQ']:<8} ")
+            f.write(f"{m['P1T(s)']:<12} {m['VT(s)']:<12} {m['MQuT(s)']:<13} {m['TT(s)']:<12}\n")
+        
+        f.write("\n" + "="*150 + "\n")
+        f.write("Legend:\n")
+        f.write("  Approach: COP or LION methodology\n")
+        f.write("  Sols: Number of given solutions (positive examples)\n")
+        f.write("  Runs: Number of experimental runs aggregated\n")
+        f.write("  All numeric values show mean±standard_deviation across runs\n")
+    
+    print(f"[SAVED] Aggregated results saved to: {report_path}")
+    
+    # Generate detailed formatted text report (all individual runs)
+    detailed_report_path = f"{output_dir}/variance_results_detailed.txt"
+    with open(detailed_report_path, 'w') as f:
+        f.write("Solution Variance Experiment Results (COP vs LION Comparison) - ALL INDIVIDUAL RUNS\n")
         f.write("="*140 + "\n\n")
         
         # Header line
@@ -872,8 +996,8 @@ def main():
         print(f"{m['ViolQ']:<7} {m['MQuQ']:<7} {m['TQ']:<6} ", end="")
         print(f"{m['P1T(s)']:<8} {m['VT(s)']:<8} {m['MQuT(s)']:<9} {m['TT(s)']:<8}")
     
-    # Generate CSV output
-    csv_path = f"{output_dir}/variance_results.csv"
+    # Generate CSV output for all individual runs
+    csv_path = f"{output_dir}/variance_results_all_runs.csv"
     with open(csv_path, 'w') as f:
         # Header
         f.write("Prob.,Approach,Sols,StartC,Implied,NotImplied,InvC,CT,Bias,ViolQ,MQuQ,TQ,ALQ,PAQ,")
@@ -889,7 +1013,36 @@ def main():
             f.write(f"{m['ALT(s)']},{m['PAT(s)']},")
             f.write(f"{m['precision']},{m['recall']},{m['s_precision']},{m['s_recall']}\n")
     
-    print(f"[SAVED] CSV results saved to: {csv_path}")
+    print(f"[SAVED] CSV results (all runs) saved to: {csv_path}")
+    
+    # Generate CSV output for aggregated results
+    agg_csv_path = f"{output_dir}/variance_results_aggregated.csv"
+    with open(agg_csv_path, 'w') as f:
+        f.write("Prob.,Approach,Sols,Runs,StartC,StartC_std,Implied,Implied_std,NotImplied,NotImplied_std,InvC,InvC_std,CT,Bias,Bias_std,")
+        f.write("ViolQ,ViolQ_std,MQuQ,MQuQ_std,TQ,TQ_std,")
+        f.write("P1T(s),P1T_std,VT(s),VT_std,MQuT(s),MQuT_std,TT(s),TT_std,")
+        f.write("precision,precision_std,recall,recall_std,s_precision,s_precision_std,s_recall,s_recall_std\n")
+        
+        for m in sorted(aggregated_results, key=lambda x: (x['Prob.'], x['Sols'], x['Approach'])):
+            f.write(f"{m['Prob.']},{m['Approach']},{m['Sols']},{m['Runs']},")
+            f.write(f"{m['StartC_mean']:.3f},{m['StartC_std']:.3f},")
+            f.write(f"{m['Implied_mean']:.3f},{m['Implied_std']:.3f},")
+            f.write(f"{m['NotImplied_mean']:.3f},{m['NotImplied_std']:.3f},")
+            f.write(f"{m['InvC_mean']:.3f},{m['InvC_std']:.3f},")
+            f.write(f"{m['CT']},{m['Bias_mean']:.3f},{m['Bias_std']:.3f},")
+            f.write(f"{m['ViolQ_mean']:.3f},{m['ViolQ_std']:.3f},")
+            f.write(f"{m['MQuQ_mean']:.3f},{m['MQuQ_std']:.3f},")
+            f.write(f"{m['TQ_mean']:.3f},{m['TQ_std']:.3f},")
+            f.write(f"{m['P1T(s)_mean']:.3f},{m['P1T(s)_std']:.3f},")
+            f.write(f"{m['VT(s)_mean']:.3f},{m['VT(s)_std']:.3f},")
+            f.write(f"{m['MQuT(s)_mean']:.3f},{m['MQuT(s)_std']:.3f},")
+            f.write(f"{m['TT(s)_mean']:.3f},{m['TT(s)_std']:.3f},")
+            f.write(f"{m['precision_mean']:.3f},{m['precision_std']:.3f},")
+            f.write(f"{m['recall_mean']:.3f},{m['recall_std']:.3f},")
+            f.write(f"{m['s_precision_mean']:.3f},{m['s_precision_std']:.3f},")
+            f.write(f"{m['s_recall_mean']:.3f},{m['s_recall_std']:.3f}\n")
+    
+    print(f"[SAVED] CSV results (aggregated) saved to: {agg_csv_path}")
     
     # Generate comparison summary (COP vs LION side-by-side)
     comparison_path = f"{output_dir}/cop_vs_lion_comparison.txt"
@@ -985,51 +1138,81 @@ def main():
 
     summary = {
         'timestamp': datetime.now().isoformat(),
-        'metrics': all_metrics,
+        'num_runs_per_config': num_runs,
+        'metrics_all_runs': all_metrics,
+        'metrics_aggregated': aggregated_results,
         'total_benchmarks': len(benchmarks),
         'solution_configurations': benchmark_solution_map,
         'overfitted_constraints_mapping': summary_overfitted_mapping,
         'parallel_execution': {
             'max_workers': 4,
-            'total_tasks': len(tasks)
+            'total_tasks': len(tasks),
+            'total_unique_configs': len(aggregated_metrics)
         }
     }
     
     with open(json_path, 'w') as f:
         json.dump(summary, f, indent=2)
     
-    print(f"[SAVED] Detailed JSON saved to: {json_path}")
+    print(f"[SAVED] Detailed JSON (all runs) saved to: {json_path}")
+    
+    # Save aggregated JSON
+    agg_json_path = f"{output_dir}/variance_experiment_aggregated.json"
+    agg_summary = {
+        'timestamp': datetime.now().isoformat(),
+        'num_runs_per_config': num_runs,
+        'metrics_aggregated': aggregated_results,
+        'total_benchmarks': len(benchmarks),
+        'total_unique_configs': len(aggregated_results),
+        'note': 'Aggregated results across multiple runs.'
+    }
+    
+    with open(agg_json_path, 'w') as f:
+        json.dump(agg_summary, f, indent=2)
+    
+    print(f"[SAVED] Aggregated JSON saved to: {agg_json_path}")
     
     total_expected_configs = len(tasks) * len(approaches)
-    successful_configs = len(all_metrics)
+    successful_runs = len(all_metrics)
+    unique_configs = len(aggregated_metrics)
     
     cop_results = [m for m in all_metrics if m['Approach'] == 'COP']
     lion_results = [m for m in all_metrics if m['Approach'] == 'LION']
     
+    cop_aggregated = [m for m in aggregated_results if m['Approach'] == 'COP']
+    lion_aggregated = [m for m in aggregated_results if m['Approach'] == 'LION']
+    
     print(f"\n{'='*80}")
-    print(f"FINAL STATISTICS (PARALLEL EXECUTION - 4 THREADS)")
+    print(f"FINAL STATISTICS (PARALLEL EXECUTION - 4 THREADS, {num_runs} RUNS PER CONFIG)")
     print(f"{'='*80}")
-    print(f"Total configurations expected: {total_expected_configs}")
-    print(f"Successful completions: {successful_configs}/{total_expected_configs}")
-    print(f"  - COP approach: {len(cop_results)} successful")
-    print(f"  - LION approach: {len(lion_results)} successful")
+    print(f"Runs per configuration: {num_runs}")
+    print(f"Total unique configurations: {unique_configs}")
+    print(f"Total individual runs expected: {total_expected_configs}")
+    print(f"Successful individual runs: {successful_runs}/{total_expected_configs}")
+    print(f"  - COP approach: {len(cop_results)} successful runs ({len(cop_aggregated)} aggregated configs)")
+    print(f"  - LION approach: {len(lion_results)} successful runs ({len(lion_aggregated)} aggregated configs)")
     if total_expected_configs > 0:
-        print(f"Success rate: {100*successful_configs/total_expected_configs:.1f}%")
+        print(f"Success rate: {100*successful_runs/total_expected_configs:.1f}%")
     print(f"\n{'='*80}")
     print(f"OUTPUT FILES GENERATED")
     print(f"{'='*80}")
     print(f"Real-time monitoring (updated during execution):")
     print(f"  - {intermediate_csv_path}")
     print(f"  - {progress_path}")
-    print(f"\nFinal summary reports:")
+    print(f"\nAggregated results (across {num_runs} runs per config):")
     print(f"  - {report_path}")
-    print(f"  - {csv_path}")
+    print(f"  - {agg_csv_path}")
     print(f"  - {comparison_path}")
+    print(f"\nDetailed results (all individual runs):")
+    print(f"  - {detailed_report_path}")
+    print(f"  - {csv_path}")
     print(f"  - {json_path}")
+    print(f"  - {agg_json_path}")
     print(f"\nCompleted at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"{'='*80}\n")
 
 
 if __name__ == "__main__":
-    main()
+    num_runs = int(sys.argv[1]) if len(sys.argv) > 1 else 10
+    main(num_runs)
 
