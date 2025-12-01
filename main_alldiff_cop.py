@@ -65,7 +65,7 @@ def load_phase1_data(pickle_path):
 
 def display_sudoku_grid(variables, title="Sudoku Grid", debug=False):
     
-    # First pass: detect grid dimensions
+    
     max_row = -1
     max_col = -1
     
@@ -81,7 +81,7 @@ def display_sudoku_grid(variables, title="Sudoku Grid", debug=False):
             except:
                 continue
     
-    # Default to 9x9 if no valid variables found
+    
     if max_row < 0 or max_col < 0:
         max_row, max_col = 8, 8
     
@@ -127,7 +127,7 @@ def display_sudoku_grid(variables, title="Sudoku Grid", debug=False):
                         try:
                             val = int(val)
                             
-                            # Accept any positive integer value (not just 1-9)
+                            
                             if val < 0:
                                 val = None
                         except (ValueError, TypeError):
@@ -142,7 +142,7 @@ def display_sudoku_grid(variables, title="Sudoku Grid", debug=False):
                     print(f"  DEBUG: Error parsing {var.name}: {e}")
                 continue
 
-    # Display the grid
+    
     for i in range(rows):
         row_str = "  |"
         for j in range(cols):
@@ -150,7 +150,7 @@ def display_sudoku_grid(variables, title="Sudoku Grid", debug=False):
             if val is None:
                 row_str += "  . "
             else:
-                # Format with width to handle larger numbers
+                
                 row_str += f" {val:>2} "
         row_str += "|"
         print(row_str)
@@ -254,9 +254,6 @@ def manual_sudoku_oracle_check(assignment, oracle, oracle_variables):
         
         check_model = cp.Model()
         
-        
-        
-        
         print(f"    [ORACLE CHECK] Created model with {len(oracle.constraints)} TRUE constraints")
         
         
@@ -276,7 +273,7 @@ def manual_sudoku_oracle_check(assignment, oracle, oracle_variables):
                 assignments_added += 1
                 assigned_vars.append(var_map[var_name])
 
-        # Get oracle constraints that involve the assigned variables
+        
         con_subset = get_con_subset(oracle.constraints, set(assigned_vars))
         print(f"con_subset: {len(con_subset)} relevant constraints")
         for c in con_subset:
@@ -314,19 +311,20 @@ def interpret_oracle_response(response):
 def generate_violation_query(CG, C_validated, probabilities, all_variables, oracle=None,
                              previous_queries=None, positive_examples=None, B_fixed=None, bias_weight=0.5):
     
-    import cpmpy as cp
-    import time
-    
     print(f"  Building COP model: {len(CG)} candidates, {len(C_validated)} validated, {len(all_variables)} variables")
 
     model = cp.Model()
 
-    C_validated_dec = toplevel_list([c.decompose()[0] for c in C_validated])
+    model_vars = get_variables(list(CG))
 
-    for c in C_validated_dec:
-        model += c
+    C_validated_dec = toplevel_list([c.decompose()[0] for c in C_validated])
     
-    model_vars = get_variables(CG)
+    # Get constraints from CL that involve Y
+    Cl = get_con_subset(C_validated_dec, model_vars)
+
+    # Add ONLY the ones that are relevant to the current CG
+    for c in Cl:
+        model += c
 
     exclusion_assignments = []
     if previous_queries:
@@ -335,12 +333,16 @@ def generate_violation_query(CG, C_validated, probabilities, all_variables, orac
     if exclusion_assignments:
         for idx, assignment in enumerate(exclusion_assignments):
             diff_terms = []
+            flag = True # If all variables in the assignment are in the current CG, then add the constraint
             for var in model_vars:
                 var_name = str(getattr(var, 'name', ''))
                 if var_name in assignment:
                     diff_terms.append(var != assignment[var_name])
+                else:
+                    flag = False
+                    break
 
-            if diff_terms:
+            if flag:
                 model += cp.any(diff_terms)
 
     gamma = {str(c): cp.boolvar(name=f"gamma_{i}") for i, c in enumerate(CG)}
@@ -358,10 +360,8 @@ def generate_violation_query(CG, C_validated, probabilities, all_variables, orac
     
     if B_fixed is not None and len(B_fixed) > 0:
         print(f"  Processing B_fixed bias: {len(B_fixed)} constraints")
-        
-        cg_vars = get_variables(list(CG))
-        
-        relevant_bias = get_con_subset(B_fixed, cg_vars)
+                
+        relevant_bias = get_con_subset(B_fixed, model_vars) # Get constraints from B_fixed that involve Y
         
         print(f"  Relevant B_fixed constraints (overlap with CG scope): {len(relevant_bias)}/{len(B_fixed)}")
         
@@ -373,14 +373,14 @@ def generate_violation_query(CG, C_validated, probabilities, all_variables, orac
         
         print(f"  Added {len(bias_violations)} bias violation indicators")
     
-    constraint_violation_term = cp.sum([probabilities[c]* gamma[str(c)] for c in CG])
+    constraint_violation_term = cp.sum(probabilities[c]* gamma[str(c)] for c in CG)
     
-    objective = constraint_violation_term
+    objective = 5000 * constraint_violation_term
     
     if bias_violations:
         bias_violation_term = cp.sum(bias_violations)
-        objective += 10 * bias_violation_term
-  
+        objective += bias_violation_term
+
 
     model.minimize(objective)
 
@@ -406,14 +406,14 @@ def generate_violation_query(CG, C_validated, probabilities, all_variables, orac
         for i, c in violated:
             print(f" - gamma_{i} -> VIOLATED: {c}")
             
-    # Print bias violation statistics
+    
     if bias_violations:
         total_bias_violations = sum(beta.value() if beta.value() is not None else 0 for beta in bias_violations)
         if total_bias_violations > 0:
             bias_violated_flag = True
             print(f"  Total violated B_fixed bias constraints: {total_bias_violations}/{len(bias_violations)}")
             
-            # Find and print the first 20 violated bias constraints
+            
             violated_bias_constraints = []
             for i, beta in enumerate(bias_violations):
                 if beta.value() and len(violated_bias_constraints) < 20:
@@ -429,28 +429,19 @@ def generate_violation_query(CG, C_validated, probabilities, all_variables, orac
     if result:
         print(f"  Solved in {solve_time:.2f}s - found violation query")
         
-        
-        model_vars = get_variables(model.constraints)
-        
-        
-        
         Y = []
         for v in model_vars:
-            var_name = str(getattr(v, 'name', ''))
+            var_name = str(getattr(v, 'name', ''))            
             
-            # Exclude auxiliary variables (gamma for violations, beta for bias)
             if not var_name.startswith('gamma_') and not var_name.startswith('beta_'):
                 Y.append(v)
         
         values_set = sum(1 for v in Y if v.value() is not None)
         print(f"  Variables with values: {values_set}/{len(Y)}")
-    
-
-        
+            
         Viol_e = get_kappa(CG, Y)
         print(f"  Violating {len(Viol_e)}/{len(CG)} constraints")
-        
-        
+            
         gamma_violations = []
         for i, c in enumerate(CG):
             gi = gamma[str(c)].value()
@@ -460,7 +451,7 @@ def generate_violation_query(CG, C_validated, probabilities, all_variables, orac
         if len(gamma_violations) != len(Viol_e):
             print(f"    Gamma indicates {len(gamma_violations)} violations")
             print(f"    get_kappa found {len(Viol_e)} violations")
-            print(f"  This may indicate variable synchronization issues.")
+            raise Exception(f"  This may indicate variable synchronization issues.")
         
         assignment = variables_to_assignment(Y)
         
@@ -547,7 +538,7 @@ def cop_refinement_recursive(CG_cand, C_validated, oracle, probabilities, all_va
     probs = probabilities.copy()
     
     indent = "  " * recursion_depth
-    positive_examples = phase1_positive_examples # Alias for consistency with paper notation (E_plus_accum)
+    positive_examples = phase1_positive_examples 
     
     print(f"\n{indent}{'-'*50}")
     print(f"{indent}COP Refinement [Depth={recursion_depth}]")
@@ -594,9 +585,9 @@ def cop_refinement_recursive(CG_cand, C_validated, oracle, probabilities, all_va
         
         print(f"{indent}[QUERY] Generating violation query...")
 
-        # Prepare accumulated positive examples for query generation
-        # E_plus_accum is passed as positive_examples (from parent or initial)
-        # We also need to include any new positive examples found at THIS level so far
+        
+        
+        
         current_level_positive_examples = []
         if positive_examples:
             current_level_positive_examples.extend(positive_examples)
@@ -614,6 +605,10 @@ def cop_refinement_recursive(CG_cand, C_validated, oracle, probabilities, all_va
             B_fixed=B_fixed,
             bias_weight=bias_weight
         )
+
+        for c in Viol_e:
+            if c not in CG:
+                raise Exception(f"After query generation: Constraint {c} is in Viol_e but not in CG: {CG}")
         
         if status == "UNSAT":
             consecutive_unsat += 1
@@ -644,11 +639,7 @@ def cop_refinement_recursive(CG_cand, C_validated, oracle, probabilities, all_va
         assignment_signature_value = assignment_signature(assignment)
         if assignment_signature_value is None:
             print(f"{indent}[WARN] Generated query has no assigned values; skipping")
-            continue
-
-        
-        
-        
+            continue        
 
         query_signature_cache.add(assignment_signature_value)
         assignment_snapshot = assignment.copy()
@@ -658,7 +649,7 @@ def cop_refinement_recursive(CG_cand, C_validated, oracle, probabilities, all_va
         for c in Viol_e:
             print(f"{indent}  - {c} (P={probs[c]:.3f})")
         
-        # if recursion_depth == 0 and 'sudoku' in experiment_name.lower() and len(all_variables) == 81:
+        
         try:
             display_sudoku_grid(Y, title=f"{indent}Violation Query Assignment", debug=False)
         except Exception as e:
@@ -673,8 +664,7 @@ def cop_refinement_recursive(CG_cand, C_validated, oracle, probabilities, all_va
         print(f"{indent}[DEBUG] Sending {len(non_none_assignments)} assigned variables to oracle")
         if len(non_none_assignments) <= 10:
             print(f"{indent}[DEBUG] Assignment: {non_none_assignments}")
-        
-        
+                
         oracle_vars = getattr(oracle, 'variables_list', None)
         manual_result = manual_sudoku_oracle_check(non_none_assignments, oracle, oracle_vars)
         
@@ -707,7 +697,10 @@ def cop_refinement_recursive(CG_cand, C_validated, oracle, probabilities, all_va
             print(f"{indent}Oracle: YES (valid) - Remove all {len(Viol_e)} violated constraints")
             for c in Viol_e:
                 if c in CG:
+                    prev_size = len(CG)
                     CG.remove(c)
+                    if prev_size == len(CG):
+                        raise Exception(f"  Constraint {c} was removed from CG_cand but is still in CG: {CG}")
                     probs[c] *= alpha 
                     print(f"{indent}  [REMOVE] {c} (P={probs[c]:.3f})")
 
@@ -720,16 +713,12 @@ def cop_refinement_recursive(CG_cand, C_validated, oracle, probabilities, all_va
             
             print(f"{indent}Oracle: NO (invalid) - Disambiguate {len(Viol_e)} violated constraints")
             negative_query_assignments.append(assignment_snapshot)
-            for c in Viol_e:
-                if str(c) =="alldifferent(grid[0,1],grid[2,3],grid[1,0],grid[0,0])":
-                    input("Press Enter to continue...")
             
-            if len(Viol_e) == 1:
+            if len(Viol_e) == 1 and (len(CG_cand) == 1 or not bias_violated):
                 
                 c = list(Viol_e)[0]
                 print(f"{indent}  [SINGLE VIOLATION] Must be correct: {c}")
-                
-                # Strict Algorithm Adherence: Validate regardless of bias violation
+                                
                 probs[c] = update_supporting_evidence(probs[c], alpha)
                 if probs[c] >= theta_max:
                     if c in CG:
@@ -748,26 +737,12 @@ def cop_refinement_recursive(CG_cand, C_validated, oracle, probabilities, all_va
                     print(f"{indent}  [DEFER] {c} (P={probs[c]:.3f} < {theta_max})")
             
             else:
-                # Multi-violation case: Update probabilities for ALL violated constraints
-                # Evidence: "At least one of Viol_e is TRUE"
-                # This provides supporting evidence for each constraint in Viol_e
+                
+                
+                
                 
                 print(f"{indent}[DISAMBIGUATE] Recursively refining {len(Viol_e)} constraints...")
-                
-                # Bayesian update: Weaker evidence per constraint (distributed among k constraints)
-                # Use update_supporting_evidence with distributed alpha
-                k = len(Viol_e)
-                for c in Viol_e:
-                    old_prob = probs[c]
-                    # Distribute evidence: each constraint gets 1/k of the update strength
-                    # This is conservative: if k=2, each gets half the update of single-violation
-                    probs[c] = update_supporting_evidence(probs[c], alpha ** (1.0 / k))
-                    print(f"{indent}  [UPDATE] {c}: P={old_prob:.3f} -> {probs[c]:.3f} (k={k})")
-                    if probs[c] >= theta_max:
-                        if c in CG:
-                            CG.remove(c)
-                            C_val.append(c)
-                            print(f"{c} appended to C_val")
+
                     
                 
                 decomposed_viol = []
@@ -780,8 +755,8 @@ def cop_refinement_recursive(CG_cand, C_validated, oracle, probabilities, all_va
                 C_val_filtered = get_con_subset(C_val, S) if C_val else []
                 print(f"{indent}  Relevant validated constraints: {len(C_val_filtered)}/{len(C_val)}")
                 
-                # Include non-disambiguated constraints from CG as hard constraints
-                # These are constraints in CG that are not in Viol_e
+                
+                
                 other_cg_constraints = [c for c in CG if c not in Viol_e]
                 if other_cg_constraints:
                     relevant_other_cg = get_con_subset(other_cg_constraints, S)
@@ -795,8 +770,8 @@ def cop_refinement_recursive(CG_cand, C_validated, oracle, probabilities, all_va
                 
                 print(f"{indent}  Recursive budget: {recursive_budget}q, {recursive_timeout:.0f}s")
                 
-                # Prepare accumulated positive examples for recursion
-                # E_plus_recursive = E_plus_accum + E_plus_new
+                
+                
                 recursive_positive_examples = []
                 if positive_examples:
                     recursive_positive_examples.extend(positive_examples)
@@ -821,22 +796,22 @@ def cop_refinement_recursive(CG_cand, C_validated, oracle, probabilities, all_va
                         query_assignments=query_assignments,
                         negative_query_assignments=negative_query_assignments,
                         query_history=query_history,
-                        positive_query_examples=[], # E_plus_new for recursive level starts empty
+                        positive_query_examples=[], 
                         positive_signature_cache=positive_signature_cache,
-                        phase1_positive_examples=recursive_positive_examples, # E_plus_accum for recursive level
+                        phase1_positive_examples=recursive_positive_examples, 
                         B_fixed=B_fixed,
                         bias_weight=bias_weight,
-                        validation_log=validation_log  # Pass the same log to accumulate
+                        validation_log=validation_log  
                     )
                 
                 queries_used += queries_recursive
                 print(f"{indent}[DISAMBIGUATE] Recursive call used {queries_recursive}q")
                 
-                # Accumulate positive examples from recursion
+                
                 if E_plus_sub:
                     positive_query_examples.extend(E_plus_sub)
-                    # Note: We don't need to add to phase1_positive_examples here because 
-                    # positive_query_examples are added to the accumulated set in the next iteration's query generation
+                    
+                    
                 
                 
                 for c in Viol_e:
@@ -844,17 +819,15 @@ def cop_refinement_recursive(CG_cand, C_validated, oracle, probabilities, all_va
                         probs[c] = probs_recursive[c]
                 
                 
-                # Fix membership checks: 'c in list' is unreliable for cpmpy constraints (uses symbolic equality)
-                # Use id() for robust identity-based membership checks
+                
+                
                 C_val_ids = {id(c) for c in C_val}
                 C_val_recursive_ids = {id(c) for c in C_val_recursive}
                 Viol_e_ids = {id(c) for c in Viol_e}
                 
                 ToValidate = [c for c in C_val_recursive if id(c) in Viol_e_ids and id(c) not in C_val_ids]
                 
-                # For ToRemove, we check if c is NOT in C_val_recursive (i.e. it was rejected or deferred in recursion)
-                # and if it is still in CG_remaining (i.e. not removed/validated elsewhere)
-                ToRemove = [c for c in Viol_e if id(c) not in C_val_recursive_ids and c in CG_remaining_recursive and probs[c] <= theta_min]
+                ToRemove = [c for c in Viol_e if id(c) not in C_val_recursive_ids and c not in CG_remaining_recursive]
                 
                 print(f"{indent}[DISAMBIGUATE] Results: {len(ToValidate)} validated, {len(ToRemove)} removed")
                 
@@ -1192,7 +1165,7 @@ if __name__ == "__main__":
     if args.phase1_pickle:
         phase1_data = load_phase1_data(args.phase1_pickle)
         
-        # Extract B_fixed from phase1 data
+        
         B_fixed = phase1_data.get('B_fixed', None)
         if B_fixed is not None:
             print(f"\nExtracted B_fixed from Phase 1: {len(B_fixed)} binary constraints")
@@ -1363,14 +1336,14 @@ if __name__ == "__main__":
     print(f"Queries per second: {stats['queries']/stats['time']:.2f}")
     print(f"{'='*60}\n")
     
-    # Display validation log
+    
     if validation_log:
         print(f"\n{'='*60}")
         print(f"Validation Log")
         print(f"{'='*60}")
         print(f"Total validations: {len(validation_log)}\n")
         
-        # Group by method
+        
         by_method = {}
         for entry in validation_log:
             method = entry['method']
@@ -1387,7 +1360,7 @@ if __name__ == "__main__":
                 depth = entry.get('depth', 0)
                 iteration = entry.get('iteration', 0)
                 
-                # Truncate long constraints for display
+                
                 if len(constraint_str) > 80:
                     constraint_display = constraint_str[:77] + "..."
                 else:
@@ -1406,8 +1379,8 @@ if __name__ == "__main__":
         'phase2_stats': stats,
 
         'phase1_data': phase1_data if args.phase1_pickle else None,
-        'E_plus': phase1_data['E_plus'] if args.phase1_pickle and 'E_plus' in phase1_data else None,
-        'B_fixed': phase1_data['B_fixed'] if args.phase1_pickle and 'B_fixed' in phase1_data else None,
+        'E_plus': phase1_data['E_plus'] if args.phase1_pickle and 'E_plus' in phase1_data else None, #TODO: BFIXED PRUNE ON RECURSIVE CALLS
+        'B_fixed': phase1_data['B_fixed'] if args.phase1_pickle and 'B_fixed' in phase1_data else None,  #TODO: BFIXED PRUNE ON RECURSIVE CALLS
         'all_variables': list(instance.X),
         'query_assignments': stats.get('query_assignments', []),
         'negative_query_assignments': stats.get('negative_query_assignments', []),
