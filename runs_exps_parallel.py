@@ -764,9 +764,9 @@ def main(num_runs=10):
     benchmarks = [
         #  'sudoku_gt',
         # 'sudoku',
-        'graph_coloring_register',
-        'examtt_v1',
-        'examtt_v2',
+        # 'graph_coloring_register',
+        # 'examtt_v1',
+        # 'examtt_v2',
         'nurse',
         'jsudoku',
     ]
@@ -798,7 +798,7 @@ def main(num_runs=10):
     aggregated_metrics = {}  # Key: (benchmark, num_solutions, approach), Value: list of metrics
     
     # Setup output directory and intermediate results files
-    output_dir = 'solution_variance_output22222'
+    output_dir = 'solution_variance_output3333'
     os.makedirs(output_dir, exist_ok=True)
     
     intermediate_csv_path = f"{output_dir}/intermediate_results.csv"
