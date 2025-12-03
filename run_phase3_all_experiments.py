@@ -1,78 +1,314 @@
 #!/usr/bin/env python3
 """
-Run Phase 3 (Active Learning) for all experiments with Phase 2 outputs.
-Logs results to individual files and creates a summary.
+Run Phase 3 (Active Learning Only) for all benchmarks using GrowAcq.
+
+This script runs pure active learning with pycona's GrowAcq algorithm
+directly on each benchmark oracle - no Phase 1/2 pickle files needed.
 """
 
 import os
 import sys
-import glob
 import time
 import json
 import logging
 from datetime import datetime
-from pathlib import Path
 
-# Configure logging
+from cpmpy import *
+from cpmpy import cpm_array
+from cpmpy.transformations.get_variables import get_variables
+from cpmpy.expressions.utils import all_pairs
+from pycona import ProblemInstance
+from pycona.ca_environment import ActiveCAEnv
+
+from resilient_findc import ResilientFindC
+from resilient_mquacq2 import ResilientMQuAcq2
+from resilient_growacq import ResilientGrowAcq
+from resilient_pqgen import ResilientPQGen
+
+# Import benchmarks
+from benchmarks import (
+    construct_sudoku_binary, 
+    construct_jsudoku_binary, 
+    construct_latin_square_binary,
+    construct_graph_coloring_binary_register, 
+    construct_graph_coloring_binary_scheduling,
+    construct_examtt_simple,
+    construct_nurse_rostering as construct_nurse_rostering_binary,
+    construct_sudoku_4x4_gt_binary
+)
+
+from benchmarks_global import (
+    construct_sudoku, 
+    construct_jsudoku, 
+    construct_latin_square,
+    construct_graph_coloring_register, 
+    construct_graph_coloring_scheduling,
+    construct_sudoku_greater_than,
+    construct_examtt_variant1, 
+    construct_examtt_variant2,
+    construct_nurse_rostering,
+    construct_sudoku_4x4_gt
+)
+
+from utils import get_scope
+
+
+# =============================================================================
+# EXPERIMENT DEFINITIONS
+# =============================================================================
+
+EXPERIMENTS = {
+    'sudoku_4x4': {
+        'description': '4x4 Sudoku',
+        'construct_binary': lambda: construct_sudoku_binary(2, 2, 4),
+        'construct_global': lambda: construct_sudoku(2, 2, 4),
+        'language': ['!='],
+    },
+    'sudoku_4x4_gt': {
+        'description': '4x4 Sudoku with Greater-Than constraints',
+        'construct_binary': lambda: construct_sudoku_4x4_gt_binary(2, 2, 4),
+        'construct_global': lambda: construct_sudoku_4x4_gt(2, 2, 4),
+        'language': ['!=', '<', '>'],
+    },
+    'sudoku_9x9': {
+        'description': '9x9 Sudoku',
+        'construct_binary': lambda: construct_sudoku_binary(3, 3, 9),
+        'construct_global': lambda: construct_sudoku(3, 3, 9),
+        'language': ['!='],
+    },
+    'sudoku_gt': {
+        'description': '9x9 Sudoku with Greater-Than constraints',
+        'construct_binary': lambda: construct_sudoku_binary(3, 3, 9),
+        'construct_global': lambda: construct_sudoku_greater_than(3, 3, 9),
+        'language': ['!=', '<', '>'],
+    },
+    'jsudoku': {
+        'description': 'Jigsaw Sudoku 9x9',
+        'construct_binary': lambda: construct_jsudoku_binary(grid_size=9),
+        'construct_global': lambda: construct_jsudoku(grid_size=9),
+        'language': ['!='],
+    },
+    'latin_square': {
+        'description': 'Latin Square 9x9',
+        'construct_binary': lambda: construct_latin_square_binary(n=9),
+        'construct_global': lambda: construct_latin_square(n=9),
+        'language': ['!='],
+    },
+    'graph_coloring_register': {
+        'description': 'Graph Coloring (Register Allocation)',
+        'construct_binary': lambda: construct_graph_coloring_binary_register(),
+        'construct_global': lambda: construct_graph_coloring_register(),
+        'language': ['!='],
+    },
+    'graph_coloring_scheduling': {
+        'description': 'Graph Coloring (Scheduling)',
+        'construct_binary': lambda: construct_graph_coloring_binary_scheduling(),
+        'construct_global': lambda: construct_graph_coloring_scheduling(),
+        'language': ['!='],
+    },
+    'nurse_rostering': {
+        'description': 'Nurse Rostering',
+        'construct_binary': lambda: construct_nurse_rostering_binary(),
+        'construct_global': lambda: construct_nurse_rostering(),
+        'language': ['!=', '=='],
+    },
+    'examtt_v1': {
+        'description': 'Exam Timetabling Variant 1 (small)',
+        'construct_binary': lambda: construct_examtt_simple(
+            nsemesters=6, courses_per_semester=5, 
+            slots_per_day=6, days_for_exams=10
+        ),
+        'construct_global': lambda: construct_examtt_variant1(
+            nsemesters=6, courses_per_semester=5, 
+            slots_per_day=6, days_for_exams=10
+        ),
+        'language': ['!='],
+    },
+    'examtt_v2': {
+        'description': 'Exam Timetabling Variant 2 (medium)',
+        'construct_binary': lambda: construct_examtt_simple(
+            nsemesters=12, courses_per_semester=10, 
+            slots_per_day=10, days_for_exams=20
+        ),
+        'construct_global': lambda: construct_examtt_variant2(
+            nsemesters=12, courses_per_semester=10, 
+            slots_per_day=10, days_for_exams=20
+        ),
+        'language': ['!='],
+    },
+}
+
+
+# =============================================================================
+# UTILITY FUNCTIONS
+# =============================================================================
+
 def setup_logging(output_dir):
     """Setup logging to both console and file."""
-    log_file = os.path.join(output_dir, f"phase3_run_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log")
+    log_file = os.path.join(output_dir, f"active_learning_run_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log")
     
-    # Create formatter
     formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
     
-    # Setup file handler
     file_handler = logging.FileHandler(log_file)
     file_handler.setLevel(logging.DEBUG)
     file_handler.setFormatter(formatter)
     
-    # Setup console handler
     console_handler = logging.StreamHandler()
     console_handler.setLevel(logging.INFO)
     console_handler.setFormatter(formatter)
     
-    # Setup logger
-    logger = logging.getLogger('phase3_runner')
+    logger = logging.getLogger('active_learning_runner')
     logger.setLevel(logging.DEBUG)
+    logger.handlers = []  # Clear any existing handlers
     logger.addHandler(file_handler)
     logger.addHandler(console_handler)
     
     return logger, log_file
 
 
-def find_phase2_pickles(phase2_dir="phase2_output"):
-    """Find all Phase 2 pickle files."""
-    pattern = os.path.join(phase2_dir, "*_phase2.pkl")
-    pickles = glob.glob(pattern)
-    return sorted(pickles)
+def generate_binary_bias(variables, language):
+    """Generate binary constraint bias for all pairs of variables."""
+    
+    bias_constraints = []
+    
+    for v1, v2 in all_pairs(variables):
+        for relation in language:
+            if relation == '==':
+                bias_constraints.append(v1 == v2)
+            elif relation == '!=':
+                bias_constraints.append(v1 != v2)
+            elif relation == '<':
+                bias_constraints.append(v1 < v2)
+            elif relation == '>':
+                bias_constraints.append(v1 > v2)
+            elif relation == '<=':
+                bias_constraints.append(v1 <= v2)
+            elif relation == '>=':
+                bias_constraints.append(v1 >= v2)
+    
+    return bias_constraints
 
 
-def extract_experiment_name(pickle_path):
-    """Extract experiment name from pickle file path."""
-    basename = os.path.basename(pickle_path)
-    # Remove _phase2.pkl suffix
-    return basename.replace("_phase2.pkl", "")
+def compute_metrics(learned_constraints, target_constraints):
+    """Compute precision, recall, F1 for learned vs target constraints."""
+    
+    target_strs = set(str(c) for c in target_constraints)
+    learned_strs = set(str(c) for c in learned_constraints)
+    
+    correct = len(target_strs & learned_strs)
+    missing = len(target_strs - learned_strs)
+    spurious = len(learned_strs - target_strs)
+    
+    precision = correct / len(learned_strs) if len(learned_strs) > 0 else 0
+    recall = correct / len(target_strs) if len(target_strs) > 0 else 0
+    f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0
+    
+    return {
+        'target_size': len(target_constraints),
+        'learned_size': len(learned_constraints),
+        'correct': correct,
+        'missing': missing,
+        'spurious': spurious,
+        'precision': precision,
+        'recall': recall,
+        'f1': f1
+    }
 
 
-def run_single_experiment(experiment_name, pickle_path, output_dir, algorithm='growacq', 
-                          max_queries=1000, timeout=600, logger=None):
+def compute_solution_metrics(learned_constraints, target_constraints, variables, 
+                             max_solutions=100, timeout_per_model=300):
+    """Compute solution-space metrics (S-Precision, S-Recall, S-F1)."""
+    
+    def enumerate_solutions(constraints, variables, max_sols, label):
+        # Filter out boolean constraints
+        filtered_constraints = [c for c in constraints if not c.is_bool()]
+        
+        solutions = set()
+        start_time = time.time()
+        count = 0
+        incomplete = False
+        
+        try:
+            while count < max_sols:
+                model = Model(filtered_constraints)
+                if time.time() - start_time > timeout_per_model:
+                    incomplete = True
+                    break
+                
+                result = model.solve()
+                if not result:
+                    break
+                
+                sol_tuple = tuple(v.value() for v in variables)
+                solutions.add(sol_tuple)
+                count += 1
+                
+                # Add exclusion constraint
+                exclusion = [v != v.value() for v in variables]
+                filtered_constraints.append(any(exclusion))
+            
+            if count >= max_sols:
+                incomplete = True
+                
+            return solutions, incomplete
+            
+        except Exception as e:
+            print(f"  [WARNING] Enumeration failed for {label}: {e}")
+            return solutions, True
+
+    learned_sols, learned_incomplete = enumerate_solutions(
+        learned_constraints, variables, max_solutions, "Learned"
+    )
+    target_sols, target_incomplete = enumerate_solutions(
+        target_constraints, variables, max_solutions, "Target"
+    )
+
+    intersection = learned_sols & target_sols
+    
+    s_precision = len(intersection) / len(learned_sols) if len(learned_sols) > 0 else 0.0
+    s_recall = len(intersection) / len(target_sols) if len(target_sols) > 0 else 0.0
+    s_f1 = 2 * s_precision * s_recall / (s_precision + s_recall) if (s_precision + s_recall) > 0 else 0.0
+    
+    return {
+        's_precision': s_precision,
+        's_recall': s_recall,
+        's_f1': s_f1,
+        'learned_solutions': len(learned_sols),
+        'target_solutions': len(target_sols),
+        'intersection_solutions': len(intersection),
+        'is_complete': not (learned_incomplete or target_incomplete)
+    }
+
+
+# =============================================================================
+# MAIN EXPERIMENT RUNNER
+# =============================================================================
+
+def run_active_learning(experiment_name, exp_config, output_dir, algorithm='growacq', 
+                        verbose=2, logger=None):
     """
-    Run Phase 3 for a single experiment.
+    Run pure active learning (GrowAcq or MQuAcq2) on a benchmark.
+    
+    Args:
+        experiment_name: Name of the experiment
+        exp_config: Experiment configuration dict
+        output_dir: Directory for output files
+        algorithm: 'growacq' or 'mquacq2'
+        verbose: Verbosity level
+        logger: Logger instance
     
     Returns:
-        dict: Results dictionary or None if failed
+        Dictionary with results
     """
-    from run_phase3 import run_phase3
     
-    log_file = os.path.join(output_dir, f"{experiment_name}_phase3.log")
+    log_file = os.path.join(output_dir, f"{experiment_name}_active_learning.log")
     
-    # Redirect stdout/stderr to log file for this experiment
+    # Redirect stdout/stderr to log file
     original_stdout = sys.stdout
     original_stderr = sys.stderr
     
     try:
         with open(log_file, 'w') as f:
-            # Create a tee-like object that writes to both file and console
             class TeeWriter:
                 def __init__(self, file, stream):
                     self.file = file
@@ -90,20 +326,9 @@ def run_single_experiment(experiment_name, pickle_path, output_dir, algorithm='g
             sys.stdout = TeeWriter(f, original_stdout)
             sys.stderr = TeeWriter(f, original_stderr)
             
-            start_time = time.time()
-            
-            results = run_phase3(
-                experiment_name=experiment_name,
-                phase2_pickle_path=pickle_path,
-                max_queries=max_queries,
-                timeout=timeout,
-                algorithm=algorithm
+            return _run_active_learning_impl(
+                experiment_name, exp_config, output_dir, algorithm, verbose, logger
             )
-            
-            elapsed_time = time.time() - start_time
-            results['wall_clock_time'] = elapsed_time
-            
-            return results
             
     except Exception as e:
         if logger:
@@ -120,32 +345,167 @@ def run_single_experiment(experiment_name, pickle_path, output_dir, algorithm='g
         sys.stderr = original_stderr
 
 
+def _run_active_learning_impl(experiment_name, exp_config, output_dir, algorithm, verbose, logger):
+    """Implementation of active learning run."""
+    
+    print(f"\n{'='*80}")
+    print(f"Active Learning: {experiment_name}")
+    print(f"Description: {exp_config['description']}")
+    print(f"Algorithm: {algorithm.upper()}")
+    print(f"{'='*80}\n")
+    
+    # Construct instance and oracle
+    print("[1/5] Constructing benchmark instance...")
+    result_binary = exp_config['construct_binary']()
+    instance_binary, oracle_binary = result_binary[:2]
+    
+    # Set oracle variables
+    oracle_binary.variables_list = cpm_array(instance_binary.X)
+    
+    print(f"  Variables: {len(instance_binary.X)}")
+    print(f"  Target constraints: {len(oracle_binary.constraints)}")
+    
+    # Generate bias
+    print("\n[2/5] Generating constraint bias...")
+    language = exp_config.get('language', ['!='])
+    bias = generate_binary_bias(instance_binary.X, language)
+    print(f"  Language: {language}")
+    print(f"  Bias size: {len(bias)}")
+    
+    # Create problem instance for active learning
+    print("\n[3/5] Setting up active learning...")
+    ca_instance = ProblemInstance(
+        variables=cpm_array(instance_binary.X),
+        init_cl=[],  # Start with empty CL
+        name=f"{experiment_name}_active",
+        bias=bias
+    )
+    
+    print(f"  Problem instance created")
+    print(f"  Variables: {len(ca_instance.variables)}")
+    print(f"  Initial CL: {len(ca_instance.cl)}")
+    print(f"  Bias: {len(ca_instance.bias)}")
+    
+    # Setup resilient components
+    resilient_findc = ResilientFindC(time_limit=1)
+    qgen = ResilientPQGen(time_limit=2)
+    custom_env = ActiveCAEnv(qgen=qgen, findc=resilient_findc)
+    
+    # Select algorithm
+    if algorithm.lower() == 'growacq':
+        inner_mquacq2 = ResilientMQuAcq2(ca_env=custom_env)
+        ca_system = ResilientGrowAcq(ca_env=custom_env, inner_algorithm=inner_mquacq2)
+    else:
+        ca_system = ResilientMQuAcq2(ca_env=custom_env)
+    
+    # Run active learning
+    print(f"\n[4/5] Running {algorithm.upper()}...")
+    start_time = time.time()
+    
+    try:
+        learned_instance = ca_system.learn(
+            ca_instance, 
+            oracle=oracle_binary, 
+            verbose=verbose
+        )
+    except Exception as e:
+        print(f"\n[ERROR] Active learning failed: {e}")
+        import traceback
+        traceback.print_exc()
+        return {
+            'experiment': experiment_name,
+            'status': 'failed',
+            'error': str(e)
+        }
+    
+    learning_time = time.time() - start_time
+    
+    # Get results
+    learned_constraints = learned_instance.cl
+    total_queries = ca_system.env.metrics.total_queries
+    
+    print(f"\n[5/5] Computing metrics...")
+    
+    # Constraint-level metrics
+    metrics = compute_metrics(learned_constraints, oracle_binary.constraints)
+    
+    print(f"\n{'='*60}")
+    print(f"RESULTS: {experiment_name}")
+    print(f"{'='*60}")
+    print(f"Algorithm: {algorithm.upper()}")
+    print(f"Total queries: {total_queries}")
+    print(f"Learning time: {learning_time:.2f}s")
+    print(f"\nConstraint-Level Metrics:")
+    print(f"  Target size: {metrics['target_size']}")
+    print(f"  Learned size: {metrics['learned_size']}")
+    print(f"  Correct: {metrics['correct']}")
+    print(f"  Missing: {metrics['missing']}")
+    print(f"  Spurious: {metrics['spurious']}")
+    print(f"  Precision: {metrics['precision']:.2%}")
+    print(f"  Recall: {metrics['recall']:.2%}")
+    print(f"  F1 Score: {metrics['f1']:.2%}")
+    
+    # Solution-level metrics (for smaller problems)
+    if len(instance_binary.X) <= 81:  # Skip for very large problems
+        print(f"\nComputing solution-space metrics...")
+        sol_metrics = compute_solution_metrics(
+            learned_constraints, oracle_binary.constraints, 
+            instance_binary.X, max_solutions=100
+        )
+        print(f"\nSolution-Level Metrics:")
+        print(f"  Learned solutions: {sol_metrics['learned_solutions']}")
+        print(f"  Target solutions: {sol_metrics['target_solutions']}")
+        print(f"  Intersection: {sol_metrics['intersection_solutions']}")
+        print(f"  S-Precision: {sol_metrics['s_precision']:.2%}")
+        print(f"  S-Recall: {sol_metrics['s_recall']:.2%}")
+        print(f"  S-F1: {sol_metrics['s_f1']:.2%}")
+    else:
+        print(f"\n[INFO] Skipping solution-space metrics (problem too large)")
+        sol_metrics = None
+    
+    # Build results dictionary
+    results = {
+        'experiment': experiment_name,
+        'description': exp_config['description'],
+        'status': 'success',
+        'algorithm': algorithm.upper(),
+        'timestamp': datetime.now().isoformat(),
+        'problem_size': {
+            'variables': len(instance_binary.X),
+            'target_constraints': len(oracle_binary.constraints),
+            'bias_size': len(bias)
+        },
+        'learning': {
+            'queries': total_queries,
+            'time': learning_time
+        },
+        'constraint_metrics': metrics,
+        'solution_metrics': sol_metrics
+    }
+    
+    # Save individual results
+    results_file = os.path.join(output_dir, f"{experiment_name}_results.json")
+    with open(results_file, 'w') as f:
+        json.dump(results, f, indent=2)
+    print(f"\n[SAVED] Results: {results_file}")
+    
+    return results
+
+
 def main():
     import argparse
     
     parser = argparse.ArgumentParser(
-        description='Run Phase 3 (Active Learning) for all experiments'
-    )
-    parser.add_argument(
-        '--phase2_dir', type=str, default='phase2_output',
-        help='Directory containing Phase 2 pickle files'
+        description='Run Active Learning (GrowAcq/MQuAcq2) for all benchmarks'
     )
     parser.add_argument(
         '--output_dir', type=str, default='phase3_output',
-        help='Directory to store Phase 3 outputs'
+        help='Directory to store outputs'
     )
     parser.add_argument(
         '--algorithm', type=str, default='growacq',
         choices=['mquacq2', 'growacq'],
         help='Active learning algorithm to use'
-    )
-    parser.add_argument(
-        '--max_queries', type=int, default=1000,
-        help='Maximum queries per experiment'
-    )
-    parser.add_argument(
-        '--timeout', type=int, default=600,
-        help='Timeout per experiment in seconds'
     )
     parser.add_argument(
         '--experiments', type=str, nargs='*', default=None,
@@ -156,11 +516,27 @@ def main():
         help='Experiments to skip'
     )
     parser.add_argument(
+        '--verbose', type=int, default=2,
+        help='Verbosity level (0-3)'
+    )
+    parser.add_argument(
         '--dry_run', action='store_true',
         help='List experiments without running them'
     )
+    parser.add_argument(
+        '--list', action='store_true',
+        help='List all available experiments'
+    )
     
     args = parser.parse_args()
+    
+    # List experiments and exit
+    if args.list:
+        print("\nAvailable experiments:")
+        print("-" * 60)
+        for name, config in EXPERIMENTS.items():
+            print(f"  {name:<30} - {config['description']}")
+        return 0
     
     # Create output directory
     os.makedirs(args.output_dir, exist_ok=True)
@@ -169,117 +545,62 @@ def main():
     logger, main_log_file = setup_logging(args.output_dir)
     
     logger.info("=" * 80)
-    logger.info("Phase 3 Runner - All Experiments")
+    logger.info("Active Learning Runner - All Experiments")
     logger.info("=" * 80)
-    logger.info(f"Phase 2 directory: {args.phase2_dir}")
     logger.info(f"Output directory: {args.output_dir}")
     logger.info(f"Algorithm: {args.algorithm}")
-    logger.info(f"Max queries: {args.max_queries}")
-    logger.info(f"Timeout: {args.timeout}s")
     logger.info(f"Main log file: {main_log_file}")
     logger.info("=" * 80)
     
-    # Find all Phase 2 pickles
-    all_pickles = find_phase2_pickles(args.phase2_dir)
-    
-    if not all_pickles:
-        logger.error(f"No Phase 2 pickle files found in {args.phase2_dir}")
-        sys.exit(1)
-    
-    logger.info(f"Found {len(all_pickles)} Phase 2 pickle files")
-    
-    # Filter experiments if specified
+    # Determine experiments to run
     experiments_to_run = []
-    for pkl in all_pickles:
-        exp_name = extract_experiment_name(pkl)
-        
-        # Skip if in skip list
-        if args.skip and exp_name in args.skip:
-            logger.info(f"  Skipping: {exp_name} (in skip list)")
+    for name, config in EXPERIMENTS.items():
+        if args.skip and name in args.skip:
+            logger.info(f"  Skipping: {name}")
             continue
-        
-        # Include only specified experiments if provided
-        if args.experiments and exp_name not in args.experiments:
+        if args.experiments and name not in args.experiments:
             continue
-        
-        experiments_to_run.append((exp_name, pkl))
+        experiments_to_run.append((name, config))
     
     logger.info(f"\nExperiments to run: {len(experiments_to_run)}")
-    for i, (exp_name, pkl) in enumerate(experiments_to_run, 1):
-        logger.info(f"  {i}. {exp_name}")
+    for i, (name, config) in enumerate(experiments_to_run, 1):
+        logger.info(f"  {i}. {name} - {config['description']}")
     
     if args.dry_run:
         logger.info("\n[DRY RUN] Exiting without running experiments")
-        return
+        return 0
     
     # Run experiments
     results_summary = []
     total_start_time = time.time()
     
-    for i, (exp_name, pkl_path) in enumerate(experiments_to_run, 1):
+    for i, (exp_name, exp_config) in enumerate(experiments_to_run, 1):
         logger.info(f"\n{'='*80}")
         logger.info(f"[{i}/{len(experiments_to_run)}] Running: {exp_name}")
         logger.info(f"{'='*80}")
-        logger.info(f"Phase 2 pickle: {pkl_path}")
         
         exp_start_time = time.time()
         
-        try:
-            results = run_single_experiment(
-                experiment_name=exp_name,
-                pickle_path=pkl_path,
-                output_dir=args.output_dir,
-                algorithm=args.algorithm,
-                max_queries=args.max_queries,
-                timeout=args.timeout,
-                logger=logger
-            )
-            
-            exp_elapsed = time.time() - exp_start_time
-            
-            if results and 'status' not in results:
-                # Successful run
-                summary_entry = {
-                    'experiment': exp_name,
-                    'status': 'success',
-                    'wall_clock_time': exp_elapsed,
-                    'phase3_queries': results.get('phase3', {}).get('queries', 0),
-                    'phase3_time': results.get('phase3', {}).get('time', 0),
-                    'total_queries': results.get('total', {}).get('queries', 0),
-                    'total_time': results.get('total', {}).get('time', 0),
-                    'precision': results.get('evaluation', {}).get('constraint_level', {}).get('precision', 0),
-                    'recall': results.get('evaluation', {}).get('constraint_level', {}).get('recall', 0),
-                    'f1': results.get('evaluation', {}).get('constraint_level', {}).get('f1', 0),
-                    's_precision': results.get('evaluation', {}).get('solution_level', {}).get('s_precision', 0),
-                    's_recall': results.get('evaluation', {}).get('solution_level', {}).get('s_recall', 0),
-                    's_f1': results.get('evaluation', {}).get('solution_level', {}).get('s_f1', 0)
-                }
-                logger.info(f"[SUCCESS] {exp_name} completed in {exp_elapsed:.2f}s")
-                logger.info(f"  Phase 3 queries: {summary_entry['phase3_queries']}")
-                logger.info(f"  F1 Score: {summary_entry['f1']:.2%}")
-            else:
-                # Failed run
-                summary_entry = {
-                    'experiment': exp_name,
-                    'status': 'failed',
-                    'wall_clock_time': exp_elapsed,
-                    'error': results.get('error', 'Unknown error') if results else 'No results returned'
-                }
-                logger.error(f"[FAILED] {exp_name}: {summary_entry.get('error', 'Unknown error')}")
-            
-            results_summary.append(summary_entry)
-            
-        except Exception as e:
-            exp_elapsed = time.time() - exp_start_time
-            logger.error(f"[ERROR] {exp_name} crashed: {e}")
-            import traceback
-            traceback.print_exc()
-            results_summary.append({
-                'experiment': exp_name,
-                'status': 'crashed',
-                'wall_clock_time': exp_elapsed,
-                'error': str(e)
-            })
+        results = run_active_learning(
+            experiment_name=exp_name,
+            exp_config=exp_config,
+            output_dir=args.output_dir,
+            algorithm=args.algorithm,
+            verbose=args.verbose,
+            logger=logger
+        )
+        
+        exp_elapsed = time.time() - exp_start_time
+        
+        if results.get('status') == 'success':
+            logger.info(f"[SUCCESS] {exp_name} completed in {exp_elapsed:.2f}s")
+            logger.info(f"  Queries: {results['learning']['queries']}")
+            logger.info(f"  F1 Score: {results['constraint_metrics']['f1']:.2%}")
+        else:
+            logger.error(f"[FAILED] {exp_name}: {results.get('error', 'Unknown error')}")
+        
+        results['wall_clock_time'] = exp_elapsed
+        results_summary.append(results)
     
     total_elapsed = time.time() - total_start_time
     
@@ -288,8 +609,8 @@ def main():
     logger.info("SUMMARY")
     logger.info(f"{'='*80}")
     
-    successful = [r for r in results_summary if r['status'] == 'success']
-    failed = [r for r in results_summary if r['status'] != 'success']
+    successful = [r for r in results_summary if r.get('status') == 'success']
+    failed = [r for r in results_summary if r.get('status') != 'success']
     
     logger.info(f"Total experiments: {len(results_summary)}")
     logger.info(f"Successful: {len(successful)}")
@@ -298,26 +619,24 @@ def main():
     
     if successful:
         logger.info(f"\nSuccessful Experiments:")
-        logger.info(f"{'Experiment':<40} {'Queries':>10} {'Time':>10} {'F1':>10} {'S-F1':>10}")
-        logger.info("-" * 80)
+        logger.info(f"{'Experiment':<30} {'Queries':>10} {'Time':>10} {'F1':>10}")
+        logger.info("-" * 60)
         for r in successful:
-            logger.info(f"{r['experiment']:<40} {r['phase3_queries']:>10} {r['phase3_time']:>10.2f}s {r['f1']:>10.2%} {r['s_f1']:>10.2%}")
+            logger.info(f"{r['experiment']:<30} {r['learning']['queries']:>10} "
+                       f"{r['learning']['time']:>10.2f}s {r['constraint_metrics']['f1']:>10.2%}")
     
     if failed:
         logger.info(f"\nFailed Experiments:")
         for r in failed:
             logger.info(f"  - {r['experiment']}: {r.get('error', 'Unknown error')}")
     
-    # Save summary to JSON
-    summary_file = os.path.join(args.output_dir, f"phase3_summary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json")
+    # Save summary
+    summary_file = os.path.join(args.output_dir, f"active_learning_summary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json")
     with open(summary_file, 'w') as f:
         json.dump({
-            'run_config': {
-                'phase2_dir': args.phase2_dir,
-                'output_dir': args.output_dir,
+            'config': {
                 'algorithm': args.algorithm,
-                'max_queries': args.max_queries,
-                'timeout': args.timeout
+                'output_dir': args.output_dir
             },
             'total_experiments': len(results_summary),
             'successful': len(successful),
@@ -327,25 +646,27 @@ def main():
         }, f, indent=2)
     
     logger.info(f"\nSummary saved to: {summary_file}")
-    logger.info(f"Main log saved to: {main_log_file}")
     
-    # Also create a simple CSV for easy analysis
-    csv_file = os.path.join(args.output_dir, f"phase3_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv")
+    # Save CSV
+    csv_file = os.path.join(args.output_dir, f"active_learning_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv")
     with open(csv_file, 'w') as f:
-        f.write("experiment,status,phase3_queries,phase3_time,total_queries,total_time,precision,recall,f1,s_precision,s_recall,s_f1,wall_clock_time\n")
+        f.write("experiment,status,variables,target_constraints,bias_size,queries,time,precision,recall,f1\n")
         for r in results_summary:
-            if r['status'] == 'success':
-                f.write(f"{r['experiment']},{r['status']},{r['phase3_queries']},{r['phase3_time']:.2f},"
-                        f"{r['total_queries']},{r['total_time']:.2f},{r['precision']:.4f},{r['recall']:.4f},"
-                        f"{r['f1']:.4f},{r['s_precision']:.4f},{r['s_recall']:.4f},{r['s_f1']:.4f},{r['wall_clock_time']:.2f}\n")
+            if r.get('status') == 'success':
+                f.write(f"{r['experiment']},{r['status']},{r['problem_size']['variables']},"
+                        f"{r['problem_size']['target_constraints']},{r['problem_size']['bias_size']},"
+                        f"{r['learning']['queries']},{r['learning']['time']:.2f},"
+                        f"{r['constraint_metrics']['precision']:.4f},"
+                        f"{r['constraint_metrics']['recall']:.4f},"
+                        f"{r['constraint_metrics']['f1']:.4f}\n")
             else:
-                f.write(f"{r['experiment']},{r['status']},,,,,,,,,,{r['wall_clock_time']:.2f}\n")
+                f.write(f"{r['experiment']},{r.get('status', 'failed')},,,,,,,,\n")
     
     logger.info(f"CSV results saved to: {csv_file}")
+    logger.info(f"Main log saved to: {main_log_file}")
     
-    return len(failed)  # Return number of failures as exit code
+    return len(failed)
 
 
 if __name__ == "__main__":
     sys.exit(main())
-
