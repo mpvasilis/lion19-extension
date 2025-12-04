@@ -210,8 +210,19 @@ def construct_examtt_variant1(nsemesters=6, courses_per_semester=5, slots_per_da
     return instance, oracle, overfitted_constraints
 
 
-def construct_examtt_variant2(nsemesters=30, courses_per_semester=25, slots_per_day=15, days_for_exams=60):
+def construct_examtt_variant2(nsemesters=8, courses_per_semester=8, slots_per_day=10, days_for_exams=10):
+    """
+    ExamTT Variant 2 - Simplified exam timetabling for COP tractability.
     
+    SIMPLIFIED VERSION (no integer division constraints):
+    - 8 semesters × 8 courses = 64 variables
+    - 10 slots × 10 days = 100 time slots
+    - Only simple AllDifferent constraints (no // 10 day constraints)
+    
+    Target constraints:
+    - 1 global AllDifferent over all 64 variables
+    - 8 row-based AllDifferent (one per semester)
+    """
     total_courses = nsemesters * courses_per_semester
     total_slots = slots_per_day * days_for_exams
 
@@ -227,90 +238,59 @@ def construct_examtt_variant2(nsemesters=30, courses_per_semester=25, slots_per_
 
     model = cp.Model()
 
-
+    # Global AllDifferent - all exams at different times
     model += cp.AllDifferent(variables)
 
+    # Row-based AllDifferent - each semester's exams at different times
+    # (This is implied by global but provides smaller, learnable constraints)
     for semester_index, row in enumerate(variables):
-        exam_days = [day_of_exam(course, slots_per_day) for course in row]
-        model += cp.AllDifferent(exam_days)
-
-    all_exams = variables.flatten()
-    max_exams_per_day = (total_courses + days_for_exams - 1) // days_for_exams + 1
-    for day in range(days_for_exams):
-        exams_on_day = cp.Count([day_of_exam(exam, slots_per_day) for exam in all_exams], day)
-        model += (exams_on_day <= max_exams_per_day)
+        model += cp.AllDifferent(row)
 
     C_T = list(model.constraints)
 
-
+    # Overfitted constraints - simple patterns that are NOT in the target
     overfitted_constraints = []
 
-    if nsemesters >= 3:
-        first_three_sems = variables[:3, :].flatten()
-        first_three_days = [day_of_exam(exam, slots_per_day) for exam in first_three_sems]
-        overfitted_c1 = cp.AllDifferent(first_three_days)
+    # Diagonal constraint
+    if nsemesters >= 5 and courses_per_semester >= 5:
+        diagonal = [variables[i, i] for i in range(min(5, nsemesters, courses_per_semester))]
+        overfitted_c1 = cp.AllDifferent(diagonal)
         overfitted_constraints.append(overfitted_c1)
         model += overfitted_c1
 
-    if nsemesters >= 4 and courses_per_semester >= 2:
-        first_four = variables[:4, :].flatten()
-        time_slots = [exam % slots_per_day for exam in first_four]
-        overfitted_c2 = cp.AllDifferent(time_slots[:min(slots_per_day, len(time_slots))])
-        overfitted_constraints.append(overfitted_c2)
-        model += overfitted_c2
-
-    if nsemesters >= 5 and courses_per_semester >= 2:
-        first_two_cols = variables[:, :2].flatten()
-        overfitted_c3 = cp.AllDifferent(first_two_cols[:min(15, len(first_two_cols))])
-        overfitted_constraints.append(overfitted_c3)
-        model += overfitted_c3
-
-    if nsemesters >= 5 and courses_per_semester >= 5:
-        diagonal = [variables[i, i] for i in range(min(5, nsemesters, courses_per_semester))]
-        overfitted_c4 = cp.AllDifferent(diagonal)
-        overfitted_constraints.append(overfitted_c4)
-        model += overfitted_c4
-
+    # Anti-diagonal constraint
     if nsemesters >= 5 and courses_per_semester >= 5:
         anti_diag = [variables[i, courses_per_semester - 1 - i] 
                      for i in range(min(5, nsemesters, courses_per_semester))]
-        overfitted_c5 = cp.AllDifferent(anti_diag)
-        overfitted_constraints.append(overfitted_c5)
-        model += overfitted_c5
+        overfitted_c2 = cp.AllDifferent(anti_diag)
+        overfitted_constraints.append(overfitted_c2)
+        model += overfitted_c2
 
-    if nsemesters >= 6 and courses_per_semester >= 3:
-        even_subset = variables[::2, :3].flatten()
-        overfitted_c6 = cp.AllDifferent(even_subset[:min(12, len(even_subset))])
-        overfitted_constraints.append(overfitted_c6)
-        model += overfitted_c6
-
-    if nsemesters >= 5 and courses_per_semester >= 3:
-        odd_subset = variables[1::2, -3:].flatten()
-        overfitted_c7 = cp.AllDifferent(odd_subset[:min(12, len(odd_subset))])
-        overfitted_constraints.append(overfitted_c7)
-        model += overfitted_c7
-
-    if nsemesters >= 6 and courses_per_semester >= 1:
+    # First column constraint
+    if nsemesters >= 6:
         first_col = [variables[sem, 0] for sem in range(min(6, nsemesters))]
-        overfitted_c8 = cp.AllDifferent(first_col)
-        overfitted_constraints.append(overfitted_c8)
-        model += overfitted_c8
+        overfitted_c3 = cp.AllDifferent(first_col)
+        overfitted_constraints.append(overfitted_c3)
+        model += overfitted_c3
 
+    # Last column constraint
     if nsemesters >= 5 and courses_per_semester >= 2:
         last_col = [variables[sem, -1] for sem in range(min(5, nsemesters))]
-        overfitted_c9 = cp.AllDifferent(last_col)
-        overfitted_constraints.append(overfitted_c9)
-        model += overfitted_c9
+        overfitted_c4 = cp.AllDifferent(last_col)
+        overfitted_constraints.append(overfitted_c4)
+        model += overfitted_c4
 
+    # Middle column constraint
     if nsemesters >= 6 and courses_per_semester >= 3:
         mid_idx = courses_per_semester // 2
         middle_col = [variables[sem, mid_idx] for sem in range(min(6, nsemesters))]
-        overfitted_c10 = cp.AllDifferent(middle_col)
-        overfitted_constraints.append(overfitted_c10)
-        model += overfitted_c10
+        overfitted_c5 = cp.AllDifferent(middle_col)
+        overfitted_constraints.append(overfitted_c5)
+        model += overfitted_c5
 
     AV = absvar(2)
 
+    # Simplified language - no integer division expressions
     lang = [
         AV[0] == AV[1],
         AV[0] != AV[1],
@@ -318,10 +298,6 @@ def construct_examtt_variant2(nsemesters=30, courses_per_semester=25, slots_per_
         AV[0] > AV[1],
         AV[0] >= AV[1],
         AV[0] <= AV[1],
-        day_of_exam(AV[0], slots_per_day) != day_of_exam(AV[1], slots_per_day),
-        day_of_exam(AV[0], slots_per_day) == day_of_exam(AV[1], slots_per_day),
-        cp.Count(AV, AV[0]) <= AV[1],
-        cp.Count(AV, AV[0]) == AV[1]
     ]
 
     instance = ProblemInstance(

@@ -1036,8 +1036,10 @@ def construct_instance(experiment_name):
             instance, oracle = result
     
     elif 'examtt_v2' in experiment_name.lower() or 'examtt_variant2' in experiment_name.lower():
-        result = construct_examtt_variant2(nsemesters=30, courses_per_semester=25, 
-                                           slots_per_day=15, days_for_exams=40)
+        # Simplified version: no integer division constraints, just simple AllDifferent
+        # 8 semesters × 8 courses = 64 vars, 10 slots × 10 days = 100 slots
+        result = construct_examtt_variant2(nsemesters=8, courses_per_semester=8, 
+                                           slots_per_day=10, days_for_exams=10)
 
         if len(result) == 3:
             instance, oracle, _ = result
