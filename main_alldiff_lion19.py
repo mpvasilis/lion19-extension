@@ -20,6 +20,7 @@ from main_alldiff_cop import (
     initialize_probabilities,
     build_constraint_violation,
     variables_to_assignment,
+    has_duplicate_variables,
 )
 
 
@@ -398,6 +399,14 @@ def query_driven_refinement(
         print(f"Constraint {idx}/{len(remaining_constraints)} (P={probability_map.get(constraint, 0.5):.3f})")
         print(constraint)
 
+        # Check for duplicate variables in the constraint (internally inconsistent)
+        if has_duplicate_variables(constraint):
+            print("  [REJECT - INVALID] Constraint has duplicate variables!")
+            print("  [REJECT] Removing internally inconsistent constraint.")
+            removed_constraints.add(constraint)
+            probability_map[constraint] = 0.0
+            continue
+
         scope_vars = list(get_variables([constraint]))
         if len(scope_vars) < 2:
             print("  [SKIP] Constraint scope too small to generate variable pairs.")
@@ -438,25 +447,54 @@ def query_driven_refinement(
 
             model = cp.Model()
 
+            # Helper function to check if a constraint's scope contains both xi and xj
+            # If so, the constraint would be violated by xi==xj and should be excluded
+            def constraint_conflicts_with_test(c, var_i, var_j):
+                """Check if constraint c contains both var_i and var_j in its scope."""
+                if isinstance(c, AllDifferent):
+                    scope_vars = list(get_variables([c]))
+                    scope_names = {str(getattr(v, 'name', v)) for v in scope_vars}
+                    xi_name = str(getattr(var_i, 'name', var_i))
+                    xj_name = str(getattr(var_j, 'name', var_j))
+                    return xi_name in scope_names and xj_name in scope_names
+                return False
             
             if additional_constraints:
-                model += list(additional_constraints)
-                print(f"    [MODEL] Including {len(additional_constraints)} B_fixed constraints")
+                # Filter B_fixed to exclude constraints that conflict with xi==xj
+                compatible_bias = [c for c in additional_constraints 
+                                  if not constraint_conflicts_with_test(c, xi, xj)]
+                if compatible_bias:
+                    model += compatible_bias
+                excluded_bias = len(additional_constraints) - len(compatible_bias)
+                if excluded_bias > 0:
+                    print(f"    [MODEL] Including {len(compatible_bias)} B_fixed constraints (excluded {excluded_bias} conflicting)")
+                else:
+                    print(f"    [MODEL] Including {len(compatible_bias)} B_fixed constraints")
 
             if use_all_candidates_in_model:
-                
-                
+                # Include all other candidates (C_G \ {c}) that don't conflict with xi==xj
                 other_candidates = [c for c in remaining_constraints 
                                    if c != constraint and c not in removed_constraints]
-                for other_c in other_candidates:
+                compatible_candidates = [c for c in other_candidates
+                                        if not constraint_conflicts_with_test(c, xi, xj)]
+                for other_c in compatible_candidates:
                     model += other_c
-                print(f"    [MODEL] Including {len(other_candidates)} other candidate constraints (C_G \\ {{c}})")
+                excluded_cands = len(other_candidates) - len(compatible_candidates)
+                if excluded_cands > 0:
+                    print(f"    [MODEL] Including {len(compatible_candidates)} other candidates (excluded {excluded_cands} conflicting with xi==xj)")
+                else:
+                    print(f"    [MODEL] Including {len(compatible_candidates)} other candidate constraints (C_G \\ {{c}})")
             else:
-                
-                for validated_c in validated_constraints:
+                # Only include validated constraints that don't conflict with xi==xj
+                compatible_validated = [c for c in validated_constraints
+                                       if not constraint_conflicts_with_test(c, xi, xj)]
+                for validated_c in compatible_validated:
                     model += validated_c
-                if validated_constraints:
-                    print(f"    [MODEL] Including {len(validated_constraints)} validated constraints")
+                excluded_val = len(validated_constraints) - len(compatible_validated)
+                if excluded_val > 0:
+                    print(f"    [MODEL] Including {len(compatible_validated)} validated constraints (excluded {excluded_val} conflicting)")
+                elif validated_constraints:
+                    print(f"    [MODEL] Including {len(compatible_validated)} validated constraints")
 
             
             model += (xi == test_value)
