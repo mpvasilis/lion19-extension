@@ -97,10 +97,15 @@ def construct_examtt_variant1(nsemesters=6, courses_per_semester=5, slots_per_da
         diagonal = [variables[i, i] for i in range(min(5, nsemesters, courses_per_semester))]
         anti_diag = [variables[i, courses_per_semester - 1 - i] 
                      for i in range(min(5, nsemesters, courses_per_semester))]
-        combined = diagonal + anti_diag
-        overfitted_c6 = cp.AllDifferent(combined)
-        overfitted_constraints.append(overfitted_c6)
-        model += overfitted_c6
+        # Remove duplicates by using a set-like approach while preserving order
+        combined = diagonal.copy()
+        for v in anti_diag:
+            if all(str(v) != str(existing) for existing in combined):
+                combined.append(v)
+        if len(combined) >= 5:  # Only add if constraint has enough unique variables
+            overfitted_c6 = cp.AllDifferent(combined)
+            overfitted_constraints.append(overfitted_c6)
+            model += overfitted_c6
 
 
     if nsemesters >= 5 and courses_per_semester >= 3:
