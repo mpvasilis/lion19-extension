@@ -31,7 +31,7 @@ from sklearn.metrics import (
 
 from probabilistic_belief_initialization import ConstraintFeatureExtractor, SyntheticDataGenerator, ConstraintClassifier
 
-# Import all benchmarks from benchmarks_global
+
 from benchmarks_global import (
     construct_sudoku,
     construct_sudoku_greater_than,
@@ -56,7 +56,7 @@ class EnhancedDataGenerator(SyntheticDataGenerator):
         
         print("Configuring benchmarks from benchmarks_global...")
         
-        # 1. Sudoku variants (standard)
+
         print("  - Adding Sudoku variants...")
         for size in [4, 6, 9]:
             block_size = int(np.sqrt(size))
@@ -67,7 +67,7 @@ class EnhancedDataGenerator(SyntheticDataGenerator):
                 'num_solutions': 100 if size <= 6 else 50
             })
         
-        # 2. Sudoku with Greater Than constraints
+
         print("  - Adding Sudoku Greater Than variants...")
         for size in [4, 6]:
             block_size = int(np.sqrt(size))
@@ -78,9 +78,9 @@ class EnhancedDataGenerator(SyntheticDataGenerator):
                 'num_solutions': 80 if size <= 4 else 50
             })
         
-        # 3. Latin Squares
+
         print("  - Adding Latin Square variants...")
-        # Using specific constructor functions
+
         configs.append({
             'name': 'latin_square_4x4',
             'func': construct_latin_square_4x4,
@@ -100,7 +100,7 @@ class EnhancedDataGenerator(SyntheticDataGenerator):
             'num_solutions': 50
         })
         
-        # Also add generic versions
+
         for size in [4, 6, 9]:
             configs.append({
                 'name': f'latin_square_{size}x{size}',
@@ -109,7 +109,7 @@ class EnhancedDataGenerator(SyntheticDataGenerator):
                 'num_solutions': 100 if size <= 6 else 50
             })
         
-        # 4. JSudoku (Jigsaw Sudoku)
+
         print("  - Adding JSudoku variants...")
         configs.append({
             'name': 'jsudoku_4x4',
@@ -123,7 +123,7 @@ class EnhancedDataGenerator(SyntheticDataGenerator):
             'params': {},
             'num_solutions': 80
         })
-        # Generic JSudoku
+
         configs.append({
             'name': 'jsudoku_generic',
             'func': construct_jsudoku,
@@ -131,9 +131,9 @@ class EnhancedDataGenerator(SyntheticDataGenerator):
             'num_solutions': 80
         })
         
-        # 5. Graph Coloring
+
         print("  - Adding Graph Coloring variants...")
-        # Specific constructors
+
         configs.append({
             'name': 'graph_coloring_queen_5x5',
             'func': construct_graph_coloring_queen5,
@@ -152,7 +152,7 @@ class EnhancedDataGenerator(SyntheticDataGenerator):
             'params': {},
             'num_solutions': 80
         })
-        # Generic graph coloring with different graph types
+
         for graph_type in ['queen_5x5', 'queen_6x6', 'register', 'scheduling']:
             configs.append({
                 'name': f'graph_coloring_{graph_type}',
@@ -161,7 +161,7 @@ class EnhancedDataGenerator(SyntheticDataGenerator):
                 'num_solutions': 100 if 'queen_5' in graph_type else 80
             })
         
-        # 6. Nurse Rostering
+
         print("  - Adding Nurse Rostering variants...")
         for num_nurses in [6, 8, 10]:
             configs.append({
@@ -171,7 +171,7 @@ class EnhancedDataGenerator(SyntheticDataGenerator):
                 'num_solutions': 50
             })
         
-        # 7. Exam Timetabling
+
         print("  - Adding Exam Timetabling variants...")
         configs.append({
             'name': 'exam_timetabling_simple',
@@ -188,11 +188,11 @@ class EnhancedDataGenerator(SyntheticDataGenerator):
         configs.append({
             'name': 'exam_timetabling_variant2',
             'func': construct_examtt_variant2,
-            'params': {'nsemesters': 6, 'courses_per_semester': 4, 'slots_per_day': 9, 'days_for_exams': 10},
+            'params': {'nsemesters': 8, 'courses_per_semester': 8, 'slots_per_day': 10, 'days_for_exams': 10},
             'num_solutions': 30
         })
         
-        # 8. UEFA (Soccer Tournament Scheduling)
+
         print("  - Adding UEFA variant...")
         configs.append({
             'name': 'uefa',
@@ -201,7 +201,7 @@ class EnhancedDataGenerator(SyntheticDataGenerator):
             'num_solutions': 30
         })
         
-        # 9. VM Allocation
+
         print("  - Adding VM Allocation variant...")
         configs.append({
             'name': 'vm_allocation',
@@ -228,21 +228,21 @@ def main():
     print("  4. Evaluate the model and save it for use in constraint learning")
     print("\n" + "="*80 + "\n")
     
-    # =========================================================================
-    # STEP 1: Generate Synthetic Training Data
-    # =========================================================================
+
+
+
     print("STEP 1: GENERATING SYNTHETIC TRAINING DATA")
     print("-" * 80)
     
     data_generator = EnhancedDataGenerator(output_dir="ml_training_data")
     
-    # Generate dataset (use all benchmarks, target 5000+ instances)
-    # Note: Some benchmarks might fail, that's okay
+
+
     print("\nStarting dataset generation...")
     print("This may take 15-30 minutes depending on your system...\n")
     
     df, metadata = data_generator.generate_dataset(
-        num_benchmarks=100,  # Use all configured benchmarks
+        num_benchmarks=100,  
         total_instances=5000
     )
     
@@ -255,14 +255,14 @@ def main():
     print(f"Overfitted constraints: {metadata['total_negative']}")
     print(f"Class balance: {100*metadata['total_positive']/len(df):.1f}% positive")
     
-    # =========================================================================
-    # STEP 2: Prepare Data for Training
-    # =========================================================================
+
+
+
     print("\n" + "="*80)
     print("STEP 2: PREPARING DATA FOR TRAINING")
     print("="*80)
     
-    # Remove non-feature columns
+
     feature_columns = [col for col in df.columns if col not in ['label', 'benchmark']]
     X = df[feature_columns].values
     y = df['label'].values
@@ -273,12 +273,12 @@ def main():
     print(f"  - Overfitted (0): {np.sum(y == 0)} ({100*np.mean(y == 0):.1f}%)")
     print(f"  - True constraints (1): {np.sum(y == 1)} ({100*np.mean(y == 1):.1f}%)")
     
-    # Check for data quality
+
     if len(df) < 100:
         print("\n⚠ WARNING: Very few instances generated!")
         print("Some benchmarks may have failed. The model may not be well-trained.")
     
-    # Split into train (60%), validation (20%), test (20%)
+
     X_train, X_temp, y_train, y_temp = train_test_split(
         X, y, test_size=0.4, random_state=42, stratify=y
     )
@@ -291,32 +291,32 @@ def main():
     print(f"  - Validation set: {X_val.shape[0]} instances ({100*len(X_val)/len(X):.1f}%)")
     print(f"  - Test set: {X_test.shape[0]} instances ({100*len(X_test)/len(X):.1f}%)")
     
-    # =========================================================================
-    # STEP 3: Train the Classifier
-    # =========================================================================
+
+
+
     classifier = ConstraintClassifier(output_dir="ml_models")
     classifier.feature_names = feature_columns
     classifier.train(X_train, y_train, X_val, y_val)
     
-    # =========================================================================
-    # STEP 4: Evaluate on Test Set
-    # =========================================================================
+
+
+
     metrics = classifier.evaluate(X_test, y_test)
     
-    # =========================================================================
-    # STEP 5: Analyze Feature Importance
-    # =========================================================================
+
+
+
     importance_df = classifier.analyze_feature_importance(top_n=20)
     
-    # =========================================================================
-    # STEP 6: Save the Trained Model
-    # =========================================================================
+
+
+
     print("\n" + "="*80)
     print("STEP 6: SAVING TRAINED MODEL")
     print("="*80)
     classifier.save_model('constraint_classifier_calibrated.pkl')
     
-    # Save summary report
+
     report = {
         'dataset': {
             'total_instances': len(df),
@@ -359,9 +359,9 @@ def main():
     
     print(f"\nTraining report saved to ml_models/training_report.json")
     
-    # =========================================================================
-    # FINAL SUMMARY
-    # =========================================================================
+
+
+
     print("\n" + "="*80)
     print("TRAINING COMPLETE!")
     print("="*80)

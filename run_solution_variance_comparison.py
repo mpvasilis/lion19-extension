@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+
 """
 Solution Variance Comparison: Passive+Active with Different Numbers of Solutions
 
@@ -64,8 +64,8 @@ def construct_instance(experiment_name):
         result1 = construct_examtt_simple(nsemesters=30, courses_per_semester=25, 
                                            slots_per_day=15, days_for_exams=40)
         instance_binary, oracle_binary = (result1[0], result1[1]) if len(result1) == 3 else result1
-        result2 = construct_examtt_variant2(nsemesters=30, courses_per_semester=25, 
-                                           slots_per_day=15, days_for_exams=40)
+        result2 = construct_examtt_variant2(nsemesters=8, courses_per_semester=8, 
+                                           slots_per_day=10, days_for_exams=10)
         instance_global, oracle_global = (result2[0], result2[1]) if len(result2) == 3 else result2
     elif 'nurse' in experiment_name.lower():
         instance_binary, oracle_binary = construct_nurse_rostering_binary()
@@ -124,12 +124,12 @@ def run_active_learning_phase3(instance_binary, oracle_binary, init_cl, bias,
     print(f"  Initial CL: {len(ca_instance.cl)}")
     print(f"  Bias: {len(ca_instance.bias)}")
     
-    # Setup resilient components
+
     resilient_findc = ResilientFindC(time_limit=1)
     qgen = ResilientPQGen(time_limit=2)
     custom_env = ActiveCAEnv(qgen=qgen, findc=resilient_findc)
     
-    # Select algorithm
+
     if algorithm.lower() == 'growacq':
         inner_mquacq2 = ResilientMQuAcq2(ca_env=custom_env)
         ca_system = ResilientGrowAcq(ca_env=custom_env, inner_algorithm=inner_mquacq2)
@@ -178,7 +178,7 @@ def run_experiment_with_solution_count(benchmark_name, num_solutions, phase1_pic
     print(f"{'='*80}")
     print(f"Phase 1 pickle: {phase1_pickle_path}")
     
-    # Load Phase 1 data
+
     if not os.path.exists(phase1_pickle_path):
         print(f"[ERROR] Phase 1 pickle not found: {phase1_pickle_path}")
         return None
@@ -196,7 +196,7 @@ def run_experiment_with_solution_count(benchmark_name, num_solutions, phase1_pic
     print(f"  CG (candidate globals): {len(CG)}")
     print(f"  B_fixed (pruned bias): {len(B_fixed)}")
     
-    # Construct instances
+
     instance_binary, oracle_binary, instance_global, oracle_global = construct_instance(benchmark_name)
     oracle_binary.variables_list = cpm_array(instance_binary.X)
     
@@ -204,8 +204,8 @@ def run_experiment_with_solution_count(benchmark_name, num_solutions, phase1_pic
     print(f"  Variables: {len(instance_binary.X)}")
     print(f"  Target constraints: {len(oracle_binary.constraints)}")
     
-    # For this comparison, we skip Phase 2 (no validated globals)
-    # We go directly to Phase 3 with empty init_cl and Phase 1 bias
+
+
     init_cl = []
     bias = B_fixed
     
@@ -213,14 +213,14 @@ def run_experiment_with_solution_count(benchmark_name, num_solutions, phase1_pic
     print(f"  Initial CL: {len(init_cl)} (empty - no Phase 2 refinement)")
     print(f"  Bias: {len(bias)} (from Phase 1 with {num_solutions} solutions)")
     
-    # Run Phase 3
+
     result = run_active_learning_phase3(instance_binary, oracle_binary, init_cl, bias, 
                                         benchmark_name, num_solutions, algorithm)
     
     if result is None:
         return None
     
-    # Evaluate results
+
     metrics = compute_metrics(result['learned_constraints'], oracle_binary.constraints)
     
     print(f"\n[EVALUATION]")
@@ -244,7 +244,7 @@ def run_experiment_with_solution_count(benchmark_name, num_solutions, phase1_pic
             'learned_size': len(result['learned_constraints'])
         },
         'total': {
-            'queries': result['queries'],  # Phase 1 has 0 queries
+            'queries': result['queries'],  
             'time': result['time']
         },
         'evaluation': metrics,
@@ -265,13 +265,13 @@ def discover_solution_variants(base_dir='solution_variance_output_parallel'):
         print(f"[ERROR] Base directory not found: {base_dir}")
         return variants
     
-    # Scan directory for solution variance subdirectories
+
     for item in os.listdir(base_dir):
         item_path = os.path.join(base_dir, item)
         if not os.path.isdir(item_path):
             continue
         
-        # Parse directory name: {benchmark}_sol{num}_overfitted{num}
+
         parts = item.split('_sol')
         if len(parts) != 2:
             continue
@@ -286,7 +286,7 @@ def discover_solution_variants(base_dir='solution_variance_output_parallel'):
         except ValueError:
             continue
         
-        # Find the pickle file
+
         pickle_name = f"{benchmark_name}_phase1.pkl"
         pickle_path = os.path.join(item_path, pickle_name)
         
@@ -295,7 +295,7 @@ def discover_solution_variants(base_dir='solution_variance_output_parallel'):
                 variants[benchmark_name] = []
             variants[benchmark_name].append((num_solutions, pickle_path))
     
-    # Sort by number of solutions
+
     for benchmark in variants:
         variants[benchmark].sort(key=lambda x: x[0])
     
@@ -318,13 +318,13 @@ def main():
                        help='Specific benchmarks to run (default: all available)')
     args = parser.parse_args()
     
-    print(f"\n{'#'*80}")
-    print(f"# SOLUTION VARIANCE COMPARISON")
-    print(f"# Algorithm: {args.algorithm.upper()}")
-    print(f"# Base directory: {args.base_dir}")
-    print(f"{'#'*80}\n")
+    print(f"\n{'
+    print(f"
+    print(f"
+    print(f"
+    print(f"{'
     
-    # Discover available solution variants
+
     print(f"[DISCOVERY] Scanning {args.base_dir} for solution variance experiments...")
     variants = discover_solution_variants(args.base_dir)
     
@@ -332,7 +332,7 @@ def main():
         print(f"[ERROR] No solution variance experiments found in {args.base_dir}")
         sys.exit(1)
     
-    # Filter benchmarks if specified
+
     if args.benchmarks:
         variants = {k: v for k, v in variants.items() if k in args.benchmarks}
     
@@ -345,18 +345,18 @@ def main():
         print(f"[ERROR] No matching benchmarks found")
         sys.exit(1)
     
-    print(f"\n{'#'*80}")
-    print(f"# Starting experiments...")
-    print(f"{'#'*80}\n")
+    print(f"\n{'
+    print(f"
+    print(f"{'
     
     all_results = []
     
-    # Run experiments for each benchmark and solution count
+
     for benchmark_idx, (benchmark, sol_variants) in enumerate(sorted(variants.items()), 1):
-        print(f"\n\n{'#'*80}")
-        print(f"# BENCHMARK {benchmark_idx}/{len(variants)}: {benchmark}")
-        print(f"# Solution variants: {[num for num, _ in sol_variants]}")
-        print(f"{'#'*80}\n")
+        print(f"\n\n{'
+        print(f"
+        print(f"
+        print(f"{'
         
         benchmark_results = []
         
@@ -381,7 +381,7 @@ def main():
                     'error': str(e)
                 })
         
-        # Print benchmark summary
+
         if benchmark_results:
             print(f"\n{'='*80}")
             print(f"BENCHMARK SUMMARY: {benchmark}")
@@ -398,12 +398,12 @@ def main():
             
             all_results.extend(benchmark_results)
     
-    # Generate final summary
-    print(f"\n\n{'#'*80}")
-    print(f"# FINAL SUMMARY")
-    print(f"{'#'*80}\n")
+
+    print(f"\n\n{'
+    print(f"
+    print(f"{'
     
-    # Group results by benchmark
+
     results_by_benchmark = {}
     for result in all_results:
         if 'error' in result:
@@ -413,7 +413,7 @@ def main():
             results_by_benchmark[benchmark] = []
         results_by_benchmark[benchmark].append(result)
     
-    # Print summary table
+
     print(f"{'Benchmark':<25} {'Solutions':<12} {'Queries':<12} {'Time (s)':<12} {'F1-Score':<12}")
     print(f"{'='*73}")
     
@@ -425,7 +425,7 @@ def main():
                   f"{res['total']['time']:<12.2f} {res['evaluation']['f1']:<12.2%}")
         print(f"{'-'*73}")
     
-    # Save results
+
     output_dir = "solution_variance_comparison_results"
     os.makedirs(output_dir, exist_ok=True)
     
@@ -444,7 +444,7 @@ def main():
     
     print(f"\n[SAVED] Results saved to: {results_file}")
     
-    # Generate analysis
+
     print(f"\n{'='*80}")
     print(f"ANALYSIS: Effect of Number of Solutions")
     print(f"{'='*80}\n")

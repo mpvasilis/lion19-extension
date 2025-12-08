@@ -124,8 +124,8 @@ def construct_instance(benchmark_name):
     
     elif 'examtt_v2' in benchmark_name.lower() or 'examtt_variant2' in benchmark_name.lower():
         print("Constructing Exam Timetabling Variant 2...")
-        result = construct_examtt_variant2(nsemesters=30, courses_per_semester=25, 
-                                           slots_per_day=15, days_for_exams=60)
+        result = construct_examtt_variant2(nsemesters=8, courses_per_semester=8, 
+                                           slots_per_day=10, days_for_exams=10)
         
         if len(result) == 3:
             instance, oracle, overfitted_constraints = result
