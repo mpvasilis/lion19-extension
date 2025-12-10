@@ -592,12 +592,12 @@ def main(num_runs=10):
 
     benchmarks = [
 'sudoku',
-'sudoku_gt',
-"graph_coloring_register",
-"examtt_v1",
+# 'sudoku_gt',
+# "graph_coloring_register",
+# "examtt_v1",
 "examtt_v2",
-"nurse",
-"jsudoku",
+# "nurse",
+# "jsudoku",
 
 
 
@@ -606,7 +606,7 @@ def main(num_runs=10):
     ]
     
 
-    approaches = ['cop','lion']
+    approaches = ['lion','cop']
     
 
     benchmark_solution_map = {

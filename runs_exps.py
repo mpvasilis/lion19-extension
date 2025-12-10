@@ -704,15 +704,15 @@ def main(num_runs=10):
     benchmarks = [
          'sudoku',
         'sudoku_gt',
-        'graph_coloring_register',
-        'examtt_v1',
+        # 'graph_coloring_register',
+        # 'examtt_v1',
         'examtt_v2',
-        'nurse',
-        'jsudoku',
+        # 'nurse',
+        # 'jsudoku',
     ]
 
     # Define approaches to compare
-    approaches = ['cop', 'lion']
+    approaches = ['lion', 'cop']
     
     # Determine solution configurations per benchmark
     benchmark_solution_map = {
@@ -1145,6 +1145,6 @@ def main(num_runs=10):
 
 if __name__ == "__main__":
     import sys
-    num_runs = int(sys.argv[1]) if len(sys.argv) > 1 else 10
+    num_runs = int(sys.argv[1]) if len(sys.argv) > 1 else 1
     main(num_runs)
 
