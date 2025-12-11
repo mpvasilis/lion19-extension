@@ -215,18 +215,22 @@ def construct_examtt_variant1(nsemesters=6, courses_per_semester=5, slots_per_da
     return instance, oracle, overfitted_constraints
 
 
-def construct_examtt_variant2(nsemesters=8, courses_per_semester=8, slots_per_day=10, days_for_exams=10):
+def construct_examtt_variant2(nsemesters=12, courses_per_semester=10, slots_per_day=10, days_for_exams=20):
     """
-    ExamTT Variant 2 - Simplified exam timetabling for COP tractability.
+    ExamTT Variant 2 - LARGER instance of ExamTT-V1 with same constraint structure.
     
-    SIMPLIFIED VERSION (no integer division constraints):
-    - 8 semesters × 8 courses = 64 variables
-    - 10 slots × 10 days = 100 time slots
-    - Only simple AllDifferent constraints (no // 10 day constraints)
+    BIGGER VERSION (same constraints as V1 but larger scale):
+    - 12 semesters × 10 courses = 120 variables (vs V1: 6×5 = 30)
+    - 10 slots × 20 days = 200 time slots
+    - Same constraint types as V1: global AllDifferent, row AllDifferent, day constraints, count constraints
     
     Target constraints:
-    - 1 global AllDifferent over all 64 variables
-    - 8 row-based AllDifferent (one per semester)
+    - 1 global AllDifferent over all 120 variables
+    - 12 row-based AllDifferent (one per semester)
+    - 12 day-based AllDifferent (each semester's exams on different days)
+    - 20 count constraints (max exams per day)
+    
+    Total: 1 + 12 + 12 + 20 = 45 constraints (vs V1's ~27 constraints with 6 semesters)
     """
     total_courses = nsemesters * courses_per_semester
     total_slots = slots_per_day * days_for_exams
@@ -243,59 +247,130 @@ def construct_examtt_variant2(nsemesters=8, courses_per_semester=8, slots_per_da
 
     model = cp.Model()
 
-    # Global AllDifferent - all exams at different times
+    # Global AllDifferent - all exams at different times (SAME AS V1)
     model += cp.AllDifferent(variables)
 
-    # Row-based AllDifferent - each semester's exams at different times
-    # (This is implied by global but provides smaller, learnable constraints)
+    # Row-based AllDifferent - each semester's exams at different times (SAME AS V1)
     for semester_index, row in enumerate(variables):
         model += cp.AllDifferent(row)
+    
+    # Day-based AllDifferent - each semester's exams on different days (SAME AS V1)
+    for semester_index, row in enumerate(variables):
+        exam_days = [day_of_exam(course, slots_per_day) for course in row]
+        model += cp.AllDifferent(exam_days)
+    
+    # Count constraints - limit max exams per day (SAME AS V1)
+    all_exams = variables.flatten()
+    max_exams_per_day = (total_courses + days_for_exams - 1) // days_for_exams + 1
+    for day in range(days_for_exams):
+        exams_on_day = cp.Count([day_of_exam(exam, slots_per_day) for exam in all_exams], day)
+        model += (exams_on_day <= max_exams_per_day)
 
     C_T = list(model.constraints)
 
-    # Overfitted constraints - simple patterns that are NOT in the target
+    # Overfitted constraints - SAME PATTERNS as V1 but adapted to larger scale
     overfitted_constraints = []
 
-    # Diagonal constraint
-    if nsemesters >= 5 and courses_per_semester >= 5:
-        diagonal = [variables[i, i] for i in range(min(5, nsemesters, courses_per_semester))]
-        overfitted_c1 = cp.AllDifferent(diagonal)
-        overfitted_constraints.append(overfitted_c1)
-        model += overfitted_c1
+    # Pattern 1: Non-adjacent variables (scaled up)
+    if nsemesters >= 8 and courses_per_semester >= 5:
+        non_adj_vars = []
+        for sem in [0, 3, 6, 9]:  # Every 3rd semester (scaled from V1's [0,2,4])
+            for course in range(5):
+                if sem < nsemesters and course < courses_per_semester:
+                    non_adj_vars.append(variables[sem, course])
+        if len(non_adj_vars) >= 15:
+            overfitted_c1 = cp.AllDifferent(non_adj_vars)
+            overfitted_constraints.append(overfitted_c1)
+            model += overfitted_c1
 
-    # Anti-diagonal constraint
-    if nsemesters >= 5 and courses_per_semester >= 5:
-        anti_diag = [variables[i, courses_per_semester - 1 - i] 
-                     for i in range(min(5, nsemesters, courses_per_semester))]
-        overfitted_c2 = cp.AllDifferent(anti_diag)
+    # Pattern 2: Odd semesters combined (scaled up)
+    if nsemesters >= 8:
+        odd_sems = [variables[1, :].flatten(), variables[3, :].flatten(), 
+                   variables[5, :].flatten(), variables[7, :].flatten()]
+        if nsemesters >= 9:
+            odd_sems.append(variables[9, :].flatten())
+        if nsemesters >= 11:
+            odd_sems.append(variables[11, :].flatten())
+        odd_combined = []
+        for sem in odd_sems:
+            odd_combined.extend(list(sem))
+        overfitted_c2 = cp.AllDifferent(odd_combined[:min(30, len(odd_combined))])
         overfitted_constraints.append(overfitted_c2)
         model += overfitted_c2
 
-    # First column constraint
-    if nsemesters >= 6:
-        first_col = [variables[sem, 0] for sem in range(min(6, nsemesters))]
-        overfitted_c3 = cp.AllDifferent(first_col)
+    # Pattern 3: First columns (scaled up)
+    if nsemesters >= 8 and courses_per_semester >= 3:
+        first_three_cols = variables[:, :3].flatten()
+        overfitted_c3 = cp.AllDifferent(first_three_cols)
         overfitted_constraints.append(overfitted_c3)
         model += overfitted_c3
 
-    # Last column constraint
-    if nsemesters >= 5 and courses_per_semester >= 2:
-        last_col = [variables[sem, -1] for sem in range(min(5, nsemesters))]
-        overfitted_c4 = cp.AllDifferent(last_col)
+    # Pattern 4: Even semesters (scaled up)
+    if nsemesters >= 8:
+        even_sem_vars = []
+        for sem in [0, 2, 4, 6, 8, 10]:
+            if sem < nsemesters:
+                even_sem_vars.extend(list(variables[sem, :].flatten()))
+        overfitted_c4 = cp.AllDifferent(even_sem_vars)
         overfitted_constraints.append(overfitted_c4)
         model += overfitted_c4
 
-    # Middle column constraint
-    if nsemesters >= 6 and courses_per_semester >= 3:
-        mid_idx = courses_per_semester // 2
-        middle_col = [variables[sem, mid_idx] for sem in range(min(6, nsemesters))]
-        overfitted_c5 = cp.AllDifferent(middle_col)
+    # Pattern 5: Last columns subset (scaled up)
+    if nsemesters >= 6 and courses_per_semester >= 5:
+        last_five_cols = variables[:6, -5:].flatten()
+        overfitted_c5 = cp.AllDifferent(last_five_cols)
         overfitted_constraints.append(overfitted_c5)
         model += overfitted_c5
+    
+    # Pattern 6: Diagonal + anti-diagonal combined (scaled up)
+    if nsemesters >= 10 and courses_per_semester >= 10:
+        diagonal = [variables[i, i] for i in range(min(10, nsemesters, courses_per_semester))]
+        anti_diag = [variables[i, courses_per_semester - 1 - i] 
+                     for i in range(min(10, nsemesters, courses_per_semester))]
+        combined = diagonal.copy()
+        for v in anti_diag:
+            if all(str(v) != str(existing) for existing in combined):
+                combined.append(v)
+        if len(combined) >= 10:
+            overfitted_c6 = cp.AllDifferent(combined)
+            overfitted_constraints.append(overfitted_c6)
+            model += overfitted_c6
+    
+    # Pattern 7: Middle block (scaled up)
+    if nsemesters >= 10 and courses_per_semester >= 8:
+        mid_sem = nsemesters // 2
+        mid_course = courses_per_semester // 2
+        middle_block = []
+        for s_offset in [-2, -1, 0, 1, 2]:
+            sem_idx = mid_sem + s_offset
+            if 0 <= sem_idx < nsemesters:
+                for c_offset in [-2, -1, 0, 1, 2]:
+                    course_idx = mid_course + c_offset
+                    if 0 <= course_idx < courses_per_semester:
+                        middle_block.append(variables[sem_idx, course_idx])
+        if len(middle_block) >= 20:
+            overfitted_c7 = cp.AllDifferent(middle_block)
+            overfitted_constraints.append(overfitted_c7)
+            model += overfitted_c7
+    
+    # Pattern 8: Checkerboard pattern (scaled up)
+    if nsemesters >= 10 and courses_per_semester >= 8:
+        checkerboard = []
+        for sem in range(0, min(10, nsemesters), 2):
+            for course in range(0, min(8, courses_per_semester), 2):
+                checkerboard.append(variables[sem, course])
+        for sem in range(1, min(10, nsemesters), 2):
+            for course in range(1, min(8, courses_per_semester), 2):
+                if sem < nsemesters and course < courses_per_semester:
+                    checkerboard.append(variables[sem, course])
+        if len(checkerboard) >= 20:
+            overfitted_c8 = cp.AllDifferent(checkerboard)
+            overfitted_constraints.append(overfitted_c8)
+            model += overfitted_c8
 
     AV = absvar(2)
 
-    # Simplified language - no integer division expressions
+    # SAME language as V1 (including integer division expressions)
     lang = [
         AV[0] == AV[1],
         AV[0] != AV[1],
@@ -303,6 +378,10 @@ def construct_examtt_variant2(nsemesters=8, courses_per_semester=8, slots_per_da
         AV[0] > AV[1],
         AV[0] >= AV[1],
         AV[0] <= AV[1],
+        day_of_exam(AV[0], slots_per_day) != day_of_exam(AV[1], slots_per_day),
+        day_of_exam(AV[0], slots_per_day) == day_of_exam(AV[1], slots_per_day),
+        cp.Count(AV, AV[0]) <= AV[1],
+        cp.Count(AV, AV[0]) == AV[1]
     ]
 
     instance = ProblemInstance(

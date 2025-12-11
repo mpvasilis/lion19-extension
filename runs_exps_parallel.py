@@ -762,14 +762,13 @@ def main(num_runs=10):
     
     # Define benchmarks to test
     benchmarks = [
-         'sudoku_gt',
-        'sudoku',
-        'nurse',
-
-        'graph_coloring_register',
-        'examtt_v1',
-         'examtt_v2',
-        'jsudoku',
+        # 'sudoku_gt',
+        # 'sudoku',
+        # 'nurse',
+        # 'graph_coloring_register',
+        # 'examtt_v1',
+        'examtt_v2',
+        # 'jsudoku',
     ]
     
     # Define approaches to compare
@@ -781,7 +780,7 @@ def main(num_runs=10):
         for benchmark in benchmarks
     }
 
-    print("Benchmark-specific solution counts (solutions → overfitted constraints):")
+    print("Benchmark-specific solution counts (solutions -> overfitted constraints):")
     for benchmark in benchmarks:
         display_name = BENCHMARK_DISPLAY_NAMES.get(benchmark, benchmark)
         solution_counts = benchmark_solution_map[benchmark]
