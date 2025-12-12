@@ -766,7 +766,7 @@ def main(num_runs=10):
         # 'sudoku',
         # 'nurse',
         # 'graph_coloring_register',
-        # 'examtt_v1',
+        'examtt_v1',
         'examtt_v2',
         # 'jsudoku',
     ]
