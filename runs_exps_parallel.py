@@ -528,6 +528,17 @@ def extract_metrics(
     metrics['ALT(s)'] = 'N/A'
     metrics['PAT(s)'] = 'N/A'
     
+    # Missing: Number of target constraints not learned
+    # First try Phase 3 evaluation (more complete), then Phase 2 target_comparison
+    if phase3_available:
+        eval_data = phase3_results.get('evaluation', {})
+        constraint_level = eval_data.get('constraint_level', {})
+        metrics['Missing'] = constraint_level.get('missing', 0)
+    else:
+        # Try to get from Phase 2 target_comparison
+        target_comparison = phase2_stats.get('target_comparison', {})
+        metrics['Missing'] = target_comparison.get('missing', 'N/A')
+    
     # Evaluation metrics
     if phase3_available:
         eval_data = phase3_results.get('evaluation', {})
@@ -667,13 +678,13 @@ def append_metrics_to_csv(metrics_list, csv_path, metrics_lock):
         with open(csv_path, 'a') as f:
             # Write header if file doesn't exist
             if not file_exists:
-                f.write("Prob.,Approach,Sols,StartC,Implied,NotImplied,InvC,CT,Bias,ViolQ,MQuQ,TQ,ALQ,PAQ,")
+                f.write("Prob.,Approach,Sols,StartC,Implied,NotImplied,InvC,Missing,CT,Bias,ViolQ,MQuQ,TQ,ALQ,PAQ,")
                 f.write("P1T(s),VT(s),MQuT(s),TT(s),ALT(s),PAT(s),")
                 f.write("precision,recall,s_precision,s_recall\n")
             
             # Write data rows
             for m in metrics_list:
-                f.write(f"{m['Prob.']},{m['Approach']},{m['Sols']},{m['StartC']},{m['Implied']},{m['NotImplied']},{m['InvC']},")
+                f.write(f"{m['Prob.']},{m['Approach']},{m['Sols']},{m['StartC']},{m['Implied']},{m['NotImplied']},{m['InvC']},{m['Missing']},")
                 f.write(f"{m['CT']},{m['Bias']},{m['ViolQ']},{m['MQuQ']},{m['TQ']},")
                 f.write(f"{m['ALQ']},{m['PAQ']},")
                 f.write(f"{m['P1T(s)']},{m['VT(s)']},{m['MQuT(s)']},{m['TT(s)']},")
@@ -711,7 +722,7 @@ def aggregate_metrics_across_runs(aggregated_metrics, num_runs):
 
         # Numeric fields to aggregate
         numeric_fields = [
-            'StartC', 'Implied', 'NotImplied', 'InvC', 'CT', 'Bias', 'ViolQ', 'MQuQ', 'TQ',
+            'StartC', 'Implied', 'NotImplied', 'InvC', 'Missing', 'CT', 'Bias', 'ViolQ', 'MQuQ', 'TQ',
             'P1T(s)', 'VT(s)', 'MQuT(s)', 'TT(s)',
             'precision', 'recall', 's_precision', 's_recall'
         ]
@@ -807,7 +818,7 @@ def main(num_runs=10):
     # Initialize files (create with headers) - thread-safe initialization
     with metrics_lock:
         with open(intermediate_csv_path, 'w') as f:
-            f.write("Prob.,Approach,Sols,StartC,Implied,NotImplied,InvC,CT,Bias,ViolQ,MQuQ,TQ,ALQ,PAQ,")
+            f.write("Prob.,Approach,Sols,StartC,Implied,NotImplied,InvC,Missing,CT,Bias,ViolQ,MQuQ,TQ,ALQ,PAQ,")
             f.write("P1T(s),VT(s),MQuT(s),TT(s),ALT(s),PAT(s),")
             f.write("precision,recall,s_precision,s_recall\n")
     
@@ -924,14 +935,14 @@ def main(num_runs=10):
         f.write("="*150 + "\n\n")
         
         # Header line with Runs column
-        f.write(f"{'Prob.':<15} {'Approach':<9} {'Sols':<6} {'Runs':<6} {'StartC':<10} {'Implied':<11} {'NotImp.':<11} {'InvC':<8} {'CT':<5} {'Bias':<8} ")
+        f.write(f"{'Prob.':<15} {'Approach':<9} {'Sols':<6} {'Runs':<6} {'StartC':<10} {'Implied':<11} {'NotImp.':<11} {'InvC':<8} {'Missing':<10} {'CT':<5} {'Bias':<8} ")
         f.write(f"{'ViolQ':<9} {'MQuQ':<9} {'TQ':<8} ")
         f.write(f"{'P1T(s)':<12} {'VT(s)':<12} {'MQuT(s)':<13} {'TT(s)':<12}\n")
         
         # Data rows
         for m in sorted(aggregated_results, key=lambda x: (x['Prob.'], x['Sols'], x['Approach'])):
             f.write(f"{m['Prob.']:<15} {m['Approach']:<9} {m['Sols']:<6} {m['Runs']:<6} {m['StartC']:<10} {str(m['Implied']):<11} {str(m['NotImplied']):<11} {m['InvC']:<8} ")
-            f.write(f"{str(m['CT']):<5} {m['Bias']:<8} ")
+            f.write(f"{str(m.get('Missing', 'N/A')):<10} {str(m['CT']):<5} {m['Bias']:<8} ")
             f.write(f"{m['ViolQ']:<9} {m['MQuQ']:<9} {m['TQ']:<8} ")
             f.write(f"{m['P1T(s)']:<12} {m['VT(s)']:<12} {m['MQuT(s)']:<13} {m['TT(s)']:<12}\n")
         
@@ -948,27 +959,28 @@ def main(num_runs=10):
     detailed_report_path = f"{output_dir}/variance_results_detailed.txt"
     with open(detailed_report_path, 'w') as f:
         f.write("Solution Variance Experiment Results (COP vs LION Comparison) - ALL INDIVIDUAL RUNS\n")
-        f.write("="*140 + "\n\n")
+        f.write("="*150 + "\n\n")
         
         # Header line
-        f.write(f"{'Prob.':<15} {'Approach':<9} {'Sols':<6} {'StartC':<8} {'Implied':<9} {'NotImp.':<9} {'InvC':<6} {'CT':<5} {'Bias':<6} ")
+        f.write(f"{'Prob.':<15} {'Approach':<9} {'Sols':<6} {'StartC':<8} {'Implied':<9} {'NotImp.':<9} {'InvC':<6} {'Missing':<8} {'CT':<5} {'Bias':<6} ")
         f.write(f"{'ViolQ':<7} {'MQuQ':<7} {'TQ':<6} {'ALQ':<5} {'PAQ':<5} ")
         f.write(f"{'P1T(s)':<8} {'VT(s)':<8} {'MQuT(s)':<9} {'TT(s)':<8} {'ALT(s)':<7} {'PAT(s)':<7}\n")
         
         # Data rows
         for m in all_metrics:
             f.write(f"{m['Prob.']:<15} {m['Approach']:<9} {m['Sols']:<6} {m['StartC']:<8} {str(m['Implied']):<9} {str(m['NotImplied']):<9} {m['InvC']:<6} ")
-            f.write(f"{str(m['CT']):<5} {m['Bias']:<6} ")
+            f.write(f"{str(m.get('Missing', 'N/A')):<8} {str(m['CT']):<5} {m['Bias']:<6} ")
             f.write(f"{m['ViolQ']:<7} {m['MQuQ']:<7} {m['TQ']:<6} {m['ALQ']:<5} {m['PAQ']:<5} ")
             f.write(f"{m['P1T(s)']:<8} {m['VT(s)']:<8} {m['MQuT(s)']:<9} {m['TT(s)']:<8} ")
             f.write(f"{m['ALT(s)']:<7} {m['PAT(s)']:<7}\n")
         
-        f.write("\n" + "="*140 + "\n")
+        f.write("\n" + "="*150 + "\n")
         f.write("Legend:\n")
         f.write("  Approach: COP or LION methodology\n")
         f.write("  Sols: Number of given solutions (positive examples)\n")
         f.write("  StartC: Number of candidate constraints from passive learning\n")
         f.write("  InvC: Number of constraints invalidated by refinement\n")
+        f.write("  Missing: Number of target constraints NOT learned\n")
         f.write("  CT: Number of AllDifferent constraints in target model\n")
         f.write("  Bias: Size of generated bias\n")
         f.write("  NotImp.: Validated constraints not implied by target model\n")
@@ -987,12 +999,12 @@ def main(num_runs=10):
     print(f"[SAVED] Formatted results saved to: {report_path}")
     
     # Print to console
-    print(f"\n{'Prob.':<15} {'Approach':<9} {'Sols':<6} {'StartC':<8} {'Implied':<9} {'NotImp.':<9} {'InvC':<6} {'CT':<5} {'Bias':<6} ")
+    print(f"\n{'Prob.':<15} {'Approach':<9} {'Sols':<6} {'StartC':<8} {'Implied':<9} {'NotImp.':<9} {'InvC':<6} {'Missing':<8} {'CT':<5} {'Bias':<6} ")
     print(f"{'ViolQ':<7} {'MQuQ':<7} {'TQ':<6} {'P1T(s)':<8} {'VT(s)':<8} {'MQuT(s)':<9} {'TT(s)':<8}")
-    print("="*120)
+    print("="*130)
     for m in all_metrics:
         print(f"{m['Prob.']:<15} {m['Approach']:<9} {m['Sols']:<6} {m['StartC']:<8} {str(m['Implied']):<9} {str(m['NotImplied']):<9} {m['InvC']:<6} ", end="")
-        print(f"{str(m['CT']):<5} {m['Bias']:<6} ", end="")
+        print(f"{str(m.get('Missing', 'N/A')):<8} {str(m['CT']):<5} {m['Bias']:<6} ", end="")
         print(f"{m['ViolQ']:<7} {m['MQuQ']:<7} {m['TQ']:<6} ", end="")
         print(f"{m['P1T(s)']:<8} {m['VT(s)']:<8} {m['MQuT(s)']:<9} {m['TT(s)']:<8}")
     
@@ -1000,13 +1012,13 @@ def main(num_runs=10):
     csv_path = f"{output_dir}/variance_results_all_runs.csv"
     with open(csv_path, 'w') as f:
         # Header
-        f.write("Prob.,Approach,Sols,StartC,Implied,NotImplied,InvC,CT,Bias,ViolQ,MQuQ,TQ,ALQ,PAQ,")
+        f.write("Prob.,Approach,Sols,StartC,Implied,NotImplied,InvC,Missing,CT,Bias,ViolQ,MQuQ,TQ,ALQ,PAQ,")
         f.write("P1T(s),VT(s),MQuT(s),TT(s),ALT(s),PAT(s),")
         f.write("precision,recall,s_precision,s_recall\n")
         
         # Data
         for m in all_metrics:
-            f.write(f"{m['Prob.']},{m['Approach']},{m['Sols']},{m['StartC']},{m['Implied']},{m['NotImplied']},{m['InvC']},")
+            f.write(f"{m['Prob.']},{m['Approach']},{m['Sols']},{m['StartC']},{m['Implied']},{m['NotImplied']},{m['InvC']},{m['Missing']},")
             f.write(f"{m['CT']},{m['Bias']},{m['ViolQ']},{m['MQuQ']},{m['TQ']},")
             f.write(f"{m['ALQ']},{m['PAQ']},")
             f.write(f"{m['P1T(s)']},{m['VT(s)']},{m['MQuT(s)']},{m['TT(s)']},")
@@ -1018,7 +1030,7 @@ def main(num_runs=10):
     # Generate CSV output for aggregated results
     agg_csv_path = f"{output_dir}/variance_results_aggregated.csv"
     with open(agg_csv_path, 'w') as f:
-        f.write("Prob.,Approach,Sols,Runs,StartC,StartC_std,Implied,Implied_std,NotImplied,NotImplied_std,InvC,InvC_std,CT,Bias,Bias_std,")
+        f.write("Prob.,Approach,Sols,Runs,StartC,StartC_std,Implied,Implied_std,NotImplied,NotImplied_std,InvC,InvC_std,Missing,Missing_std,CT,Bias,Bias_std,")
         f.write("ViolQ,ViolQ_std,MQuQ,MQuQ_std,TQ,TQ_std,")
         f.write("P1T(s),P1T_std,VT(s),VT_std,MQuT(s),MQuT_std,TT(s),TT_std,")
         f.write("precision,precision_std,recall,recall_std,s_precision,s_precision_std,s_recall,s_recall_std\n")
@@ -1029,6 +1041,10 @@ def main(num_runs=10):
             f.write(f"{m['Implied_mean']:.3f},{m['Implied_std']:.3f},")
             f.write(f"{m['NotImplied_mean']:.3f},{m['NotImplied_std']:.3f},")
             f.write(f"{m['InvC_mean']:.3f},{m['InvC_std']:.3f},")
+            # Handle Missing field - may be N/A or numeric
+            missing_mean = m.get('Missing_mean', 0)
+            missing_std = m.get('Missing_std', 0)
+            f.write(f"{missing_mean:.3f},{missing_std:.3f},")
             f.write(f"{m['CT']},{m['Bias_mean']:.3f},{m['Bias_std']:.3f},")
             f.write(f"{m['ViolQ_mean']:.3f},{m['ViolQ_std']:.3f},")
             f.write(f"{m['MQuQ_mean']:.3f},{m['MQuQ_std']:.3f},")
