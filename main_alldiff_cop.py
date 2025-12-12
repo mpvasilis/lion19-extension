@@ -1373,6 +1373,21 @@ if __name__ == "__main__":
         
         print(f"\n{'='*60}\n")
 
+    E_plus_merged = stats.get('positive_examples_repository', [])
+    
+    B_fixed_updated = None
+    if args.phase1_pickle and 'B_fixed' in phase1_data and phase1_data['B_fixed'] is not None:
+        from phase1_passive_learning import prune_bias_with_examples
+        print(f"\n{'='*60}")
+        print(f"Re-pruning B_fixed with accumulated examples from Phase 2")
+        print(f"{'='*60}")
+        B_fixed_updated = prune_bias_with_examples(
+            phase1_data['B_fixed'], 
+            E_plus_merged, 
+            instance.X
+        )
+        print(f"B_fixed updated: {len(phase1_data['B_fixed'])} -> {len(B_fixed_updated)} constraints")
+    
     phase2_output = {
         'C_validated': C_validated,  
         'C_validated_strs': [str(c) for c in C_validated],  
@@ -1381,8 +1396,8 @@ if __name__ == "__main__":
         'phase2_stats': stats,
 
         'phase1_data': phase1_data if args.phase1_pickle else None,
-        'E_plus': phase1_data['E_plus'] if args.phase1_pickle and 'E_plus' in phase1_data else None, #TODO: BFIXED PRUNE ON RECURSIVE CALLS
-        'B_fixed': phase1_data['B_fixed'] if args.phase1_pickle and 'B_fixed' in phase1_data else None,  #TODO: BFIXED PRUNE ON RECURSIVE CALLS
+        'E_plus': E_plus_merged,  
+        'B_fixed': B_fixed_updated,
         'all_variables': list(instance.X),
         'query_assignments': stats.get('query_assignments', []),
         'negative_query_assignments': stats.get('negative_query_assignments', []),
