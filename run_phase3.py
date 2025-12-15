@@ -1,21 +1,27 @@
 
-
 import os
 import sys
 import pickle
 import time
 import json
+import traceback
 from datetime import datetime
 from cpmpy import *
 from cpmpy import cpm_array
 from cpmpy.transformations.get_variables import get_variables
-from pycona import MQuAcq2, ProblemInstance
+from pycona import MQuAcq2, GrowAcq, ProblemInstance
 from pycona.ca_environment import ActiveCAEnv
 from pycona.query_generation import PQGen
+from pycona.find_constraint.findc import FindC
 
-from resilient_findc import ResilientFindC
-from resilient_mquacq2 import ResilientMQuAcq2
-from resilient_growacq import ResilientGrowAcq
+# Original pycona algorithms (non-resilient) - used for crash analysis
+# Resilient wrappers are still available but disabled for testing
+# from resilient_findc import ResilientFindC
+# from resilient_mquacq2 import ResilientMQuAcq2
+# from resilient_growacq import ResilientGrowAcq
+
+# Flag to switch between resilient and original algorithms
+USE_RESILIENT_ALGORITHMS = False  # Set to True to re-enable resilient wrappers
 
 from benchmarks_global import construct_sudoku, construct_jsudoku, construct_latin_square
 from benchmarks_global import construct_graph_coloring_register, construct_graph_coloring_scheduling
@@ -294,17 +300,28 @@ def decompose_global_constraints(global_constraints):
     return validated_constraints
 
 
-def prune_bias_with_globals(bias_fixed, global_constraints):
+def prune_bias_with_globals(bias_fixed, global_constraints, filter_spurious=True):
+    """
+    Prune bias by removing constraints implied by global constraints.
     
+    Args:
+        bias_fixed: List of bias constraints from Phase 1
+        global_constraints: Validated global constraints from Phase 2
+        filter_spurious: If True, for AllDifferent-only targets, keep only != constraints
+                         that match scopes covered by the decomposed AllDifferent constraints.
+                         This fixes crashes caused by spurious constraints in bias.
+    """
     from utils import get_scope
     
     pruned_bias = []
     contradictions_removed = 0
+    wrong_type_removed = 0
+    spurious_removed = 0
 
+    # Decompose global constraints
     implied_binaries = []
     for gc in global_constraints:
         if hasattr(gc, 'name') and gc.name == "alldifferent":
-            # Skip constraints with transformations
             gc_str = str(gc)
             if '//' in gc_str or '/' in gc_str or '*' in gc_str or '+' in gc_str or '%' in gc_str:
                 continue
@@ -314,22 +331,91 @@ def prune_bias_with_globals(bias_fixed, global_constraints):
                 implied_binaries.extend(decomposed[0])
     
     print(f"\n  Implied binary constraints from globals: {len(implied_binaries)}")
+    
+    # Use both string matching AND scope-based matching for implied constraints
+    # This handles cases where variable order differs: (a != b) vs (b != a)
     implied_strs = set(str(c) for c in implied_binaries)
+    implied_scopes_with_type = set()  # (scope_key, constraint_type) pairs
+    for c in implied_binaries:
+        try:
+            scope = get_scope(c)
+            scope_key = frozenset(hash(v) for v in scope)
+            # Extract constraint type (!=, ==, etc.)
+            c_str = str(c)
+            if '!=' in c_str:
+                implied_scopes_with_type.add((scope_key, '!='))
+            elif '==' in c_str:
+                implied_scopes_with_type.add((scope_key, '=='))
+        except:
+            pass
+    
+    # Get all valid scopes from decomposed constraints
+    valid_scopes = set()
+    for c in implied_binaries:
+        try:
+            scope = get_scope(c)
+            # Create a frozenset of variable hashes for comparison
+            scope_key = frozenset(hash(v) for v in scope)
+            valid_scopes.add(scope_key)
+        except:
+            pass
+    
+    # Check if all global constraints are alldifferent (target model is only !=)
+    all_alldiff = all(
+        hasattr(gc, 'name') and gc.name == "alldifferent" 
+        for gc in global_constraints
+    ) if global_constraints else False
+    
+    if filter_spurious and all_alldiff and len(global_constraints) > 0:
+        print(f"  [FIX] Target model is AllDifferent-only, filtering spurious constraints from bias")
+        print(f"  [FIX] Valid scopes from decomposed AllDifferent: {len(valid_scopes)}")
 
     for b in bias_fixed:
-
         b_str = str(b)
-        is_contradictory = False
+        skip_constraint = False
 
+        # Check if already implied by globals (already learned)
+        # Use both string matching AND scope-based matching to handle variable order differences
         if b_str in implied_strs:
-
             contradictions_removed += 1
-            is_contradictory = True
+            skip_constraint = True
+        elif '!=' in b_str:
+            # Check scope-based matching for != constraints (handles a!=b vs b!=a)
+            try:
+                b_scope = get_scope(b)
+                b_scope_key = frozenset(hash(v) for v in b_scope)
+                if (b_scope_key, '!=') in implied_scopes_with_type:
+                    contradictions_removed += 1
+                    skip_constraint = True
+            except:
+                pass
         
-        if not is_contradictory:
+        # For AllDifferent-only targets, apply strict filtering
+        if not skip_constraint and filter_spurious and all_alldiff and len(global_constraints) > 0:
+            # Filter out wrong constraint types (==, <=, >=, <, >)
+            if '!=' not in b_str:
+                wrong_type_removed += 1
+                skip_constraint = True
+            else:
+                # Check if this != constraint is on a valid scope
+                try:
+                    b_scope = get_scope(b)
+                    b_scope_key = frozenset(hash(v) for v in b_scope)
+                    if b_scope_key not in valid_scopes:
+                        # This is a spurious != constraint - not in target model
+                        spurious_removed += 1
+                        skip_constraint = True
+                except:
+                    pass
+        
+        if not skip_constraint:
             pruned_bias.append(b)
     
     print(f"  Removed {contradictions_removed} constraints from bias (already implied by globals)")
+    if wrong_type_removed > 0:
+        print(f"  [FIX] Removed {wrong_type_removed} wrong-type constraints (==, <=, >=, <, >) from bias")
+    if spurious_removed > 0:
+        print(f"  [FIX] Removed {spurious_removed} spurious != constraints (scope not in target model)")
     
     # Validate bias constraints have proper scopes
     validated_bias = []
@@ -338,7 +424,6 @@ def prune_bias_with_globals(bias_fixed, global_constraints):
     for b in pruned_bias:
         try:
             scope = get_scope(b)
-            # Check if scope has valid size (at least 2 for binary)
             if len(scope) >= 2:
                 validated_bias.append(b)
             else:
@@ -470,22 +555,41 @@ def run_phase3(experiment_name, phase2_pickle_path, max_queries=1000, timeout=60
     print(f"  Initial CL: {len(ca_instance.cl)}")
     print(f"  Bias: {len(ca_instance.bias)}")
     
-    print(f"\n[INFO] Using {algorithm_name} with resilient components to handle imperfect bias")
-    from resilient_pqgen import ResilientPQGen
-    resilient_findc = ResilientFindC(time_limit=1)  # Set FindC solver timeout to 1 second
-    qgen = ResilientPQGen(time_limit=2)  # Use resilient query generator
-    custom_env = ActiveCAEnv(qgen=qgen, findc=resilient_findc)
-    
-    # Select algorithm based on parameter
-    if algorithm.lower() == 'growacq':
-        # GrowAcq uses ResilientMQuAcq2 as inner algorithm
-        inner_mquacq2 = ResilientMQuAcq2(ca_env=custom_env)
-        ca_system = ResilientGrowAcq(ca_env=custom_env, inner_algorithm=inner_mquacq2)
+    # Choose between resilient and original algorithms
+    if USE_RESILIENT_ALGORITHMS:
+        print(f"\n[INFO] Using {algorithm_name} with RESILIENT components to handle imperfect bias")
+        from resilient_pqgen import ResilientPQGen
+        from resilient_findc import ResilientFindC
+        from resilient_mquacq2 import ResilientMQuAcq2
+        from resilient_growacq import ResilientGrowAcq
+        
+        resilient_findc = ResilientFindC(time_limit=1)
+        qgen = ResilientPQGen(time_limit=2)
+        custom_env = ActiveCAEnv(qgen=qgen, findc=resilient_findc)
+        
+        if algorithm.lower() == 'growacq':
+            inner_mquacq2 = ResilientMQuAcq2(ca_env=custom_env)
+            ca_system = ResilientGrowAcq(ca_env=custom_env, inner_algorithm=inner_mquacq2)
+        else:
+            ca_system = ResilientMQuAcq2(ca_env=custom_env)
     else:
-        # Default to MQuAcq2
-        ca_system = ResilientMQuAcq2(ca_env=custom_env)
+        print(f"\n[INFO] Using {algorithm_name} with ORIGINAL pycona algorithms (crash analysis mode)")
+        print(f"       Resilient wrappers are DISABLED")
+        
+        # Use original pycona algorithms
+        original_findc = FindC(time_limit=1)
+        qgen = PQGen(time_limit=2)
+        custom_env = ActiveCAEnv(qgen=qgen, findc=original_findc)
+        
+        if algorithm.lower() == 'growacq':
+            inner_mquacq2 = MQuAcq2(ca_env=custom_env)
+            ca_system = GrowAcq(ca_env=custom_env, inner_algorithm=inner_mquacq2)
+        else:
+            ca_system = MQuAcq2(ca_env=custom_env)
     
     phase3_start = time.time()
+    crash_report = None
+    
     try:
         learned_instance = ca_system.learn(
             ca_instance, 
@@ -493,32 +597,126 @@ def run_phase3(experiment_name, phase2_pickle_path, max_queries=1000, timeout=60
             verbose=3
         )
     except Exception as e:
-        print(f"\n[ERROR] {algorithm_name} failed: {e}")
-        import traceback
-        traceback.print_exc()
-
-        findc_report = resilient_findc.get_resilience_report()
-        ca_report = ca_system.get_resilience_report()
+        phase3_time = time.time() - phase3_start
         
-        print(f"\n[RESILIENCE REPORT]")
-        print(f"  FindC collapse warnings: {findc_report['collapse_warnings']}")
-        print(f"  FindC unresolved scopes: {findc_report['unresolved_scopes']}")
-        print(f"  {algorithm_name} skipped scopes: {ca_report.get('skipped_scopes_count', 0)}")
-        print(f"  {algorithm_name} invalid CL constraints: {ca_report.get('invalid_cl_constraints_count', 0)}")
-        print(f"  {algorithm_name} collapse warnings: {ca_report.get('collapse_warnings', 0)}")
+        # Capture comprehensive crash information
+        exc_type = type(e).__name__
+        exc_message = str(e)
+        full_traceback = traceback.format_exc()
         
-        # Handle inner algorithm report for GrowAcq
-        if algorithm.lower() == 'growacq' and 'inner_algorithm' in ca_report:
-            inner_report = ca_report['inner_algorithm']
-            print(f"  Inner algorithm (MQuAcq2) skipped scopes: {inner_report.get('skipped_scopes_count', 0)}")
-            print(f"  Inner algorithm (MQuAcq2) invalid CL constraints: {inner_report.get('invalid_cl_constraints_count', 0)}")
+        print(f"\n{'='*80}")
+        print(f"[CRASH DETECTED] {algorithm_name} failed!")
+        print(f"{'='*80}")
+        print(f"Exception Type: {exc_type}")
+        print(f"Exception Message: {exc_message}")
+        print(f"\n--- Full Traceback ---")
+        print(full_traceback)
         
-        if findc_report['unresolved_details']:
-            print(f"  Unresolved scope details:")
-            for detail in findc_report['unresolved_details']:
-                print(f"    - Scope: {detail['scope']}, Target: {detail['target']}")
+        # Capture system state at crash time
+        try:
+            current_cl_size = len(ca_system.env.instance.cl) if hasattr(ca_system, 'env') and ca_system.env.instance else 0
+            remaining_bias_size = len(ca_system.env.instance.bias) if hasattr(ca_system, 'env') and ca_system.env.instance else 0
+            queries_made = ca_system.env.metrics.total_queries if hasattr(ca_system, 'env') and ca_system.env.metrics else 0
+        except:
+            current_cl_size = -1
+            remaining_bias_size = -1
+            queries_made = -1
+        
+        print(f"\n--- System State at Crash ---")
+        print(f"  Current CL size: {current_cl_size}")
+        print(f"  Remaining bias size: {remaining_bias_size}")
+        print(f"  Queries made: {queries_made}")
+        print(f"  Time elapsed: {phase3_time:.2f}s")
+        
+        # Create crash report
+        crash_report = {
+            'experiment': experiment_name,
+            'algorithm': algorithm_name,
+            'timestamp': datetime.now().isoformat(),
+            'crashed': True,
+            'exception': {
+                'type': exc_type,
+                'message': exc_message,
+                'traceback': full_traceback
+            },
+            'state_at_crash': {
+                'cl_size': current_cl_size,
+                'remaining_bias_size': remaining_bias_size,
+                'queries_made': queries_made,
+                'time_elapsed': phase3_time
+            },
+            'input_sizes': {
+                'initial_cl': len(final_CL),
+                'initial_bias': len(final_bias),
+                'variables': len(variables_for_ca)
+            }
+        }
+        
+        # Analyze the traceback to identify collapse point
+        crash_location = "unknown"
+        if "findc" in full_traceback.lower() or "FindC" in full_traceback:
+            crash_location = "FindC"
+        elif "findscope" in full_traceback.lower() or "FindScope" in full_traceback:
+            crash_location = "FindScope"
+        elif "analyze_and_learn" in full_traceback.lower():
+            crash_location = "analyze_and_learn"
+        elif "pqgen" in full_traceback.lower() or "generate" in full_traceback.lower():
+            crash_location = "PQGen/QueryGeneration"
+        elif "growacq" in full_traceback.lower():
+            crash_location = "GrowAcq"
+        elif "mquacq" in full_traceback.lower():
+            crash_location = "MQuAcq2"
+        
+        crash_report['crash_location'] = crash_location
+        
+        # Identify crash category
+        crash_category = "unknown"
+        if "delta" in exc_message.lower() or "empty" in exc_message.lower():
+            crash_category = "empty_delta"
+        elif "none" in exc_message.lower() or "NoneType" in exc_message:
+            crash_category = "none_value"
+        elif "hash" in exc_message.lower() or "not in" in exc_message.lower():
+            crash_category = "variable_not_in_hash"
+        elif "index" in exc_message.lower():
+            crash_category = "index_error"
+        elif "key" in exc_message.lower():
+            crash_category = "key_error"
+        
+        crash_report['crash_category'] = crash_category
+        
+        print(f"\n--- Crash Analysis ---")
+        print(f"  Crash location: {crash_location}")
+        print(f"  Crash category: {crash_category}")
+        
+        # Save crash report
+        crash_output_dir = "crash_reports"
+        os.makedirs(crash_output_dir, exist_ok=True)
+        crash_report_path = os.path.join(crash_output_dir, f"{experiment_name}_{algorithm}_crash.json")
+        
+        with open(crash_report_path, 'w') as f:
+            json.dump(crash_report, f, indent=2)
+        
+        print(f"\n[SAVED] Crash report: {crash_report_path}")
+        
+        # Get resilience report if using resilient wrappers
+        if USE_RESILIENT_ALGORITHMS:
+            try:
+                findc_report = resilient_findc.get_resilience_report()
+                ca_report = ca_system.get_resilience_report()
+                
+                print(f"\n[RESILIENCE REPORT]")
+                print(f"  FindC collapse warnings: {findc_report['collapse_warnings']}")
+                print(f"  FindC unresolved scopes: {findc_report['unresolved_scopes']}")
+                print(f"  {algorithm_name} skipped scopes: {ca_report.get('skipped_scopes_count', 0)}")
+                
+                if algorithm.lower() == 'growacq' and 'inner_algorithm' in ca_report:
+                    inner_report = ca_report['inner_algorithm']
+                    print(f"  Inner MQuAcq2 skipped scopes: {inner_report.get('skipped_scopes_count', 0)}")
+            except:
+                pass
         
         sys.exit(1)
+    
     phase3_time = time.time() - phase3_start
     
     learned_constraints_from_ca = ca_system.env.instance.cl
@@ -543,15 +741,21 @@ def run_phase3(experiment_name, phase2_pickle_path, max_queries=1000, timeout=60
     
     phase3_queries = ca_system.env.metrics.total_queries
 
-    findc_resilience = resilient_findc.get_resilience_report()
-    ca_resilience = ca_system.get_resilience_report()
-
-    resilience_report = {
-        'findc': findc_resilience,
-        'algorithm': ca_resilience,
-        'algorithm_name': algorithm_name,
-        'total_issues': findc_resilience['collapse_warnings'] + ca_resilience.get('skipped_scopes_count', 0) + ca_resilience.get('collapse_warnings', 0)
-    }
+    # Build resilience report (only if using resilient algorithms)
+    resilience_report = None
+    if USE_RESILIENT_ALGORITHMS:
+        try:
+            findc_resilience = resilient_findc.get_resilience_report()
+            ca_resilience = ca_system.get_resilience_report()
+            
+            resilience_report = {
+                'findc': findc_resilience,
+                'algorithm': ca_resilience,
+                'algorithm_name': algorithm_name,
+                'total_issues': findc_resilience['collapse_warnings'] + ca_resilience.get('skipped_scopes_count', 0) + ca_resilience.get('collapse_warnings', 0)
+            }
+        except AttributeError:
+            resilience_report = None
     
     print(f"\n{'='*60}")
     print(f"Phase 3 Results")
@@ -559,6 +763,7 @@ def run_phase3(experiment_name, phase2_pickle_path, max_queries=1000, timeout=60
     print(f"{algorithm_name} queries: {phase3_queries}")
     print(f"{algorithm_name} time: {phase3_time:.2f}s")
     print(f"Final model constraints: {len(final_constraints)}")
+    print(f"Mode: {'RESILIENT' if USE_RESILIENT_ALGORITHMS else 'ORIGINAL (crash analysis)'}")
     
     if resilience_report and resilience_report['total_issues'] > 0:
         print(f"\nResilience Report:")
@@ -658,7 +863,8 @@ def run_phase3(experiment_name, phase2_pickle_path, max_queries=1000, timeout=60
             'initial_cl': len(CL_init),
             'pruned_bias': len(B_pruned),
             'final_model_size': len(final_constraints),
-            'resilience': resilience_report
+            'resilience': resilience_report,
+            'mode': 'resilient' if USE_RESILIENT_ALGORITHMS else 'original'
         },
         'total': {
             'queries': total_queries,
