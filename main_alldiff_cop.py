@@ -48,7 +48,10 @@ def prune_bias_with_single_example(B_fixed, assignment, variables):
     to_remove = []
     for constraint in B_fixed:
         try:
-            if not constraint.value():
+            result = constraint.value()
+            # Only remove if explicitly False (violated)
+            # Do NOT remove if None (unassigned variables)
+            if result is False:
                 to_remove.append(constraint)
         except:
             # If evaluation fails, be conservative and remove
@@ -60,12 +63,39 @@ def prune_bias_with_single_example(B_fixed, assignment, variables):
     
     # Remove violated constraints from B_fixed in place
     removed_count = len(to_remove)
+    
+    # Check if we're removing any target > constraints (broader check)
+    target_gt_removed = []
+    all_gt_removed = []
+    for c in to_remove:
+        c_str = str(c)
+        # Check for ANY > constraint
+        if '>' in c_str and '!=' not in c_str and '>=' not in c_str:
+            all_gt_removed.append(c_str)
+            # Check if it's one of our specific targets
+            if any(tgt in c_str for tgt in ['grid[0,0]', 'grid[0,1]', 'grid[0,2]', 'grid[1,2]']):
+                target_gt_removed.append(c_str)
+    
     for c in to_remove:
         B_fixed.remove(c)
     
     if removed_count > 0:
         print(f"  [B_FIXED PRUNING] Removed {removed_count} constraints violated by positive example")
         print(f"  [B_FIXED PRUNING] Remaining B_fixed size: {len(B_fixed)}")
+        
+        if all_gt_removed:
+            print(f"  [INFO] Removed {len(all_gt_removed)} > constraints (total removed: {removed_count})")
+            if len(all_gt_removed) <= 10:
+                for c in all_gt_removed:
+                    print(f"    - {c}")
+        
+        if target_gt_removed:
+            print(f"  [!!!WARNING!!!] Removed TARGET > constraints that should be in oracle!")
+            for c in target_gt_removed:
+                print(f"    - {c}")
+            print(f"  [WARNING] Assignment that violated them:")
+            for var_name, value in list(assignment.items())[:15]:
+                print(f"    {var_name} = {value}")
     
     return removed_count
 
@@ -1227,6 +1257,17 @@ if __name__ == "__main__":
         B_fixed = phase1_data.get('B_fixed', None)
         if B_fixed is not None:
             print(f"\nExtracted B_fixed from Phase 1: {len(B_fixed)} binary constraints")
+            
+            # DEBUG: Check for target > constraints at Phase 2 start
+            target_gt = [
+                '(grid[0,0]) > (grid[0,1])',
+                '(grid[0,2]) > (grid[1,2])',
+            ]
+            print("\n[DEBUG] Checking for 2 target > constraints at Phase 2 start:")
+            for tgt in target_gt:
+                present = any(str(c) == tgt for c in B_fixed)
+                status = "PRESENT" if present else "MISSING"
+                print(f"  {tgt}: {status}")
         else:
             print(f"\nNo B_fixed found in Phase 1 data")
         
@@ -1453,6 +1494,17 @@ if __name__ == "__main__":
         print(f"{'='*60}")
         print(f"B_fixed: {original_size} -> {len(B_fixed_updated)} constraints")
         print(f"  (Pruned incrementally during Phase 2 when positive examples were found)")
+        
+        # DEBUG: Check for target > constraints at Phase 2 end
+        target_gt = [
+            '(grid[0,0]) > (grid[0,1])',
+            '(grid[0,2]) > (grid[1,2])',
+        ]
+        print("\n[DEBUG] Checking for 2 target > constraints at Phase 2 end:")
+        for tgt in target_gt:
+            present = any(str(c) == tgt for c in B_fixed_updated)
+            status = "PRESENT" if present else "REMOVED"
+            print(f"  {tgt}: {status}")
     
     phase2_output = {
         'C_validated': C_validated,  

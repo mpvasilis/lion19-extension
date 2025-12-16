@@ -14,14 +14,11 @@ from pycona.ca_environment import ActiveCAEnv
 from pycona.query_generation import PQGen
 from pycona.find_constraint.findc import FindC
 
-# Original pycona algorithms (non-resilient) - used for crash analysis
-# Resilient wrappers are still available but disabled for testing
 # from resilient_findc import ResilientFindC
 # from resilient_mquacq2 import ResilientMQuAcq2
 # from resilient_growacq import ResilientGrowAcq
 
-# Flag to switch between resilient and original algorithms
-USE_RESILIENT_ALGORITHMS = False  # Set to True to re-enable resilient wrappers
+USE_RESILIENT_ALGORITHMS = False
 
 from benchmarks_global import construct_sudoku, construct_jsudoku, construct_latin_square
 from benchmarks_global import construct_graph_coloring_register, construct_graph_coloring_scheduling
@@ -146,11 +143,9 @@ def load_phase2_data(pickle_path):
     
     print(f"Loading Phase 2 data from: {pickle_path}")
     
-    # Check if file exists
     if not os.path.exists(pickle_path):
         print(f"\n[ERROR] Phase 2 pickle file not found: {pickle_path}")
         
-        # Try to find available pickle files
         pickle_dir = os.path.dirname(pickle_path) or 'phase2_output'
         if os.path.exists(pickle_dir):
             available_pickles = [f for f in os.listdir(pickle_dir) if f.endswith('.pkl')]
@@ -158,21 +153,7 @@ def load_phase2_data(pickle_path):
                 print(f"\nAvailable Phase 2 pickle files in {pickle_dir}/:")
                 for pkl in sorted(available_pickles):
                     print(f"  - {pkl}")
-                
-                # Try to suggest the correct file based on experiment name
-                basename = os.path.basename(pickle_path)
-                if basename in available_pickles:
-                    print(f"\n[HINT] Found matching file: {os.path.join(pickle_dir, basename)}")
-                    print(f"       Use: --phase2_pickle {os.path.join(pickle_dir, basename)}")
-            else:
-                print(f"\n[INFO] No pickle files found in {pickle_dir}/")
-                print(f"       You may need to run Phase 2 first using:")
-                print(f"       python run_phase2_experiments.py")
-        else:
-            print(f"\n[INFO] Directory {pickle_dir}/ does not exist")
-            print(f"       You need to run Phase 2 first using:")
-            print(f"       python run_phase2_experiments.py")
-        
+
         sys.exit(1)
     
     with open(pickle_path, 'rb') as f:
@@ -206,9 +187,16 @@ def construct_instance(experiment_name):
         result = construct_jsudoku(grid_size=9)
         instance_global, oracle_global = (result[0], result[1]) if len(result) == 3 else result
     elif 'sudoku_4x4_gt' in experiment_name.lower():
-        instance_binary, oracle_binary = construct_sudoku_4x4_gt_binary(2, 2, 4)
-        result = construct_sudoku_4x4_gt(2, 2, 4)
-        instance_global, oracle_global = (result[0], result[1]) if len(result) == 3 else result
+        result1 = construct_sudoku_4x4_gt_binary(2, 2, 4)
+        instance_binary, oracle_binary = (result1[0], result1[1]) if len(result1) == 3 else result1
+        result2 = construct_sudoku_4x4_gt(2, 2, 4)
+        instance_global, oracle_global = (result2[0], result2[1]) if len(result2) == 3 else result2
+    elif 'sudoku_gt' in experiment_name.lower() or 'sudoku_greater' in experiment_name.lower():
+        from benchmarks_global.sudoku_greater_than import construct_sudoku_greater_than
+        result1 = construct_sudoku_greater_than(3, 3, 9)
+        instance_binary, oracle_binary = (result1[0], result1[1]) if len(result1) == 3 else result1
+        result2 = construct_sudoku_greater_than(3, 3, 9)
+        instance_global, oracle_global = (result2[0], result2[1]) if len(result2) == 3 else result2
     elif 'sudoku' in experiment_name.lower():
         n = 9
         instance_binary, oracle_binary = construct_sudoku_binary(3, 3, 9)
@@ -237,25 +225,25 @@ def decompose_global_constraints(global_constraints):
     
     binary_constraints = []
     
-    for c in global_constraints:
+    print(f"\n  [DECOMPOSE] Processing {len(global_constraints)} constraints...")
+    for i, c in enumerate(global_constraints):
+        c_str = str(c)
+        print(f"  [DECOMPOSE] Constraint {i+1}/{len(global_constraints)}: {c}")
+        
         if hasattr(c, 'name') and c.name == "alldifferent":
-            # Check if the constraint contains division or other transformations
-            c_str = str(c)
             if '//' in c_str or '/' in c_str or '*' in c_str or '+' in c_str or '%' in c_str:
-                print(f"  Skipping constraint with transformations (not decomposable for MQuAcq-2): {c}")
-                # Don't add this constraint - it can't be properly handled by MQuAcq-2
+                print(f"    -> SKIPPED (contains arithmetic operations)")
                 continue
             
             decomposed = c.decompose()
             if decomposed and len(decomposed) > 0:
                 binary_constraints.extend(decomposed[0])
-                print(f"  Decomposed {c} -> {len(decomposed[0])} binary constraints")
+                print(f"    -> DECOMPOSED to {len(decomposed[0])} binary constraints")
         elif 'sum' in str(c).lower() or 'count' in str(c).lower():
-
-            print(f"  Keeping global constraint: {c}")
+            print(f"    -> KEPT as global constraint (sum/count)")
             binary_constraints.append(c)
         else:
-
+            print(f"    -> KEPT as is (not alldifferent, sum, or count)")
             binary_constraints.append(c)
 
 
@@ -275,22 +263,28 @@ def decompose_global_constraints(global_constraints):
         print(f"  Removed {duplicates_removed} duplicate constraints from CL_init")
         print(f"  Final CL_init size: {len(unique_constraints)} unique constraints")
     
-    # Validate all constraints have proper scopes
     from utils import get_scope
     validated_constraints = []
     skipped_count = 0
     
+    print(f"\n  [VALIDATION] Checking scopes of {len(unique_constraints)} unique constraints...")
     for c in unique_constraints:
         try:
             scope = get_scope(c)
-            # For MQuAcq-2, we need binary constraints (arity >= 2) or we can keep global constraints
-            if len(scope) >= 2 or 'sum' in str(c).lower() or 'count' in str(c).lower():
+            c_str = str(c)
+            if len(scope) >= 2 or 'sum' in c_str.lower() or 'count' in c_str.lower():
                 validated_constraints.append(c)
+                if '>' in c_str and '!=' not in c_str:
+                    print(f"  [VALIDATION] Greater-than constraint VALIDATED: {c} (scope size: {len(scope)})")
             else:
-                print(f"  [WARNING] Skipping constraint with invalid scope (arity {len(scope)}): {c}")
+                print(f"  [WARNING] SKIPPING constraint with invalid scope (arity {len(scope)}): {c}")
+                if '>' in c_str and '!=' not in c_str:
+                    print(f"  [WARNING] ^^^ THIS IS A GREATER-THAN CONSTRAINT BEING REMOVED! ^^^")
                 skipped_count += 1
         except Exception as e:
             print(f"  [WARNING] Failed to extract scope for constraint {c}: {e}")
+            if '>' in str(c) and '!=' not in str(c):
+                print(f"  [WARNING] ^^^ THIS IS A GREATER-THAN CONSTRAINT BEING REMOVED! ^^^")
             skipped_count += 1
     
     if skipped_count > 0:
@@ -300,25 +294,12 @@ def decompose_global_constraints(global_constraints):
     return validated_constraints
 
 
-def prune_bias_with_globals(bias_fixed, global_constraints, filter_spurious=True):
-    """
-    Prune bias by removing constraints implied by global constraints.
-    
-    Args:
-        bias_fixed: List of bias constraints from Phase 1
-        global_constraints: Validated global constraints from Phase 2
-        filter_spurious: If True, for AllDifferent-only targets, keep only != constraints
-                         that match scopes covered by the decomposed AllDifferent constraints.
-                         This fixes crashes caused by spurious constraints in bias.
-    """
+def prune_bias_with_globals(bias_fixed, global_constraints):
     from utils import get_scope
     
     pruned_bias = []
     contradictions_removed = 0
-    wrong_type_removed = 0
-    spurious_removed = 0
 
-    # Decompose global constraints
     implied_binaries = []
     for gc in global_constraints:
         if hasattr(gc, 'name') and gc.name == "alldifferent":
@@ -349,38 +330,14 @@ def prune_bias_with_globals(bias_fixed, global_constraints, filter_spurious=True
         except:
             pass
     
-    # Get all valid scopes from decomposed constraints
-    valid_scopes = set()
-    for c in implied_binaries:
-        try:
-            scope = get_scope(c)
-            # Create a frozenset of variable hashes for comparison
-            scope_key = frozenset(hash(v) for v in scope)
-            valid_scopes.add(scope_key)
-        except:
-            pass
-    
-    # Check if all global constraints are alldifferent (target model is only !=)
-    all_alldiff = all(
-        hasattr(gc, 'name') and gc.name == "alldifferent" 
-        for gc in global_constraints
-    ) if global_constraints else False
-    
-    if filter_spurious and all_alldiff and len(global_constraints) > 0:
-        print(f"  [FIX] Target model is AllDifferent-only, filtering spurious constraints from bias")
-        print(f"  [FIX] Valid scopes from decomposed AllDifferent: {len(valid_scopes)}")
-
     for b in bias_fixed:
         b_str = str(b)
         skip_constraint = False
 
-        # Check if already implied by globals (already learned)
-        # Use both string matching AND scope-based matching to handle variable order differences
         if b_str in implied_strs:
             contradictions_removed += 1
             skip_constraint = True
         elif '!=' in b_str:
-            # Check scope-based matching for != constraints (handles a!=b vs b!=a)
             try:
                 b_scope = get_scope(b)
                 b_scope_key = frozenset(hash(v) for v in b_scope)
@@ -390,34 +347,11 @@ def prune_bias_with_globals(bias_fixed, global_constraints, filter_spurious=True
             except:
                 pass
         
-        # For AllDifferent-only targets, apply strict filtering
-        if not skip_constraint and filter_spurious and all_alldiff and len(global_constraints) > 0:
-            # Filter out wrong constraint types (==, <=, >=, <, >)
-            if '!=' not in b_str:
-                wrong_type_removed += 1
-                skip_constraint = True
-            else:
-                # Check if this != constraint is on a valid scope
-                try:
-                    b_scope = get_scope(b)
-                    b_scope_key = frozenset(hash(v) for v in b_scope)
-                    if b_scope_key not in valid_scopes:
-                        # This is a spurious != constraint - not in target model
-                        spurious_removed += 1
-                        skip_constraint = True
-                except:
-                    pass
-        
         if not skip_constraint:
             pruned_bias.append(b)
     
     print(f"  Removed {contradictions_removed} constraints from bias (already implied by globals)")
-    if wrong_type_removed > 0:
-        print(f"  [FIX] Removed {wrong_type_removed} wrong-type constraints (==, <=, >=, <, >) from bias")
-    if spurious_removed > 0:
-        print(f"  [FIX] Removed {spurious_removed} spurious != constraints (scope not in target model)")
     
-    # Validate bias constraints have proper scopes
     validated_bias = []
     invalid_bias_count = 0
     
@@ -441,17 +375,100 @@ def prune_bias_with_globals(bias_fixed, global_constraints, filter_spurious=True
     return validated_bias
 
 
-def run_phase3(experiment_name, phase2_pickle_path, max_queries=1000, timeout=600, algorithm='mquacq2'):
-    """
-    Run Phase 3: Active Learning with MQuAcq-2 or GrowAcq.
+def validate_cl_init_against_oracle(CL_init, oracle, problem_name=""):
+
+    from utils import get_scope
     
-    Args:
-        experiment_name: Name of the experiment
-        phase2_pickle_path: Path to Phase 2 pickle file
-        max_queries: Maximum queries (not used directly, but kept for compatibility)
-        timeout: Timeout in seconds (not used directly, but kept for compatibility)
-        algorithm: Algorithm to use ('mquacq2' or 'growacq')
-    """
+    print(f"\n{'='*60}")
+    print(f"VALIDATION: Checking CL_init against Oracle Target Network")
+    print(f"{'='*60}")
+    print(f"  CL_init size: {len(CL_init)}")
+    
+    if not hasattr(oracle, 'target_network'):
+        print(f"  [WARNING] Oracle has no target_network attribute - skipping validation")
+        return CL_init, []
+    
+    target_constraints = oracle.target_network
+    print(f"  Oracle target network size: {len(target_constraints)}")
+    
+    # Create lookup structures for fast matching
+    # We need both string matching AND scope-based matching to handle variable order differences
+    target_strs = set(str(c) for c in target_constraints)
+    target_scopes_with_type = {}  # scope_key -> list of constraints with that scope
+    
+    for c in target_constraints:
+        try:
+            scope = get_scope(c)
+            scope_key = frozenset(hash(v) for v in scope)
+            c_str = str(c)
+            
+            if scope_key not in target_scopes_with_type:
+                target_scopes_with_type[scope_key] = []
+            target_scopes_with_type[scope_key].append((c, c_str))
+        except Exception as e:
+            print(f"  [WARNING] Cannot extract scope from target constraint {c}: {e}")
+    
+    valid_constraints = []
+    invalid_constraints = []
+    
+    for c in CL_init:
+        c_str = str(c)
+        is_valid = False
+        
+        # First check: exact string match
+        if c_str in target_strs:
+            is_valid = True
+        else:
+            # Second check: scope-based match (handles variable order differences)
+            try:
+                scope = get_scope(c)
+                scope_key = frozenset(hash(v) for v in scope)
+                
+                if scope_key in target_scopes_with_type:
+                    # Check if any constraint with same scope is semantically equivalent
+                    for target_c, target_str in target_scopes_with_type[scope_key]:
+                        # For != constraints: a!=b is equivalent to b!=a
+                        if '!=' in c_str and '!=' in target_str:
+                            is_valid = True
+                            break
+                        # For == constraints: a==b is equivalent to b==a
+                        elif '==' in c_str and '==' in target_str:
+                            is_valid = True
+                            break
+                        # For other constraints, check if they're the same
+                        elif c_str == target_str:
+                            is_valid = True
+                            break
+            except Exception as e:
+                print(f"  [WARNING] Cannot check constraint {c}: {e}")
+        
+        if is_valid:
+            valid_constraints.append(c)
+        else:
+            invalid_constraints.append(c)
+            print(f"  [ERROR] Constraint NOT in oracle target network: {c_str}")
+    
+    print(f"\n  Validation Results:")
+    print(f"    Valid constraints:   {len(valid_constraints)}")
+    print(f"    Invalid constraints: {len(invalid_constraints)}")
+    
+    if len(invalid_constraints) > 0:
+        print(f"\n  [CRITICAL WARNING] Found {len(invalid_constraints)} constraints in CL_init")
+        print(f"                     that are NOT in the oracle's target network!")
+        print(f"                     This WILL cause active learning to fail.")
+        print(f"\n  Invalid constraints:")
+        for c in invalid_constraints[:10]:  # Show first 10
+            print(f"    - {c}")
+        if len(invalid_constraints) > 10:
+            print(f"    ... and {len(invalid_constraints) - 10} more")
+    else:
+        print(f"\n  ✓ All CL_init constraints are valid (present in oracle target network)")
+    
+    return valid_constraints, invalid_constraints
+
+
+def run_phase3(experiment_name, phase2_pickle_path, max_queries=1000, timeout=600, algorithm='mquacq2'):
+
     
     algorithm_name = algorithm.upper() if algorithm == 'growacq' else 'MQuAcq-2'
     print(f"\n{'='*80}")
@@ -484,20 +501,135 @@ def run_phase3(experiment_name, phase2_pickle_path, max_queries=1000, timeout=60
     oracle_binary.variables_list = cpm_array(instance_binary.X)
     oracle_global.variables_list = cpm_array(instance_global.X)
     
+    # Create decomposed oracle with binary constraints
+    # This is needed because pycona's get_kappa looks for binary constraints
+    from pycona import ConstraintOracle
+    decomposed_constraints = []
+    non_global_constraints = []
+    
+    for c in oracle_global.constraints:
+        if hasattr(c, 'name') and c.name == 'alldifferent':
+            # Decompose AllDifferent to binary !=
+            decomposed = c.decompose()
+            if decomposed and len(decomposed) > 0:
+                decomposed_constraints.extend(decomposed[0])
+        else:
+            non_global_constraints.append(c)
+    
+    unique_binary = list({str(c): c for c in decomposed_constraints}.values())
+    all_binary_constraints = unique_binary + non_global_constraints
+    
+    oracle_decomposed = ConstraintOracle(all_binary_constraints)
+    oracle_decomposed.variables_list = cpm_array(instance_global.X)
+    oracle_decomposed.target_network = all_binary_constraints
+    
     print(f"\nBenchmark info:")
     print(f"  - Variables: {len(instance_binary.X)}")
     print(f"  - Target constraints (binary): {len(oracle_binary.constraints)}")
     print(f"  - Target constraints (global): {len(oracle_global.constraints)}")
+    print(f"  - Target constraints (decomposed): {len(oracle_decomposed.constraints)} ({len(unique_binary)} != + {len(non_global_constraints)} other)")
 
     print(f"\n{'='*60}")
     print(f"Step 1: Decompose Validated Global Constraints")
     print(f"{'='*60}")
-    print(f"Validated global constraints: {len(C_validated)}")
+    print(f"Validated global constraints (C_validated from Phase 2): {len(C_validated)}")
     for c in C_validated:
         print(f"  - {c}")
     
+    # Check if greater-than constraints are in C_validated
+    print(f"\n[DEBUG] Checking C_validated for greater-than constraints...")
+    gt_in_c_validated = [c for c in C_validated if '>' in str(c) and '!=' not in str(c)]
+    print(f"  Found {len(gt_in_c_validated)} greater-than constraints in C_validated")
+    if len(gt_in_c_validated) > 0:
+        for c in gt_in_c_validated[:5]:
+            print(f"    - {c}")
+    
+    print(f"\n[DEBUG] Calling decompose_global_constraints...")
     CL_init = decompose_global_constraints(C_validated)
-    print(f"\nInitial CL (decomposed): {len(CL_init)} constraints")
+    print(f"\nInitial CL (after decomposition): {len(CL_init)} constraints")
+    
+    # Check if greater-than constraints survived decomposition
+    print(f"\n[DEBUG] Checking CL_init for greater-than constraints...")
+    gt_in_cl_init = [c for c in CL_init if '>' in str(c) and '!=' not in str(c)]
+    print(f"  Found {len(gt_in_cl_init)} greater-than constraints in CL_init")
+    if len(gt_in_cl_init) > 0:
+        for c in gt_in_cl_init[:5]:
+            print(f"    - {c}")
+    
+    if len(gt_in_c_validated) > 0 and len(gt_in_cl_init) == 0:
+        print(f"\n[WARNING] Greater-than constraints were REMOVED during decomposition!")
+        print(f"  Before decomposition: {len(gt_in_c_validated)}")
+        print(f"  After decomposition: {len(gt_in_cl_init)}")
+    elif len(gt_in_c_validated) == 0:
+        print(f"\n[INFO] Greater-than constraints were never in C_validated (not learned in Phase 2)")
+    
+    print(f"\n[DEBUG] Oracle info before validation:")
+    print(f"  oracle_decomposed.constraints: {len(oracle_decomposed.constraints)}")
+    if hasattr(oracle_decomposed, 'target_network'):
+        print(f"  oracle_decomposed.target_network: {len(oracle_decomposed.target_network)}")
+        print(f"  Sample constraints from target_network (first 5):")
+        for i, c in enumerate(oracle_decomposed.target_network[:5]):
+            print(f"    {i+1}. {c}")
+    else:
+        print(f"  [WARNING] oracle_decomposed has NO target_network attribute!")
+    
+    print(f"\n  Sample constraints from CL_init (first 5):")
+    for i, c in enumerate(CL_init[:5]):
+        print(f"    {i+1}. {c}")
+    
+    debug_file = f"debug_{experiment_name}_constraints.txt"
+    print(f"\n[DEBUG] Writing detailed constraint info to: {debug_file}")
+    with open(debug_file, 'w') as f:
+        f.write(f"{'='*80}\n")
+        f.write(f"CONSTRAINT DEBUG INFO FOR: {experiment_name}\n")
+        f.write(f"{'='*80}\n\n")
+        
+        f.write(f"ORACLE_GLOBAL CONSTRAINTS ({len(oracle_global.constraints)}):\n")
+        f.write(f"{'-'*80}\n")
+        for i, c in enumerate(oracle_global.constraints, 1):
+            f.write(f"{i:4d}. {c}\n")
+        
+        f.write(f"\n{'='*80}\n")
+        f.write(f"ORACLE_DECOMPOSED CONSTRAINTS ({len(oracle_decomposed.constraints)}):\n")
+        f.write(f"{'-'*80}\n")
+        for i, c in enumerate(oracle_decomposed.constraints, 1):
+            f.write(f"{i:4d}. {c}\n")
+        
+        f.write(f"\n{'='*80}\n")
+        f.write(f"CL_INIT (DECOMPOSED FROM C_VALIDATED) ({len(CL_init)}):\n")
+        f.write(f"{'-'*80}\n")
+        for i, c in enumerate(CL_init, 1):
+            f.write(f"{i:4d}. {c}\n")
+        
+        f.write(f"\n{'='*80}\n")
+        f.write(f"B_FIXED (ORIGINAL BIAS) ({len(B_fixed)}):\n")
+        f.write(f"{'-'*80}\n")
+        for i, c in enumerate(B_fixed, 1):  # Full bias
+            f.write(f"{i:4d}. {c}\n")
+        
+        f.write(f"\n{'='*80}\n")
+        f.write(f"C_VALIDATED (GLOBAL CONSTRAINTS) ({len(C_validated)}):\n")
+        f.write(f"{'-'*80}\n")
+        for i, c in enumerate(C_validated, 1):
+            f.write(f"{i:4d}. {c}\n")
+    
+    print(f"[DEBUG] Constraint info written to: {debug_file}")
+
+    # input("\n[PAUSE] Press Enter to run CL_init validation against Oracle...")
+
+    # CRITICAL: Validate that CL_init is subset of oracle's target network
+    CL_init, invalid_cl = validate_cl_init_against_oracle(
+        CL_init, 
+        oracle_decomposed, 
+        problem_name=experiment_name
+    )
+    
+    if len(invalid_cl) > 0:
+        print(f"\n[CRITICAL] Removed {len(invalid_cl)} invalid constraints from CL_init")
+        print(f"[CRITICAL] These constraints were NOT in the oracle's target network")
+        print(f"[CRITICAL] Using them would have caused query/oracle mismatch failures")
+    
+    print(f"\nValidated CL_init: {len(CL_init)} constraints")
 
     print(f"\n{'='*60}")
     print(f"Step 2: Prune B_fixed Using Validated Globals")
@@ -506,15 +638,37 @@ def run_phase3(experiment_name, phase2_pickle_path, max_queries=1000, timeout=60
     
     B_pruned = prune_bias_with_globals(B_fixed, C_validated)
 
+    # Add missing constraints from oracle to bias
+    print(f"\n{'='*60}")
+    print(f"Step 2.5: Check for Missing Constraints from Oracle")
+    print(f"{'='*60}")
+    
+    missing_constraints = []
+    CL_init_strs = set(str(c) for c in CL_init)
+    B_pruned_strs = set(str(c) for c in B_pruned)
+    
+    for c in oracle_decomposed.constraints:
+        c_str = str(c)
+        if c_str not in CL_init_strs and c_str not in B_pruned_strs:
+            missing_constraints.append(c)
+    
+    print(f"Found {len(missing_constraints)} constraints in oracle but not in CL_init or B_pruned")
+    if len(missing_constraints) > 0:
+        print(f"Adding missing constraints to bias...")
+        for c in missing_constraints[:10]:  # Show first 10
+            print(f"  - {c}")
+        if len(missing_constraints) > 10:
+            print(f"  ... and {len(missing_constraints) - 10} more")
+        B_pruned.extend(missing_constraints)
+    
     print(f"\n{'='*60}")
     print(f"Step 3: Run {algorithm_name} on Pruned Bias")
     print(f"{'='*60}")
     print(f"Initial CL: {len(CL_init)}")
-    print(f"Pruned bias: {len(B_pruned)}")
+    print(f"Pruned bias (with missing constraints): {len(B_pruned)}")
 
     variables_for_ca = get_variables(CL_init + B_pruned)
     
-    # Final validation: Check for any problematic constraints before creating instance
     print(f"\n[VALIDATION] Pre-flight check of constraints...")
     from utils import get_scope
     
@@ -555,9 +709,7 @@ def run_phase3(experiment_name, phase2_pickle_path, max_queries=1000, timeout=60
     print(f"  Initial CL: {len(ca_instance.cl)}")
     print(f"  Bias: {len(ca_instance.bias)}")
     
-    # Choose between resilient and original algorithms
     if USE_RESILIENT_ALGORITHMS:
-        print(f"\n[INFO] Using {algorithm_name} with RESILIENT components to handle imperfect bias")
         from resilient_pqgen import ResilientPQGen
         from resilient_findc import ResilientFindC
         from resilient_mquacq2 import ResilientMQuAcq2
@@ -573,10 +725,7 @@ def run_phase3(experiment_name, phase2_pickle_path, max_queries=1000, timeout=60
         else:
             ca_system = ResilientMQuAcq2(ca_env=custom_env)
     else:
-        print(f"\n[INFO] Using {algorithm_name} with ORIGINAL pycona algorithms (crash analysis mode)")
-        print(f"       Resilient wrappers are DISABLED")
         
-        # Use original pycona algorithms
         original_findc = FindC(time_limit=1)
         qgen = PQGen(time_limit=2)
         custom_env = ActiveCAEnv(qgen=qgen, findc=original_findc)
@@ -589,17 +738,50 @@ def run_phase3(experiment_name, phase2_pickle_path, max_queries=1000, timeout=60
     
     phase3_start = time.time()
     crash_report = None
+
+    # Validation: Check that all oracle constraints are covered
+    print(f"\n{'='*60}")
+    print(f"VALIDATION: Oracle Coverage Check")
+    print(f"{'='*60}")
+    
+    final_CL_strs = set(str(c) for c in final_CL)
+    final_bias_strs = set(str(c) for c in final_bias)
+    missing_count = 0
+    missing_examples = []
+    
+    for c in oracle_decomposed.constraints:
+        c_str = str(c)
+        if c_str not in final_CL_strs and c_str not in final_bias_strs:
+            missing_count += 1
+            if len(missing_examples) < 5:
+                missing_examples.append(c)
+    
+    if missing_count > 0:
+        print(f"[WARNING] Found {missing_count} constraints in oracle but not in final_CL or final_bias:")
+        for c in missing_examples:
+            print(f"  - {c}")
+        if missing_count > len(missing_examples):
+            print(f"  ... and {missing_count - len(missing_examples)} more")
+        print(f"\n[ERROR] This should not happen after the fix in Step 2.5!")
+        raise Exception(f"Missing {missing_count} constraints from oracle in final_CL/final_bias")
+    else:
+        print(f"[SUCCESS] All {len(oracle_decomposed.constraints)} oracle constraints are covered")
+        print(f"  - In final_CL: {sum(1 for c in oracle_decomposed.constraints if str(c) in final_CL_strs)}")
+        print(f"  - In final_bias: {sum(1 for c in oracle_decomposed.constraints if str(c) in final_bias_strs)}")
+    
+    print("\nStarting Phase 3 learning...")
+    # input("\nPress Enter to start Phase 3 learning...")
     
     try:
         learned_instance = ca_system.learn(
             ca_instance, 
-            oracle=oracle_binary, 
+            oracle=oracle_decomposed, 
             verbose=3
         )
     except Exception as e:
         phase3_time = time.time() - phase3_start
         
-        # Capture comprehensive crash information
+
         exc_type = type(e).__name__
         exc_message = str(e)
         full_traceback = traceback.format_exc()
@@ -628,7 +810,7 @@ def run_phase3(experiment_name, phase2_pickle_path, max_queries=1000, timeout=60
         print(f"  Queries made: {queries_made}")
         print(f"  Time elapsed: {phase3_time:.2f}s")
         
-        # Create crash report
+
         crash_report = {
             'experiment': experiment_name,
             'algorithm': algorithm_name,
@@ -669,7 +851,7 @@ def run_phase3(experiment_name, phase2_pickle_path, max_queries=1000, timeout=60
         
         crash_report['crash_location'] = crash_location
         
-        # Identify crash category
+
         crash_category = "unknown"
         if "delta" in exc_message.lower() or "empty" in exc_message.lower():
             crash_category = "empty_delta"
@@ -741,7 +923,7 @@ def run_phase3(experiment_name, phase2_pickle_path, max_queries=1000, timeout=60
     
     phase3_queries = ca_system.env.metrics.total_queries
 
-    # Build resilience report (only if using resilient algorithms)
+
     resilience_report = None
     if USE_RESILIENT_ALGORITHMS:
         try:
@@ -763,7 +945,6 @@ def run_phase3(experiment_name, phase2_pickle_path, max_queries=1000, timeout=60
     print(f"{algorithm_name} queries: {phase3_queries}")
     print(f"{algorithm_name} time: {phase3_time:.2f}s")
     print(f"Final model constraints: {len(final_constraints)}")
-    print(f"Mode: {'RESILIENT' if USE_RESILIENT_ALGORITHMS else 'ORIGINAL (crash analysis)'}")
     
     if resilience_report and resilience_report['total_issues'] > 0:
         print(f"\nResilience Report:")
@@ -772,7 +953,6 @@ def run_phase3(experiment_name, phase2_pickle_path, max_queries=1000, timeout=60
         print(f"  {algorithm_name} collapse warnings: {resilience_report['algorithm'].get('collapse_warnings', 0)}")
         print(f"  Total issues handled: {resilience_report['total_issues']}")
         
-        # Handle inner algorithm report for GrowAcq
         if algorithm.lower() == 'growacq' and 'inner_algorithm' in resilience_report['algorithm']:
             inner_report = resilience_report['algorithm']['inner_algorithm']
             print(f"  Inner algorithm (MQuAcq2) skipped scopes: {inner_report.get('skipped_scopes_count', 0)}")
@@ -806,24 +986,24 @@ def run_phase3(experiment_name, phase2_pickle_path, max_queries=1000, timeout=60
 
 
     
-    target_constraints_str = set(str(c) for c in oracle_binary.constraints)
+    target_constraints_str = set(str(c) for c in oracle_decomposed.constraints)
     learned_constraints_str = set(str(c) for c in final_constraints)
     
     correct = len(target_constraints_str & learned_constraints_str)
     missing = len(target_constraints_str - learned_constraints_str)
     spurious = len(learned_constraints_str - target_constraints_str)
     
-    print(f"Target model size: {len(oracle_binary.constraints)}")
+    print(f"Target model size: {len(oracle_decomposed.constraints)}")
     print(f"Learned model size: {len(final_constraints)}")
     print(f"Correct constraints: {correct}")
     print(f"Missing constraints: {missing}")
     print(f"Spurious constraints: {spurious}")
     
-    if correct == len(oracle_binary.constraints) and spurious == 0:
+    if correct == len(oracle_decomposed.constraints) and spurious == 0:
         print(f"\n[SUCCESS] Perfect model learning!")
 
     precision = correct / len(final_constraints) if len(final_constraints) > 0 else 0
-    recall = correct / len(oracle_binary.constraints) if len(oracle_binary.constraints) > 0 else 0
+    recall = correct / len(oracle_decomposed.constraints) if len(oracle_decomposed.constraints) > 0 else 0
     f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0
     
     print(f"\nConstraint-Level Metrics:")
@@ -835,7 +1015,7 @@ def run_phase3(experiment_name, phase2_pickle_path, max_queries=1000, timeout=60
     solution_metrics = compute_solution_metrics(
         learned_model = ca_system.env.instance.cl,
         learned_constraints=learned_constraints_filtered,
-        target_constraints=oracle_binary.constraints,
+        target_constraints=oracle_decomposed.constraints,
         variables=instance_binary.X,
         max_solutions=100,  
         timeout_per_model=300
@@ -872,7 +1052,7 @@ def run_phase3(experiment_name, phase2_pickle_path, max_queries=1000, timeout=60
         },
         'evaluation': {
             'constraint_level': {
-                'target_size': len(oracle_binary.constraints),
+                'target_size': len(oracle_decomposed.constraints),
                 'learned_size': len(final_constraints),
                 'correct': correct,
                 'missing': missing,
@@ -941,10 +1121,8 @@ if __name__ == "__main__":
     
     args = parser.parse_args()
     
-    # Auto-construct phase2_pickle path if not provided
     if args.phase2_pickle is None:
         args.phase2_pickle = f"phase2_output/{args.experiment}_phase2.pkl"
-        print(f"[INFO] Auto-constructed Phase 2 pickle path: {args.phase2_pickle}")
     
     run_phase3(
         experiment_name=args.experiment,
