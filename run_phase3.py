@@ -697,8 +697,102 @@ def run_phase3(experiment_name, phase2_pickle_path, max_queries=1000, timeout=60
     print(f"  (Kept {kept_cl_backups} != constraints as backups even though they're in CL)")
 
     print(f"\n{'='*60}")
-    print(f"Step 2.5: Verify Oracle Coverage (CL + Bias)")
+    print(f"Step 2.5: CRITICAL - Ensure ALL Oracle Scopes Have Bias Coverage")
     print(f"{'='*60}")
+    
+    # CRITICAL FIX: Check that bias has constraints for EVERY oracle scope
+    # If bias doesn't cover a scope that oracle has, FindC will crash!
+    from utils import get_scope
+    
+    # Build a map of all scopes in the oracle
+    oracle_scopes = {}  # scope_key -> list of constraints
+    for c in oracle_decomposed.constraints:
+        try:
+            scope = get_scope(c)
+            scope_key = frozenset(hash(v) for v in scope)
+            if scope_key not in oracle_scopes:
+                oracle_scopes[scope_key] = []
+            oracle_scopes[scope_key].append(c)
+        except:
+            pass
+    
+    print(f"Oracle has constraints on {len(oracle_scopes)} unique scopes")
+    
+    # Build a map of all scopes in the bias
+    bias_scopes = {}  # scope_key -> list of constraints
+    for c in B_pruned:
+        try:
+            scope = get_scope(c)
+            scope_key = frozenset(hash(v) for v in scope)
+            if scope_key not in bias_scopes:
+                bias_scopes[scope_key] = []
+            bias_scopes[scope_key].append(c)
+        except:
+            pass
+    
+    print(f"Bias has constraints on {len(bias_scopes)} unique scopes")
+    
+    # Find oracle scopes NOT covered by bias
+    uncovered_oracle_scopes = []
+    for scope_key, oracle_constraints in oracle_scopes.items():
+        if scope_key not in bias_scopes:
+            uncovered_oracle_scopes.append((scope_key, oracle_constraints))
+    
+    if uncovered_oracle_scopes:
+        print(f"\n[CRITICAL] {len(uncovered_oracle_scopes)} oracle scopes have NO bias coverage!")
+        print(f"           These will cause FindC collapse!")
+        
+        # Add all oracle constraints for uncovered scopes to bias
+        added_to_bias = 0
+        for scope_key, oracle_constraints in uncovered_oracle_scopes:
+            for c in oracle_constraints:
+                B_pruned.append(c)
+                added_to_bias += 1
+                
+        print(f"[FIX] Added {added_to_bias} oracle constraints to bias for uncovered scopes")
+        print(f"[FIX] Updated bias size: {len(B_pruned)}")
+        
+        # Also show some examples
+        for scope_key, oracle_constraints in uncovered_oracle_scopes[:5]:
+            for c in oracle_constraints:
+                print(f"  - Added: {c}")
+    else:
+        print(f"[SUCCESS] All oracle scopes have bias coverage")
+    
+    # Now also verify that bias doesn't have scopes that oracle DOESN'T have
+    # These cause MQuAcq2 to learn phantom constraints
+    bias_only_scopes = []
+    for scope_key, bias_constraints in bias_scopes.items():
+        if scope_key not in oracle_scopes:
+            bias_only_scopes.append((scope_key, bias_constraints))
+    
+    if bias_only_scopes:
+        print(f"\n[WARNING] {len(bias_only_scopes)} bias scopes have NO oracle constraints!")
+        print(f"          These can cause phantom constraint learning (overfitting)")
+        
+        # CRITICAL: Remove these phantom scopes from bias to prevent overfitting
+        print(f"[FIX] Removing constraints on phantom scopes from bias...")
+        
+        phantom_scope_keys = set(sk for sk, _ in bias_only_scopes)
+        B_pruned_filtered = []
+        removed_phantom = 0
+        
+        for c in B_pruned:
+            try:
+                scope = get_scope(c)
+                scope_key = frozenset(hash(v) for v in scope)
+                if scope_key in phantom_scope_keys:
+                    removed_phantom += 1
+                else:
+                    B_pruned_filtered.append(c)
+            except:
+                B_pruned_filtered.append(c)
+        
+        B_pruned = B_pruned_filtered
+        print(f"[FIX] Removed {removed_phantom} phantom constraints from bias")
+        print(f"[FIX] Updated bias size: {len(B_pruned)}")
+    else:
+        print(f"[SUCCESS] All bias scopes exist in oracle (no phantom scopes)")
     
     # Verify all oracle constraints are covered by CL OR Bias
     B_pruned_strs = set(str(c) for c in B_pruned)
