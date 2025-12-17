@@ -391,8 +391,6 @@ def validate_cl_init_against_oracle(CL_init, oracle, problem_name=""):
     target_constraints = oracle.target_network
     print(f"  Oracle target network size: {len(target_constraints)}")
     
-    # Create lookup structures for fast matching
-    # We need both string matching AND scope-based matching to handle variable order differences
     target_strs = set(str(c) for c in target_constraints)
     target_scopes_with_type = {}  # scope_key -> list of constraints with that scope
     
@@ -618,16 +616,16 @@ def run_phase3(experiment_name, phase2_pickle_path, max_queries=1000, timeout=60
     # input("\n[PAUSE] Press Enter to run CL_init validation against Oracle...")
 
     # CRITICAL: Validate that CL_init is subset of oracle's target network
-    CL_init, invalid_cl = validate_cl_init_against_oracle(
-        CL_init, 
-        oracle_decomposed, 
-        problem_name=experiment_name
-    )
+    # CL_init, invalid_cl = validate_cl_init_against_oracle(
+    #     CL_init, 
+    #     oracle_decomposed, 
+    #     problem_name=experiment_name
+    # )
     
-    if len(invalid_cl) > 0:
-        print(f"\n[CRITICAL] Removed {len(invalid_cl)} invalid constraints from CL_init")
-        print(f"[CRITICAL] These constraints were NOT in the oracle's target network")
-        print(f"[CRITICAL] Using them would have caused query/oracle mismatch failures")
+    # if len(invalid_cl) > 0:
+    #     print(f"\n[CRITICAL] Removed {len(invalid_cl)} invalid constraints from CL_init")
+    #     print(f"[CRITICAL] These constraints were NOT in the oracle's target network")
+    #     print(f"[CRITICAL] Using them would have caused query/oracle mismatch failures")
     
     print(f"\nValidated CL_init: {len(CL_init)} constraints")
 
