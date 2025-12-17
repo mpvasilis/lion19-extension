@@ -112,6 +112,9 @@ DEFAULT_SOLUTION_CONFIGS = sorted(DEFAULT_OVERFITTED_CONSTRAINTS.keys())
 metrics_lock = Lock()
 file_ops_lock = Lock()  # Lock for file moving operations
 
+# Global list to track Phase 3 failures (thread-safe access via metrics_lock)
+phase3_failures = []
+
 
 def run_command(cmd, description):
     """Run a command and capture output."""
@@ -621,6 +624,7 @@ def process_benchmark_config(benchmark, num_solutions, approaches, task_index, t
         
         # Run Phase 3 with the specified approach
         phase3_success = False
+        phase3_error_info = None
         try:
             phase3_success = run_phase3(
                 benchmark,
@@ -631,12 +635,45 @@ def process_benchmark_config(benchmark, num_solutions, approaches, task_index, t
             )
             
             if not phase3_success:
+                error_msg = f"Phase 3 returned False (execution failed)"
                 print(f"\n[TASK WARNING] Phase 3 ({approach.upper()}) failed for {benchmark}; proceeding with Phase 2 metrics only.")
+                phase3_error_info = {
+                    'benchmark': benchmark,
+                    'approach': approach.upper(),
+                    'num_solutions': num_solutions,
+                    'num_overfitted': num_overfitteds,
+                    'run_number': run_number,
+                    'config_tag': config_tag,
+                    'error_type': 'execution_failure',
+                    'error_message': error_msg,
+                    'phase2_pickle': phase2_pickle,
+                    'timestamp': datetime.now().isoformat()
+                }
         except Exception as e:
+            error_msg = str(e)
             print(f"\n[TASK EXCEPTION] Phase 3 ({approach.upper()}) crashed for {benchmark}: {e}")
             import traceback
-            traceback.print_exc()
+            traceback_str = traceback.format_exc()
+            print(traceback_str)
             phase3_success = False
+            phase3_error_info = {
+                'benchmark': benchmark,
+                'approach': approach.upper(),
+                'num_solutions': num_solutions,
+                'num_overfitted': num_overfitteds,
+                'run_number': run_number,
+                'config_tag': config_tag,
+                'error_type': 'exception',
+                'error_message': error_msg,
+                'traceback': traceback_str,
+                'phase2_pickle': phase2_pickle,
+                'timestamp': datetime.now().isoformat()
+            }
+        
+        # Log Phase 3 failure if it occurred
+        if phase3_error_info:
+            with metrics_lock:
+                phase3_failures.append(phase3_error_info)
         
         # Extract metrics (Phase 2-only fallback if Phase 3 failed)
         try:
@@ -911,7 +948,105 @@ def main(num_runs=10):
     print(f"{'='*80}")
     print(f"Total metrics collected: {len(all_metrics)}")
     print(f"Total configurations tested: {len(aggregated_metrics)}")
+    print(f"Phase 3 failures: {len(phase3_failures)}")
     print(f"{'='*80}\n")
+    
+    # Write Phase 3 failures log
+    if phase3_failures:
+        phase3_failures_log = f"{output_dir}/phase3_failures.log"
+        phase3_failures_json = f"{output_dir}/phase3_failures.json"
+        
+        print(f"\n{'='*80}")
+        print(f"PHASE 3 FAILURES DETECTED - Writing detailed logs...")
+        print(f"{'='*80}\n")
+        
+        # Write human-readable log
+        with open(phase3_failures_log, 'w') as f:
+            f.write(f"Phase 3 Failures Log\n")
+            f.write(f"={'='*80}\n")
+            f.write(f"Total Phase 3 failures: {len(phase3_failures)}\n")
+            f.write(f"Generated at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write(f"{'='*80}\n\n")
+            
+            for idx, failure in enumerate(phase3_failures, 1):
+                f.write(f"\n{'='*80}\n")
+                f.write(f"FAILURE #{idx}\n")
+                f.write(f"{'='*80}\n")
+                f.write(f"Benchmark: {failure['benchmark']}\n")
+                f.write(f"Approach: {failure['approach']}\n")
+                f.write(f"Solutions: {failure['num_solutions']}\n")
+                f.write(f"Overfitted: {failure['num_overfitted']}\n")
+                f.write(f"Run Number: {failure.get('run_number', 'N/A')}\n")
+                f.write(f"Config Tag: {failure.get('config_tag', 'N/A')}\n")
+                f.write(f"Error Type: {failure['error_type']}\n")
+                f.write(f"Timestamp: {failure['timestamp']}\n")
+                f.write(f"Phase 2 Pickle: {failure.get('phase2_pickle', 'N/A')}\n")
+                f.write(f"\nError Message:\n{failure['error_message']}\n")
+                
+                if 'traceback' in failure:
+                    f.write(f"\nFull Traceback:\n")
+                    f.write(f"{'-'*80}\n")
+                    f.write(f"{failure['traceback']}\n")
+                    f.write(f"{'-'*80}\n")
+                
+                f.write(f"\n")
+        
+        # Write JSON log for programmatic access
+        with open(phase3_failures_json, 'w') as f:
+            json.dump({
+                'total_failures': len(phase3_failures),
+                'timestamp': datetime.now().isoformat(),
+                'failures': phase3_failures
+            }, f, indent=2)
+        
+        print(f"[SAVED] Phase 3 failures log: {phase3_failures_log}")
+        print(f"[SAVED] Phase 3 failures JSON: {phase3_failures_json}")
+        
+        # Print summary to console
+        print(f"\n{'='*80}")
+        print(f"PHASE 3 FAILURES SUMMARY")
+        print(f"{'='*80}")
+        print(f"Total failures: {len(phase3_failures)}\n")
+        
+        # Group by error type
+        error_types = {}
+        for failure in phase3_failures:
+            error_type = failure['error_type']
+            if error_type not in error_types:
+                error_types[error_type] = []
+            error_types[error_type].append(failure)
+        
+        print(f"By Error Type:")
+        for error_type, failures in error_types.items():
+            print(f"  - {error_type}: {len(failures)} failures")
+        
+        # Group by benchmark
+        by_benchmark = {}
+        for failure in phase3_failures:
+            benchmark = failure['benchmark']
+            if benchmark not in by_benchmark:
+                by_benchmark[benchmark] = []
+            by_benchmark[benchmark].append(failure)
+        
+        print(f"\nBy Benchmark:")
+        for benchmark, failures in sorted(by_benchmark.items()):
+            print(f"  - {benchmark}: {len(failures)} failures")
+        
+        # Group by approach
+        by_approach = {}
+        for failure in phase3_failures:
+            approach = failure['approach']
+            if approach not in by_approach:
+                by_approach[approach] = []
+            by_approach[approach].append(failure)
+        
+        print(f"\nBy Approach:")
+        for approach, failures in sorted(by_approach.items()):
+            print(f"  - {approach}: {len(failures)} failures")
+        
+        print(f"{'='*80}\n")
+    else:
+        print(f"\n[SUCCESS] No Phase 3 failures detected!\n")
     
     # Aggregate results across runs
     print(f"Aggregating results across {num_runs} runs per configuration...\n")
@@ -1207,8 +1342,11 @@ def main(num_runs=10):
     print(f"Successful individual runs: {successful_runs}/{total_expected_configs}")
     print(f"  - COP approach: {len(cop_results)} successful runs ({len(cop_aggregated)} aggregated configs)")
     print(f"  - LION approach: {len(lion_results)} successful runs ({len(lion_aggregated)} aggregated configs)")
+    print(f"Phase 3 failures: {len(phase3_failures)}/{total_expected_configs}")
     if total_expected_configs > 0:
         print(f"Success rate: {100*successful_runs/total_expected_configs:.1f}%")
+        if phase3_failures:
+            print(f"Phase 3 failure rate: {100*len(phase3_failures)/total_expected_configs:.1f}%")
     print(f"\n{'='*80}")
     print(f"OUTPUT FILES GENERATED")
     print(f"{'='*80}")
@@ -1224,6 +1362,12 @@ def main(num_runs=10):
     print(f"  - {csv_path}")
     print(f"  - {json_path}")
     print(f"  - {agg_json_path}")
+    
+    if phase3_failures:
+        print(f"\nPhase 3 Failure Logs:")
+        print(f"  - {output_dir}/phase3_failures.log")
+        print(f"  - {output_dir}/phase3_failures.json")
+    
     print(f"\nCompleted at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"{'='*80}\n")
 
