@@ -59,7 +59,24 @@ def construct_sudoku_greater_than(block_size_row, block_size_col, grid_size):
     C_T = list(set(toplevel_list(model.constraints)))
 
 
-    overfitted_constraints = []
+    # Overfitted global constraints - AllDifferent constraints that are NOT in the target model
+    # but may be consistent with some positive examples (limited to 5 for testing)
+    overfitted_constraints = [
+        # Main diagonal (top-left to center)
+        cp.AllDifferent([grid[0,0], grid[1,1], grid[2,2], grid[3,3], grid[4,4]]),
+        
+        # Anti-diagonal section (top-right toward center)
+        cp.AllDifferent([grid[0,8], grid[1,7], grid[2,6], grid[3,5], grid[4,4]]),
+        
+        # Cross pattern through center
+        cp.AllDifferent([grid[0,4], grid[4,4], grid[8,4]]),
+        
+        # Partial row constraint (every other cell in row 0)
+        cp.AllDifferent([grid[0,0], grid[0,2], grid[0,4], grid[0,6], grid[0,8]]),
+        
+        # Knight's move pattern from top-left
+        cp.AllDifferent([grid[0,0], grid[1,2], grid[2,1], grid[2,3]]),
+    ]
 
 
 
