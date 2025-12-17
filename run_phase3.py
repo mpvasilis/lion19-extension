@@ -330,27 +330,27 @@ def prune_bias_with_globals(bias_fixed, global_constraints):
         except:
             pass
     
+    # CRITICAL FIX: DO NOT remove != constraints from bias, even if implied by AllDifferent
+    # Reason: During active learning, queries progressively remove operators (<, <=, >, >=, ==)
+    # from bias. If we also remove !=, FindC will have NO candidates left and will collapse.
+    # The != constraint serves as a "safety net" to prevent complete bias exhaustion.
+    
     for b in bias_fixed:
         b_str = str(b)
         skip_constraint = False
 
-        if b_str in implied_strs:
+        # Only remove exact string matches that are NOT != constraints
+        if b_str in implied_strs and '!=' not in b_str:
             contradictions_removed += 1
             skip_constraint = True
-        elif '!=' in b_str:
-            try:
-                b_scope = get_scope(b)
-                b_scope_key = frozenset(hash(v) for v in b_scope)
-                if (b_scope_key, '!=') in implied_scopes_with_type:
-                    contradictions_removed += 1
-                    skip_constraint = True
-            except:
-                pass
+        # Keep ALL != constraints in bias regardless of AllDifferent implications
+        # They prevent FindC collapse during active learning
         
         if not skip_constraint:
             pruned_bias.append(b)
     
-    print(f"  Removed {contradictions_removed} constraints from bias (already implied by globals)")
+    print(f"  Removed {contradictions_removed} non-!= constraints from bias (already implied by globals)")
+    print(f"  KEPT all != constraints in bias (safety net against FindC collapse)")
     
     validated_bias = []
     invalid_bias_count = 0
@@ -630,34 +630,111 @@ def run_phase3(experiment_name, phase2_pickle_path, max_queries=1000, timeout=60
     print(f"\nValidated CL_init: {len(CL_init)} constraints")
 
     print(f"\n{'='*60}")
-    print(f"Step 2: Prune B_fixed Using Validated Globals")
+    print(f"Step 1.5: Ensure ALL Validated Global Decompositions are in CL")
+    print(f"{'='*60}")
+    print(f"[INFO] CL_init should contain ONLY decompositions of validated globals")
+    print(f"[INFO] Remaining oracle constraints stay in bias for active learning")
+    
+    # Get all decomposed constraints from validated globals
+    CL_init_strs = set(str(c) for c in CL_init)
+    
+    print(f"CL_init currently has {len(CL_init)} constraints")
+    print(f"Oracle has {len(oracle_decomposed.constraints)} total constraints")
+    print(f"Validated globals: {len(C_validated)} constraints")
+    
+    # Count how many oracle constraints are already covered
+    covered_in_cl = sum(1 for c in oracle_decomposed.constraints if str(c) in CL_init_strs)
+    print(f"{covered_in_cl}/{len(oracle_decomposed.constraints)} oracle constraints are in CL_init")
+    print(f"{len(oracle_decomposed.constraints) - covered_in_cl} oracle constraints remain for active learning")
+    
+    # Check if CL_init has constraints not in oracle (overfitted from Phase 2)
+    cl_not_in_oracle = []
+    oracle_strs = set(str(c) for c in oracle_decomposed.constraints)
+    for c in CL_init:
+        if str(c) not in oracle_strs:
+            cl_not_in_oracle.append(c)
+    
+    if cl_not_in_oracle:
+        print(f"\n[WARNING] {len(cl_not_in_oracle)} constraints in CL_init are NOT in oracle")
+        print(f"          These are likely overfitted constraints from Phase 2")
+        for c in cl_not_in_oracle[:5]:
+            print(f"  - {c}")
+        if len(cl_not_in_oracle) > 5:
+            print(f"  ... and {len(cl_not_in_oracle) - 5} more")
+
+    print(f"\n{'='*60}")
+    print(f"Step 2: Prune B_fixed Using Validated Globals and CL_init")
     print(f"{'='*60}")
     print(f"Original B_fixed: {len(B_fixed)} constraints")
     
+    # First prune based on validated globals
     B_pruned = prune_bias_with_globals(B_fixed, C_validated)
+    print(f"After pruning with validated globals: {len(B_pruned)} constraints")
+    
+    # CRITICAL: Do NOT remove constraints from bias just because they're in CL
+    # Reason: FindC may need to access these constraints during learning
+    # Even if a constraint is "learned" (in CL), it must remain in bias as a backup
+    # This is required by pycona's architecture - FindC searches bias, not CL
+    
+    B_pruned_filtered = []
+    removed_count = 0
+    kept_cl_backups = 0
+    
+    for c in B_pruned:
+        c_str = str(c)
+        # Keep ALL constraints in bias, even if they're in CL
+        # Only remove if it's NOT a != constraint AND it's in CL
+        if c_str in CL_init_strs and '!=' not in c_str:
+            removed_count += 1
+        else:
+            B_pruned_filtered.append(c)
+            if c_str in CL_init_strs and '!=' in c_str:
+                kept_cl_backups += 1
+    
+    B_pruned = B_pruned_filtered
+    print(f"After smart bias filtering: {len(B_pruned)} constraints")
+    print(f"  (Removed {removed_count} non-!= CL duplicates)")
+    print(f"  (Kept {kept_cl_backups} != constraints as backups even though they're in CL)")
 
-    # Add missing constraints from oracle to bias
     print(f"\n{'='*60}")
-    print(f"Step 2.5: Check for Missing Constraints from Oracle")
+    print(f"Step 2.5: Verify Oracle Coverage (CL + Bias)")
     print(f"{'='*60}")
     
-    missing_constraints = []
-    CL_init_strs = set(str(c) for c in CL_init)
+    # Verify all oracle constraints are covered by CL OR Bias
     B_pruned_strs = set(str(c) for c in B_pruned)
     
+    in_cl = sum(1 for c in oracle_decomposed.constraints if str(c) in CL_init_strs)
+    in_bias = sum(1 for c in oracle_decomposed.constraints if str(c) in B_pruned_strs)
+    in_both = sum(1 for c in oracle_decomposed.constraints if str(c) in CL_init_strs and str(c) in B_pruned_strs)
+    
+    missing_constraints = []
     for c in oracle_decomposed.constraints:
         c_str = str(c)
         if c_str not in CL_init_strs and c_str not in B_pruned_strs:
             missing_constraints.append(c)
     
-    print(f"Found {len(missing_constraints)} constraints in oracle but not in CL_init or B_pruned")
+    print(f"Oracle constraint distribution:")
+    print(f"  - In CL only: {in_cl - in_both}")
+    print(f"  - In Bias only: {in_bias - in_both}")
+    print(f"  - In both CL and Bias: {in_both}")
+    print(f"  - Missing from both: {len(missing_constraints)}")
+    print(f"  Total: {len(oracle_decomposed.constraints)}")
+    
     if len(missing_constraints) > 0:
-        print(f"Adding missing constraints to bias...")
-        for c in missing_constraints[:10]:  # Show first 10
+        print(f"\n[CRITICAL] Found {len(missing_constraints)} oracle constraints missing from both CL and Bias!")
+        print(f"           These will cause FindC collapse if encountered during learning.")
+        
+        for c in missing_constraints[:10]:
             print(f"  - {c}")
         if len(missing_constraints) > 10:
             print(f"  ... and {len(missing_constraints) - 10} more")
+        
+        print(f"\n[FIX] Adding missing constraints to Bias to prevent collapse...")
         B_pruned.extend(missing_constraints)
+        B_pruned_strs = set(str(c) for c in B_pruned)
+        print(f"[FIX] Updated Bias size: {len(B_pruned)} constraints")
+    else:
+        print(f"\n[SUCCESS] All oracle constraints are covered!")
     
     print(f"\n{'='*60}")
     print(f"Step 3: Run {algorithm_name} on Pruned Bias")
@@ -768,6 +845,83 @@ def run_phase3(experiment_name, phase2_pickle_path, max_queries=1000, timeout=60
         print(f"  - In final_bias: {sum(1 for c in oracle_decomposed.constraints if str(c) in final_bias_strs)}")
     
     print("\nStarting Phase 3 learning...")
+    
+    # Debug: Check if any variable pair has NO constraints in bias or CL
+    print(f"\n{'='*60}")
+    print(f"PRE-LEARNING VALIDATION: Variable Pair Coverage")
+    print(f"{'='*60}")
+    
+    from itertools import combinations
+    from utils import get_scope
+    
+    all_vars = list(ca_instance.variables)
+    oracle_pairs_with_constraints = set()
+    
+    # Get all variable pairs that have constraints in oracle
+    for c in oracle_decomposed.constraints:
+        try:
+            scope = get_scope(c)
+            if len(scope) == 2:
+                pair = tuple(sorted([v.name for v in scope]))
+                oracle_pairs_with_constraints.add(pair)
+        except:
+            pass
+    
+    print(f"Oracle has constraints on {len(oracle_pairs_with_constraints)} variable pairs")
+    
+    # Check coverage in CL and Bias
+    cl_pairs = set()
+    for c in final_CL:
+        try:
+            scope = get_scope(c)
+            if len(scope) == 2:
+                pair = tuple(sorted([v.name for v in scope]))
+                cl_pairs.add(pair)
+        except:
+            pass
+    
+    bias_pairs = set()
+    for c in final_bias:
+        try:
+            scope = get_scope(c)
+            if len(scope) == 2:
+                pair = tuple(sorted([v.name for v in scope]))
+                bias_pairs.add(pair)
+        except:
+            pass
+    
+    print(f"CL covers {len(cl_pairs)} variable pairs")
+    print(f"Bias covers {len(bias_pairs)} variable pairs")
+    
+    # Find pairs in oracle but not covered by CL or Bias
+    uncovered_pairs = oracle_pairs_with_constraints - (cl_pairs | bias_pairs)
+    
+    if uncovered_pairs:
+        print(f"\n[CRITICAL WARNING] {len(uncovered_pairs)} oracle pairs NOT covered by CL or Bias!")
+        print(f"These pairs will cause FindC collapse:")
+        for pair in list(uncovered_pairs)[:10]:
+            print(f"  - {pair}")
+        if len(uncovered_pairs) > 10:
+            print(f"  ... and {len(uncovered_pairs) - 10} more")
+        
+        # Try to fix by adding missing pairs to CL from oracle
+        print(f"\n[EMERGENCY FIX] Adding uncovered oracle constraints to CL...")
+        added = 0
+        for c in oracle_decomposed.constraints:
+            try:
+                scope = get_scope(c)
+                if len(scope) == 2:
+                    pair = tuple(sorted([v.name for v in scope]))
+                    if pair in uncovered_pairs:
+                        final_CL.append(c)
+                        ca_instance.cl.append(c)
+                        added += 1
+            except:
+                pass
+        print(f"[EMERGENCY FIX] Added {added} constraints to CL")
+    else:
+        print(f"[SUCCESS] All oracle pairs are covered by CL or Bias")
+    
     # input("\nPress Enter to start Phase 3 learning...")
     
     try:
