@@ -704,31 +704,34 @@ def run_phase3(experiment_name, phase2_pickle_path, max_queries=1000, timeout=60
     # If bias doesn't cover a scope that oracle has, FindC will crash!
     from utils import get_scope
     
+    def get_scope_key(constraint):
+        """Get a consistent scope key using variable NAMES, not hashes"""
+        try:
+            scope = get_scope(constraint)
+            # Use variable names for consistent matching across different object instances
+            return frozenset(v.name for v in scope)
+        except:
+            return None
+    
     # Build a map of all scopes in the oracle
     oracle_scopes = {}  # scope_key -> list of constraints
     for c in oracle_decomposed.constraints:
-        try:
-            scope = get_scope(c)
-            scope_key = frozenset(hash(v) for v in scope)
+        scope_key = get_scope_key(c)
+        if scope_key is not None:
             if scope_key not in oracle_scopes:
                 oracle_scopes[scope_key] = []
             oracle_scopes[scope_key].append(c)
-        except:
-            pass
     
     print(f"Oracle has constraints on {len(oracle_scopes)} unique scopes")
     
     # Build a map of all scopes in the bias
     bias_scopes = {}  # scope_key -> list of constraints
     for c in B_pruned:
-        try:
-            scope = get_scope(c)
-            scope_key = frozenset(hash(v) for v in scope)
+        scope_key = get_scope_key(c)
+        if scope_key is not None:
             if scope_key not in bias_scopes:
                 bias_scopes[scope_key] = []
             bias_scopes[scope_key].append(c)
-        except:
-            pass
     
     print(f"Bias has constraints on {len(bias_scopes)} unique scopes")
     
@@ -756,6 +759,16 @@ def run_phase3(experiment_name, phase2_pickle_path, max_queries=1000, timeout=60
         for scope_key, oracle_constraints in uncovered_oracle_scopes[:5]:
             for c in oracle_constraints:
                 print(f"  - Added: {c}")
+        
+        # IMPORTANT: Rebuild bias_scopes after adding constraints
+        bias_scopes = {}
+        for c in B_pruned:
+            scope_key = get_scope_key(c)
+            if scope_key is not None:
+                if scope_key not in bias_scopes:
+                    bias_scopes[scope_key] = []
+                bias_scopes[scope_key].append(c)
+        print(f"[FIX] Rebuilt bias_scopes map: {len(bias_scopes)} unique scopes")
     else:
         print(f"[SUCCESS] All oracle scopes have bias coverage")
     
@@ -778,14 +791,10 @@ def run_phase3(experiment_name, phase2_pickle_path, max_queries=1000, timeout=60
         removed_phantom = 0
         
         for c in B_pruned:
-            try:
-                scope = get_scope(c)
-                scope_key = frozenset(hash(v) for v in scope)
-                if scope_key in phantom_scope_keys:
-                    removed_phantom += 1
-                else:
-                    B_pruned_filtered.append(c)
-            except:
+            scope_key = get_scope_key(c)
+            if scope_key is not None and scope_key in phantom_scope_keys:
+                removed_phantom += 1
+            else:
                 B_pruned_filtered.append(c)
         
         B_pruned = B_pruned_filtered
@@ -1062,10 +1071,11 @@ def run_phase3(experiment_name, phase2_pickle_path, max_queries=1000, timeout=60
         
         def debug_findc_run(scope):
             """Wrapper to debug FindC crashes"""
-            from utils import get_kappa, get_scope
+            from utils import get_kappa
             
-            # Get scope signature for debugging
+            # Get scope signature for debugging using variable NAMES
             scope_sig = tuple(sorted([v.name for v in scope]))
+            scope_key = frozenset(v.name for v in scope)
             
             # Check what oracle has for this scope
             oracle_constraints_on_scope = get_kappa(oracle_decomposed.constraints, scope)
