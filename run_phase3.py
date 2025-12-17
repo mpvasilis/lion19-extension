@@ -957,6 +957,72 @@ def run_phase3(experiment_name, phase2_pickle_path, max_queries=1000, timeout=60
     
     # input("\nPress Enter to start Phase 3 learning...")
     
+    # CRITICAL DEBUG: Monkey-patch FindC to identify the problematic scope before crash
+    print(f"\n{'='*60}")
+    print(f"INSTALLING FINDC DEBUG WRAPPER")
+    print(f"{'='*60}")
+    
+    original_findc_run = None
+    if hasattr(ca_system.env, 'findc'):
+        original_findc_run = ca_system.env.findc.run
+        
+        def debug_findc_run(scope):
+            """Wrapper to debug FindC crashes"""
+            from utils import get_kappa, get_scope
+            
+            # Get scope signature for debugging
+            scope_sig = tuple(sorted([v.name for v in scope]))
+            
+            # Check what oracle has for this scope
+            oracle_constraints_on_scope = get_kappa(oracle_decomposed.constraints, scope)
+            
+            # Check what bias has for this scope
+            current_bias = ca_system.env.instance.bias
+            bias_constraints_on_scope = get_kappa(current_bias, scope)
+            
+            # Check what CL has for this scope
+            current_cl = ca_system.env.instance.cl
+            cl_constraints_on_scope = get_kappa(current_cl, scope)
+            
+            if len(oracle_constraints_on_scope) == 0:
+                print(f"\n{'!'*60}")
+                print(f"[FINDC DEBUG] POTENTIAL CRASH DETECTED!")
+                print(f"{'!'*60}")
+                print(f"Scope: {scope_sig}")
+                print(f"Oracle constraints on scope: {len(oracle_constraints_on_scope)} - EMPTY!")
+                print(f"Bias constraints on scope: {len(bias_constraints_on_scope)}")
+                for c in bias_constraints_on_scope:
+                    print(f"  - {c}")
+                print(f"CL constraints on scope: {len(cl_constraints_on_scope)}")
+                for c in cl_constraints_on_scope:
+                    print(f"  - {c}")
+                print(f"{'!'*60}")
+                print(f"[ROOT CAUSE] CL has constraint(s) on this scope, but ORACLE doesn't!")
+                print(f"             This means CL is OVERFITTED on this scope")
+                print(f"{'!'*60}\n")
+            
+            # Call original
+            return original_findc_run(scope)
+        
+        ca_system.env.findc.run = debug_findc_run
+        print(f"[SUCCESS] FindC debug wrapper installed")
+    else:
+        print(f"[WARNING] Could not install FindC debug wrapper")
+    
+    # Also track what constraints get ADDED to CL during learning
+    # to catch overfitting in real-time
+    oracle_constraint_strs_set = set(str(c) for c in oracle_decomposed.constraints)
+    
+    def check_constraint_added_to_cl(constraint):
+        """Check if a newly learned constraint is in oracle"""
+        c_str = str(constraint)
+        if c_str not in oracle_constraint_strs_set:
+            print(f"\n[OVERFITTING ALERT] Learned constraint NOT in oracle: {c_str}")
+            return False
+        return True
+    
+    print(f"[INFO] Will monitor for overfitted constraints during learning")
+    
     try:
         learned_instance = ca_system.learn(
             ca_instance, 
