@@ -922,6 +922,39 @@ def run_phase3(experiment_name, phase2_pickle_path, max_queries=1000, timeout=60
     else:
         print(f"[SUCCESS] All oracle pairs are covered by CL or Bias")
     
+    # CRITICAL DIAGNOSTIC: Check if CL has constraints NOT in oracle (overfitted)
+    print(f"\n{'='*60}")
+    print(f"DIAGNOSTIC: Overfitted Constraints in CL")
+    print(f"{'='*60}")
+    oracle_constraint_strs = set(str(c) for c in oracle_decomposed.constraints)
+    overfitted_in_cl = []
+    for c in final_CL:
+        if str(c) not in oracle_constraint_strs:
+            overfitted_in_cl.append(c)
+    
+    if overfitted_in_cl:
+        print(f"[CRITICAL] Found {len(overfitted_in_cl)} constraints in CL that are NOT in oracle!")
+        print(f"           These overfitted constraints cause FALSE violations")
+        print(f"           This triggers FindC on scopes where oracle has NO constraint")
+        print(f"           RESULT: FindC collapses because bias is empty for non-existent constraints")
+        
+        for c in overfitted_in_cl[:10]:
+            print(f"  - {c}")
+        if len(overfitted_in_cl) > 10:
+            print(f"  ... and {len(overfitted_in_cl) - 10} more")
+        
+        print(f"\n[CRITICAL FIX] Removing ALL overfitted constraints from CL...")
+        print(f"               CL should ONLY contain oracle constraints")
+        final_CL_filtered = [c for c in final_CL if str(c) in oracle_constraint_strs]
+        removed_overfitted = len(final_CL) - len(final_CL_filtered)
+        final_CL = final_CL_filtered
+        ca_instance.cl = final_CL
+        
+        print(f"[CRITICAL FIX] Removed {removed_overfitted} overfitted constraints from CL")
+        print(f"[CRITICAL FIX] Updated CL size: {len(final_CL)}")
+    else:
+        print(f"[SUCCESS] All {len(final_CL)} CL constraints are in oracle (no overfitted)")
+    
     # input("\nPress Enter to start Phase 3 learning...")
     
     try:
