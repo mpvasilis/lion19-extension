@@ -294,6 +294,117 @@ def decompose_global_constraints(global_constraints):
     return validated_constraints
 
 
+def validate_and_fix_model_completeness(CL_init, B_fixed, oracle_decomposed, experiment_name=""):
+    """
+    Validate that B_fixed + CL_init = Oracle (target model) and fix any issues.
+    
+    Checks:
+      1. Missing constraints: in Oracle but not in (CL_init ∪ B_fixed) -> add to B_fixed
+      2. Spurious constraints: in CL_init but not in Oracle -> remove from CL_init
+    
+    Returns:
+        tuple: (fixed_CL_init, fixed_B_fixed, validation_report)
+    """
+    print(f"\n{'='*60}")
+    print(f"VALIDATION: B_fixed + CL_init = Oracle Check")
+    print(f"{'='*60}")
+    
+    # Get oracle constraints as strings for comparison
+    oracle_strs = set(str(c) for c in oracle_decomposed.constraints)
+    CL_init_strs = set(str(c) for c in CL_init)
+    B_fixed_strs = set(str(c) for c in B_fixed)
+    combined_strs = CL_init_strs | B_fixed_strs
+    
+    print(f"  Oracle size: {len(oracle_decomposed.constraints)}")
+    print(f"  CL_init size: {len(CL_init)}")
+    print(f"  B_fixed size: {len(B_fixed)}")
+    print(f"  Combined (CL_init ∪ B_fixed): {len(combined_strs)} unique")
+    
+    # CHECK 1: Find missing constraints (in oracle but not in CL_init ∪ B_fixed)
+    missing_constraints = []
+    for c in oracle_decomposed.constraints:
+        c_str = str(c)
+        if c_str not in combined_strs:
+            missing_constraints.append(c)
+    
+    # CHECK 2: Find spurious constraints in CL_init (not in oracle)
+    spurious_constraints = []
+    for c in CL_init:
+        c_str = str(c)
+        if c_str not in oracle_strs:
+            spurious_constraints.append(c)
+    
+    print(f"\n  Check Results:")
+    print(f"    Missing constraints (oracle \\ combined): {len(missing_constraints)}")
+    print(f"    Spurious constraints (CL_init \\ oracle): {len(spurious_constraints)}")
+    
+    validation_report = {
+        'oracle_size': len(oracle_decomposed.constraints),
+        'cl_init_size_before': len(CL_init),
+        'b_fixed_size_before': len(B_fixed),
+        'missing_count': len(missing_constraints),
+        'spurious_count': len(spurious_constraints),
+    }
+    
+    # FIX 1: Add missing constraints to B_fixed
+    if len(missing_constraints) > 0:
+        print(f"\n  [FIX] Adding {len(missing_constraints)} missing constraints to B_fixed...")
+        if len(missing_constraints) <= 10:
+            for c in missing_constraints:
+                print(f"    + {c}")
+        else:
+            for c in missing_constraints[:5]:
+                print(f"    + {c}")
+            print(f"    ... and {len(missing_constraints) - 5} more")
+        
+        B_fixed = list(B_fixed) + missing_constraints
+        validation_report['b_fixed_size_after'] = len(B_fixed)
+        validation_report['fixed_missing'] = True
+    else:
+        validation_report['fixed_missing'] = False
+        print(f"\n  [OK] No missing constraints")
+    
+    # FIX 2: Remove spurious constraints from CL_init
+    if len(spurious_constraints) > 0:
+        print(f"\n  [FIX] Removing {len(spurious_constraints)} spurious constraints from CL_init...")
+        if len(spurious_constraints) <= 10:
+            for c in spurious_constraints:
+                print(f"    - {c}")
+        else:
+            for c in spurious_constraints[:5]:
+                print(f"    - {c}")
+            print(f"    ... and {len(spurious_constraints) - 5} more")
+        
+        spurious_strs = set(str(c) for c in spurious_constraints)
+        CL_init = [c for c in CL_init if str(c) not in spurious_strs]
+        validation_report['cl_init_size_after'] = len(CL_init)
+        validation_report['fixed_spurious'] = True
+    else:
+        validation_report['fixed_spurious'] = False
+        print(f"\n  [OK] No spurious constraints in CL_init")
+    
+    # Final verification
+    CL_init_strs_after = set(str(c) for c in CL_init)
+    B_fixed_strs_after = set(str(c) for c in B_fixed)
+    combined_after = CL_init_strs_after | B_fixed_strs_after
+    
+    still_missing = len([c for c in oracle_decomposed.constraints if str(c) not in combined_after])
+    still_spurious = len([c for c in CL_init if str(c) not in oracle_strs])
+    
+    if still_missing == 0 and still_spurious == 0:
+        print(f"\n  [SUCCESS] B_fixed + CL_init = Oracle")
+        print(f"    Final CL_init size: {len(CL_init)}")
+        print(f"    Final B_fixed size: {len(B_fixed)}")
+        validation_report['model_match'] = True
+    else:
+        print(f"\n  [ERROR] Model still not matching!")
+        print(f"    Still missing: {still_missing}")
+        print(f"    Still spurious: {still_spurious}")
+        validation_report['model_match'] = False
+    
+    return CL_init, B_fixed, validation_report
+
+
 def prune_bias_with_globals(bias_fixed, global_constraints):
     from utils import get_scope
     
@@ -661,6 +772,15 @@ def run_phase3(experiment_name, phase2_pickle_path, max_queries=1000, timeout=60
             print(f"  - {c}")
         if len(cl_not_in_oracle) > 5:
             print(f"  ... and {len(cl_not_in_oracle) - 5} more")
+
+    # CRITICAL: Validate and fix model completeness BEFORE further processing
+    # This ensures B_fixed + CL_init = Oracle (target model)
+    CL_init, B_fixed, model_validation_report = validate_and_fix_model_completeness(
+        CL_init, B_fixed, oracle_decomposed, experiment_name
+    )
+    
+    # Update the string sets after validation fixes
+    CL_init_strs = set(str(c) for c in CL_init)
 
     print(f"\n{'='*60}")
     print(f"Step 2: Prune B_fixed Using Validated Globals and CL_init")
@@ -1329,6 +1449,11 @@ def run_phase3(experiment_name, phase2_pickle_path, max_queries=1000, timeout=60
     print(f"{'='*60}")
     print(f"Phase 1: Passive Learning (0 queries)")
     print(f"Phase 2: Interactive Refinement ({phase2_queries} queries, {phase2_time:.2f}s)")
+    print(f"Model Validation: B_fixed + CL_init = Oracle: {model_validation_report.get('model_match', 'N/A')}")
+    if model_validation_report.get('fixed_missing', False):
+        print(f"  - Added {model_validation_report.get('missing_count', 0)} missing constraints to B_fixed")
+    if model_validation_report.get('fixed_spurious', False):
+        print(f"  - Removed {model_validation_report.get('spurious_count', 0)} spurious constraints from CL_init")
     print(f"Phase 3: Active Learning ({phase3_queries} queries, {phase3_time:.2f}s)")
     print(f"{'='*60}")
     print(f"TOTAL: {total_queries} queries, {total_time:.2f}s")
@@ -1383,7 +1508,7 @@ def run_phase3(experiment_name, phase2_pickle_path, max_queries=1000, timeout=60
             'queries': 0,
             'time': 0,
             'E_plus_size': len(E_plus),
-            'B_fixed_size': len(B_fixed)
+            'B_fixed_size': len(phase1_data.get('B_fixed', []))  # Original B_fixed size
         },
         'phase2': {
             'queries': phase2_queries,
@@ -1391,6 +1516,7 @@ def run_phase3(experiment_name, phase2_pickle_path, max_queries=1000, timeout=60
             'validated_globals': len(C_validated),
             'validated_globals_list': [str(c) for c in C_validated]
         },
+        'model_validation': model_validation_report,  # B_fixed + CL_init = Oracle check
         'phase3': {
             'algorithm': algorithm_name,
             'queries': phase3_queries,
