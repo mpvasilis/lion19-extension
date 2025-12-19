@@ -684,19 +684,28 @@ def main():
     print(f"  Model C' includes: {'All candidates (C_G^cand \\ {{c}})' if use_all_candidates_in_model else 'Only validated constraints'}")
     print(f"{'='*70}\n")
 
-    instance, oracle = construct_instance(args.experiment)
-    oracle.variables_list = cpm_array(instance.X)
-
-    oracle_variables = flatten_variables(instance.X)
-
+    # Load Phase 1 data first to check for oracle and instance
     phase1_data = None
     candidate_constraints = None
     solver_variables = None
     initial_probabilities = None
     additional_constraints = []
+    oracle = None
+    instance = None
 
     if args.phase1_pickle:
         phase1_data = load_phase1_data(args.phase1_pickle)
+        
+        # Try to load oracle and instance from Phase 1 pickle
+        oracle = phase1_data.get('oracle', None)
+        instance = phase1_data.get('instance', None)
+        
+        if oracle is not None and instance is not None:
+            print(f"\n[INFO] Using oracle and instance from Phase 1 pickle")
+        else:
+            print(f"\n[WARNING] Oracle/instance not found in Phase 1 pickle, reconstructing...")
+            instance, oracle = construct_instance(args.experiment)
+        
         candidate_constraints = phase1_data.get("CG", [])
         solver_variables = flatten_variables(phase1_data.get("variables", []))
         initial_probs = phase1_data.get("initial_probabilities", {})
@@ -704,6 +713,12 @@ def main():
 
         if args.use_bias:
             additional_constraints = list(phase1_data.get("B_fixed", []))
+    else:
+        print(f"\n[INFO] No Phase 1 pickle provided, constructing instance...")
+        instance, oracle = construct_instance(args.experiment)
+
+    oracle.variables_list = cpm_array(instance.X)
+    oracle_variables = flatten_variables(instance.X)
 
     if not candidate_constraints:
         print("\n[INFO] No Phase 1 data provided or CG empty; extracting AllDifferent constraints from oracle.")
