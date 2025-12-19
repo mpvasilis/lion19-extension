@@ -1517,6 +1517,7 @@ if __name__ == "__main__":
         'E_plus': E_plus_merged,  
         'B_fixed': B_fixed_updated,
         'all_variables': list(instance.X),
+        'oracle': oracle,
         'query_assignments': stats.get('query_assignments', []),
         'negative_query_assignments': stats.get('negative_query_assignments', []),
         'phase1_positive_examples_initial': stats.get('phase1_positive_examples_initial', []),

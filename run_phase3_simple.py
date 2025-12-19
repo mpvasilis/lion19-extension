@@ -41,6 +41,9 @@ def load_phase2_pickle(pickle_path):
     
     with open(pickle_path, 'rb') as f:
         data = pickle.load(f)
+
+    # Extract oracle from pickle (stored during Phase 2)
+    oracle = data.get('oracle', None)
     
     # Extract validated constraints
     C_validated = data.get('C_validated', [])
@@ -52,12 +55,16 @@ def load_phase2_pickle(pickle_path):
     # Extract phase2 stats
     phase2_stats = data.get('phase2_stats', {'queries': 0, 'time': 0})
     
+    # Extract variables from pickle if available
+    all_variables = data.get('all_variables', None)
+    
     print(f"Loaded Phase 2 pickle: {pickle_path}")
     print(f"  - Validated constraints: {len(C_validated)}")
     print(f"  - Bias (B_fixed): {len(B_fixed)}")
     print(f"  - Phase 2 queries: {phase2_stats.get('queries', 0)}")
+    print(f"  - Oracle from pickle: {'YES' if oracle is not None else 'NO'}")
     
-    return C_validated, B_fixed, phase2_stats
+    return C_validated, B_fixed, phase2_stats, oracle, all_variables
 
 
 def construct_benchmark(experiment_name):
@@ -218,11 +225,18 @@ def run_growacq_simple(
     print(f"Experiment: {experiment_name}")
     print(f"{'='*70}\n")
     
-    # 1. Load Phase 2 data
-    C_validated, B_fixed, phase2_stats = load_phase2_pickle(phase2_pickle_path)
+    # 1. Load Phase 2 data (including oracle)
+    C_validated, B_fixed, phase2_stats, oracle_from_pickle, variables_from_pickle = load_phase2_pickle(phase2_pickle_path)
     
-    # 2. Construct benchmark
-    instance, oracle = construct_benchmark(experiment_name)
+    # 2. Use oracle from pickle if available, otherwise construct new one
+    if oracle_from_pickle is not None:
+        print(f"Using oracle from Phase 2 pickle (consistent with Phase 2)")
+        oracle = oracle_from_pickle
+        # Construct instance just to get the ProblemInstance structure
+        instance, _ = construct_benchmark(experiment_name)
+    else:
+        print(f"WARNING: No oracle in pickle, constructing new instance")
+        instance, oracle = construct_benchmark(experiment_name)
     
     print(f"\nBenchmark: {experiment_name}")
     print(f"  - Variables: {len(instance.X)}")
@@ -242,10 +256,14 @@ def run_growacq_simple(
     # This prevents FindC collapse when querying scopes without oracle constraints
     print(f"\nPruning bias to oracle scopes...")
     print(f"  Original bias size: {len(B_fixed)}")
-    B_pruned = prune_bias_to_oracle_scopes(B_fixed, oracle_decomposed.constraints)
+    B_pruned = B_fixed
     
     # 6. Set up GrowAcq
     variables = get_variables(CL_init + B_pruned) if (CL_init or B_pruned) else list(instance.X.flat)
+
+    for c in oracle_decomposed.constraints:
+        if c not in set(B_pruned) or c not in set(CL_init)  :
+            raise Exception(f"Constraint {c} is not in B_pruned or CL_init")
     
     ca_instance = ProblemInstance(
         variables=cpm_array(variables),
@@ -274,14 +292,14 @@ def run_growacq_simple(
     
     start_time = time.time()
     
-    learned_instance = growacq.learn(
+    learned_instance = inner_mquacq2.learn(
         ca_instance,
         oracle=oracle_decomposed,
         verbose=verbose
     )
     
     phase3_time = time.time() - start_time
-    phase3_queries = growacq.env.metrics.total_queries
+    phase3_queries = inner_mquacq2.env.metrics.total_queries
     
     # 7. Results
     learned_constraints = learned_instance.cl

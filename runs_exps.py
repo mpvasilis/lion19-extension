@@ -254,17 +254,23 @@ def run_phase2(
             with open(target_pickle, 'rb') as f:
                 phase2_data = pickle.load(f)
             
-            # Check if it has the expected structure
+            # Check if it has the expected structure AND contains the oracle
             if 'C_validated' in phase2_data and 'phase2_stats' in phase2_data:
-                print(f"\n{'='*80}")
-                print(f"[SKIP] Phase 2 pickle already exists: {target_pickle}")
-                print(f"[SKIP] Reusing existing Phase 2 results ({approach.upper()})")
-                phase2_stats = phase2_data.get('phase2_stats', {})
-                print(f"[SKIP] Validated constraints: {len(phase2_data.get('C_validated', []))}")
-                print(f"[SKIP] Phase 2 queries: {phase2_stats.get('queries', 'N/A')}")
-                print(f"[SKIP] Phase 2 time: {phase2_stats.get('time', 'N/A'):.2f}s" if isinstance(phase2_stats.get('time'), (int, float)) else f"[SKIP] Phase 2 time: N/A")
-                print(f"{'='*80}\n")
-                return True, target_pickle
+                # CRITICAL: Check if oracle exists in pickle (required for Phase 3)
+                if 'oracle' not in phase2_data or phase2_data.get('oracle') is None:
+                    print(f"\n[WARNING] Existing Phase 2 pickle missing oracle field: {target_pickle}")
+                    print(f"[WARNING] Re-running Phase 2 to store oracle...")
+                else:
+                    print(f"\n{'='*80}")
+                    print(f"[SKIP] Phase 2 pickle already exists: {target_pickle}")
+                    print(f"[SKIP] Reusing existing Phase 2 results ({approach.upper()})")
+                    phase2_stats = phase2_data.get('phase2_stats', {})
+                    print(f"[SKIP] Validated constraints: {len(phase2_data.get('C_validated', []))}")
+                    print(f"[SKIP] Phase 2 queries: {phase2_stats.get('queries', 'N/A')}")
+                    print(f"[SKIP] Phase 2 time: {phase2_stats.get('time', 'N/A'):.2f}s" if isinstance(phase2_stats.get('time'), (int, float)) else f"[SKIP] Phase 2 time: N/A")
+                    print(f"[SKIP] Oracle in pickle: YES")
+                    print(f"{'='*80}\n")
+                    return True, target_pickle
             else:
                 print(f"\n[WARNING] Existing Phase 2 pickle has invalid structure: {target_pickle}")
                 print(f"[WARNING] Re-running Phase 2...")
@@ -804,17 +810,17 @@ def main(num_runs=1):
 
     # Define benchmarks to test
     benchmarks = [
-         'sudoku',
+        #  'sudoku',
         'sudoku_gt',
         # 'graph_coloring_register',
         # 'examtt_v1',
-        'examtt_v2',
+        # 'examtt_v2',
         # 'nurse',
         # 'jsudoku',
     ]
 
     # Define approaches to compare
-    approaches = ['cop', 'lion']
+    approaches = ['cop']
     
     # Determine solution configurations per benchmark
     benchmark_solution_map = {

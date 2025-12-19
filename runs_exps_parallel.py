@@ -243,18 +243,24 @@ def run_phase2(
         existing_pickle_path = os.path.join(existing_pickle_dir, existing_pickle_name)
         
         if os.path.exists(existing_pickle_path):
-            # Verify the pickle is valid
+            # Verify the pickle is valid and contains the oracle
             try:
                 with open(existing_pickle_path, 'rb') as f:
                     phase2_data = pickle.load(f)
                 
-                print(f"\n{'='*80}")
-                print(f"[SKIP] Phase 2 {approach.upper()} pickle already exists: {existing_pickle_path}")
-                print(f"[SKIP] Reusing existing Phase 2 {approach.upper()} results")
-                print(f"{'='*80}\n")
-                
-                # Return success with the existing pickle path
-                return True, existing_pickle_path
+                # CRITICAL: Check if oracle exists in pickle (required for Phase 3)
+                if 'oracle' not in phase2_data or phase2_data.get('oracle') is None:
+                    print(f"\n[WARNING] Existing Phase 2 {approach.upper()} pickle missing oracle field: {existing_pickle_path}")
+                    print(f"[WARNING] Re-running Phase 2 {approach.upper()} to store oracle...")
+                else:
+                    print(f"\n{'='*80}")
+                    print(f"[SKIP] Phase 2 {approach.upper()} pickle already exists: {existing_pickle_path}")
+                    print(f"[SKIP] Reusing existing Phase 2 {approach.upper()} results")
+                    print(f"[SKIP] Oracle in pickle: YES")
+                    print(f"{'='*80}\n")
+                    
+                    # Return success with the existing pickle path
+                    return True, existing_pickle_path
             except Exception as e:
                 print(f"\n[WARNING] Existing Phase 2 {approach.upper()} pickle is corrupted: {e}")
                 print(f"[WARNING] Re-running Phase 2 {approach.upper()}...")
