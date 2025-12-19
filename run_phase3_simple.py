@@ -252,42 +252,20 @@ def run_growacq_simple(
     
     print(f"Oracle (decomposed): {len(oracle_decomposed.constraints)} constraints")
     
-    # 5. CRITICAL: Prune bias to only include scopes that exist in oracle
-    # This prevents FindC collapse when querying scopes without oracle constraints
-    print(f"\nPruning bias to oracle scopes...")
-    print(f"  Original bias size: {len(B_fixed)}")
-    B_pruned = list(B_fixed)  # Make a mutable copy
-    
-    # 6. Check oracle constraints and add missing ones to bias
-    B_pruned_set = set(str(c) for c in B_pruned)
-    CL_init_set = set(str(c) for c in CL_init)
-    missing_constraints_added = 0
-    
-    for c in oracle_decomposed.constraints:
-        c_str = str(c)
-        if c_str not in B_pruned_set and c_str not in CL_init_set:
-            print(f"  [INFO] Adding missing oracle constraint to bias: {c}")
-            B_pruned.append(c)
-            B_pruned_set.add(c_str)
-            missing_constraints_added += 1
-    
-    if missing_constraints_added > 0:
-        print(f"  Added {missing_constraints_added} missing oracle constraints to bias")
-    
-    # 7. Set up MQuAcq2
-    variables = get_variables(CL_init + B_pruned) if (CL_init or B_pruned) else list(instance.X.flat)
+    # 5. Set up MQuAcq2
+    variables = get_variables(CL_init + B_fixed) if (CL_init or B_fixed) else list(instance.X.flat)
     
     ca_instance = ProblemInstance(
         variables=cpm_array(variables),
         init_cl=CL_init,
         name=f"{experiment_name}_phase3",
-        bias=B_pruned  # Use pruned bias to prevent FindC collapse
+        bias=B_fixed
     )
     
     print(f"\nMQuAcq2 Setup:")
     print(f"  - Variables: {len(ca_instance.variables)}")
     print(f"  - Initial CL: {len(ca_instance.cl)}")
-    print(f"  - Bias (pruned): {len(ca_instance.bias)}")
+    print(f"  - Bias: {len(ca_instance.bias)}")
     
     # Create MQuAcq2 algorithm
     findc = FindC(time_limit=1)
@@ -367,8 +345,7 @@ def run_growacq_simple(
             'queries': phase3_queries,
             'time': phase3_time,
             'initial_cl': len(CL_init),
-            'bias': len(B_pruned),
-            'bias_original': len(B_fixed),
+            'bias': len(B_fixed),
             'learned_constraints': len(learned_constraints)
         },
         'total': {
