@@ -254,12 +254,18 @@ def run_phase2(
             with open(target_pickle, 'rb') as f:
                 phase2_data = pickle.load(f)
             
-            # Check if it has the expected structure AND contains the oracle
+            # Check if it has the expected structure AND contains the oracle and instance
             if 'C_validated' in phase2_data and 'phase2_stats' in phase2_data:
-                # CRITICAL: Check if oracle exists in pickle (required for Phase 3)
-                if 'oracle' not in phase2_data or phase2_data.get('oracle') is None:
+                # CRITICAL: Check if oracle and instance exist in pickle (required for Phase 3)
+                has_oracle = 'oracle' in phase2_data and phase2_data.get('oracle') is not None
+                has_instance = 'instance' in phase2_data and phase2_data.get('instance') is not None
+                
+                if not has_oracle:
                     print(f"\n[WARNING] Existing Phase 2 pickle missing oracle field: {target_pickle}")
                     print(f"[WARNING] Re-running Phase 2 to store oracle...")
+                elif not has_instance:
+                    print(f"\n[WARNING] Existing Phase 2 pickle missing instance field: {target_pickle}")
+                    print(f"[WARNING] Re-running Phase 2 to store instance...")
                 else:
                     print(f"\n{'='*80}")
                     print(f"[SKIP] Phase 2 pickle already exists: {target_pickle}")
@@ -269,6 +275,7 @@ def run_phase2(
                     print(f"[SKIP] Phase 2 queries: {phase2_stats.get('queries', 'N/A')}")
                     print(f"[SKIP] Phase 2 time: {phase2_stats.get('time', 'N/A'):.2f}s" if isinstance(phase2_stats.get('time'), (int, float)) else f"[SKIP] Phase 2 time: N/A")
                     print(f"[SKIP] Oracle in pickle: YES")
+                    print(f"[SKIP] Instance in pickle: YES")
                     print(f"{'='*80}\n")
                     return True, target_pickle
             else:

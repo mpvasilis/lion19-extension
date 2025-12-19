@@ -163,6 +163,7 @@ def load_phase2_data(pickle_path):
     print(f"  - Phase 2 queries: {data['phase2_stats']['queries']}")
     print(f"  - Phase 2 time: {data['phase2_stats']['time']:.2f}s")
     print(f"  - Oracle from pickle: {'YES' if data.get('oracle') is not None else 'NO'}")
+    print(f"  - Instance from pickle: {'YES' if data.get('instance') is not None else 'NO'}")
     
     return data
 
@@ -606,15 +607,20 @@ def run_phase3(experiment_name, phase2_pickle_path, max_queries=1000, timeout=60
     print(f"  - B_fixed (fixed-arity bias): {len(B_fixed)} constraints")
     print(f"  - E_plus (positive examples): {len(E_plus)} examples")
 
-    # Load oracle from pickle if available (ensures consistency with Phase 2)
+    # Load oracle and instance from pickle if available (ensures consistency with Phase 2)
     oracle_from_pickle = phase2_data.get('oracle', None)
+    instance_from_pickle = phase2_data.get('instance', None)
     
-    if oracle_from_pickle is not None:
-        print(f"\n[INFO] Using oracle from Phase 2 pickle (consistent with Phase 2)")
-        # Construct instances just to get the structure, but use oracle from pickle
+    if oracle_from_pickle is not None and instance_from_pickle is not None:
+        print(f"\n[INFO] Using oracle and instance from Phase 2 pickle (consistent with Phase 2)")
+        instance_global = instance_from_pickle
+        instance_binary = instance_from_pickle  # Use same instance for both
+        oracle_global = oracle_from_pickle
+        oracle_binary = oracle_from_pickle  # Will be decomposed below
+    elif oracle_from_pickle is not None:
+        print(f"\n[INFO] Using oracle from Phase 2 pickle, constructing instance")
         instance_binary, _, instance_global, _ = construct_instance(experiment_name)
         oracle_global = oracle_from_pickle
-        # For binary oracle, we'll create decomposed version later
         oracle_binary = oracle_from_pickle  # Will be decomposed below
     else:
         print(f"\n[WARNING] No oracle in pickle, constructing new instances")

@@ -45,6 +45,9 @@ def load_phase2_pickle(pickle_path):
     # Extract oracle from pickle (stored during Phase 2)
     oracle = data.get('oracle', None)
     
+    # Extract instance from pickle (stored during Phase 2)
+    instance = data.get('instance', None)
+    
     # Extract validated constraints
     C_validated = data.get('C_validated', [])
     
@@ -63,8 +66,9 @@ def load_phase2_pickle(pickle_path):
     print(f"  - Bias (B_fixed): {len(B_fixed)}")
     print(f"  - Phase 2 queries: {phase2_stats.get('queries', 0)}")
     print(f"  - Oracle from pickle: {'YES' if oracle is not None else 'NO'}")
+    print(f"  - Instance from pickle: {'YES' if instance is not None else 'NO'}")
     
-    return C_validated, B_fixed, phase2_stats, oracle, all_variables
+    return C_validated, B_fixed, phase2_stats, oracle, all_variables, instance
 
 
 def construct_benchmark(experiment_name):
@@ -207,18 +211,20 @@ def run_growacq_simple(
     print(f"Experiment: {experiment_name}")
     print(f"{'='*70}\n")
     
-    # 1. Load Phase 2 data (including oracle)
-    C_validated, B_fixed, phase2_stats, oracle_from_pickle, variables_from_pickle = load_phase2_pickle(phase2_pickle_path)
+    # 1. Load Phase 2 data (including oracle and instance)
+    C_validated, B_fixed, phase2_stats, oracle_from_pickle, variables_from_pickle, instance_from_pickle = load_phase2_pickle(phase2_pickle_path)
     
-    # 2. Use oracle from pickle if available, otherwise construct new one
-    if oracle_from_pickle is not None:
-        print(f"Using oracle from Phase 2 pickle (consistent with Phase 2)")
+    # 2. Use oracle and instance from pickle if available
+    if oracle_from_pickle is not None and instance_from_pickle is not None:
+        print(f"Using oracle and instance from Phase 2 pickle (consistent with Phase 2)")
         oracle = oracle_from_pickle
-        # Construct instance just to get the ProblemInstance structure
+        instance = instance_from_pickle
+    elif oracle_from_pickle is not None:
+        print(f"Using oracle from Phase 2 pickle, constructing instance")
+        oracle = oracle_from_pickle
         instance, _ = construct_benchmark(experiment_name)
     else:
-        print(f"WARNING: No oracle in pickle, constructing new instance")
-        instance, oracle = construct_benchmark(experiment_name)
+        raise Exception("No oracle in pickle")
     
     print(f"\nBenchmark: {experiment_name}")
     print(f"  - Variables: {len(instance.X)}")

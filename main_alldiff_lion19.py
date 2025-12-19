@@ -877,6 +877,7 @@ def main():
         "B_fixed": phase1_data.get("B_fixed", None) if phase1_data else None,
         "all_variables": oracle_variables,
         "oracle": oracle,  # Store oracle for Phase 3 to load
+        "instance": instance,  # Store instance for Phase 3 to load
         "metadata": {
             "approach": "lion19_heuristic",
             "scoring_alpha": args.scoring_alpha,

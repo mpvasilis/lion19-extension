@@ -248,15 +248,22 @@ def run_phase2(
                 with open(existing_pickle_path, 'rb') as f:
                     phase2_data = pickle.load(f)
                 
-                # CRITICAL: Check if oracle exists in pickle (required for Phase 3)
-                if 'oracle' not in phase2_data or phase2_data.get('oracle') is None:
+                # CRITICAL: Check if oracle and instance exist in pickle (required for Phase 3)
+                has_oracle = 'oracle' in phase2_data and phase2_data.get('oracle') is not None
+                has_instance = 'instance' in phase2_data and phase2_data.get('instance') is not None
+                
+                if not has_oracle:
                     print(f"\n[WARNING] Existing Phase 2 {approach.upper()} pickle missing oracle field: {existing_pickle_path}")
                     print(f"[WARNING] Re-running Phase 2 {approach.upper()} to store oracle...")
+                elif not has_instance:
+                    print(f"\n[WARNING] Existing Phase 2 {approach.upper()} pickle missing instance field: {existing_pickle_path}")
+                    print(f"[WARNING] Re-running Phase 2 {approach.upper()} to store instance...")
                 else:
                     print(f"\n{'='*80}")
                     print(f"[SKIP] Phase 2 {approach.upper()} pickle already exists: {existing_pickle_path}")
                     print(f"[SKIP] Reusing existing Phase 2 {approach.upper()} results")
                     print(f"[SKIP] Oracle in pickle: YES")
+                    print(f"[SKIP] Instance in pickle: YES")
                     print(f"{'='*80}\n")
                     
                     # Return success with the existing pickle path
