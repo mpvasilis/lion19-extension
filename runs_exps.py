@@ -211,7 +211,10 @@ def run_phase2(
     timeout=1200,
     config_tag=None,
 ):
-    """Run Phase 2 with the given Phase 1 pickle using specified approach (cop or lion)."""
+    """Run Phase 2 with the given Phase 1 pickle using specified approach (cop or lion).
+    
+    If the Phase 2 pickle already exists, skip execution and return the existing path.
+    """
     
     # Select the appropriate script based on approach
     script_map = {
@@ -229,6 +232,47 @@ def run_phase2(
         'lion': f"{experiment}_lion19_phase2.pkl"
     }
     
+    # Determine target pickle path
+    base_output_dir = f"phase2_output_{approach.lower()}"
+    if config_tag:
+        target_dir = os.path.join(base_output_dir, experiment)
+        file_suffix_map = {
+            'cop': 'phase2.pkl',
+            'lion': 'lion19_phase2.pkl'
+        }
+        dest_filename = f"{experiment}_{config_tag}_{file_suffix_map[approach.lower()]}"
+    else:
+        target_dir = base_output_dir
+        dest_filename = filename_map[approach.lower()]
+    
+    target_pickle = os.path.join(target_dir, dest_filename)
+    
+    # Check if Phase 2 pickle already exists
+    if os.path.exists(target_pickle):
+        # Verify the pickle is valid
+        try:
+            with open(target_pickle, 'rb') as f:
+                phase2_data = pickle.load(f)
+            
+            # Check if it has the expected structure
+            if 'C_validated' in phase2_data and 'phase2_stats' in phase2_data:
+                print(f"\n{'='*80}")
+                print(f"[SKIP] Phase 2 pickle already exists: {target_pickle}")
+                print(f"[SKIP] Reusing existing Phase 2 results ({approach.upper()})")
+                phase2_stats = phase2_data.get('phase2_stats', {})
+                print(f"[SKIP] Validated constraints: {len(phase2_data.get('C_validated', []))}")
+                print(f"[SKIP] Phase 2 queries: {phase2_stats.get('queries', 'N/A')}")
+                print(f"[SKIP] Phase 2 time: {phase2_stats.get('time', 'N/A'):.2f}s" if isinstance(phase2_stats.get('time'), (int, float)) else f"[SKIP] Phase 2 time: N/A")
+                print(f"{'='*80}\n")
+                return True, target_pickle
+            else:
+                print(f"\n[WARNING] Existing Phase 2 pickle has invalid structure: {target_pickle}")
+                print(f"[WARNING] Re-running Phase 2...")
+        except Exception as e:
+            print(f"\n[WARNING] Existing Phase 2 pickle is corrupted: {e}")
+            print(f"[WARNING] Re-running Phase 2...")
+    
+    # Run Phase 2
     cmd = [
         PYTHON_EXECUTABLE, script,
         '--experiment', experiment,
@@ -244,21 +288,7 @@ def run_phase2(
         default_output = "phase2_output"
         source_pickle = os.path.join(default_output, filename_map[approach.lower()])
 
-        # Move to approach-specific directory for organization
-        base_output_dir = f"phase2_output_{approach.lower()}"
-        if config_tag:
-            target_dir = os.path.join(base_output_dir, experiment)
-            file_suffix_map = {
-                'cop': 'phase2.pkl',
-                'lion': 'lion19_phase2.pkl'
-            }
-            dest_filename = f"{experiment}_{config_tag}_{file_suffix_map[approach.lower()]}"
-        else:
-            target_dir = base_output_dir
-            dest_filename = filename_map[approach.lower()]
-
         os.makedirs(target_dir, exist_ok=True)
-        target_pickle = os.path.join(target_dir, dest_filename)
 
         # Move the file
         if os.path.exists(source_pickle):
@@ -273,40 +303,82 @@ def run_phase2(
 
 
 def run_phase3(experiment, phase2_pickle, *, approach='cop', config_tag=None):
-    """Run Phase 3 with the given Phase 2 pickle."""
+    """Run Phase 3 (GrowAcq) with the given Phase 2 pickle using run_phase3_simple.py.
     
+    Uses cached Phase 2 pickle and runs GrowAcq with decomposed AllDifferent constraints.
+    If the Phase 3 results already exist, skip execution and return True.
+    """
+    
+    # Determine target paths
+    base_output_dir = f"phase3_output_{approach.lower()}"
+    if config_tag:
+        target_dir = os.path.join(base_output_dir, experiment)
+        results_json_name = f"{experiment}_{config_tag}_results.json"
+        final_model_name = f"{experiment}_{config_tag}_model.pkl"
+    else:
+        target_dir = base_output_dir
+        results_json_name = f"{experiment}_results.json"
+        final_model_name = f"{experiment}_model.pkl"
+    
+    target_json = os.path.join(target_dir, results_json_name)
+    target_model = os.path.join(target_dir, final_model_name)
+    
+    # Check if Phase 3 results already exist
+    if os.path.exists(target_json) and os.path.exists(target_model):
+        try:
+            with open(target_json, 'r') as f:
+                phase3_results = json.load(f)
+            
+            # Verify it has expected structure (run_phase3_simple.py format)
+            if 'phase3' in phase3_results and 'evaluation' in phase3_results:
+                print(f"\n{'='*80}")
+                print(f"[SKIP] Phase 3 results already exist: {target_json}")
+                print(f"[SKIP] Reusing existing Phase 3 results ({approach.upper()})")
+                phase3_stats = phase3_results.get('phase3', {})
+                evaluation = phase3_results.get('evaluation', {})
+                print(f"[SKIP] Phase 3 queries: {phase3_stats.get('queries', 'N/A')}")
+                print(f"[SKIP] Phase 3 time: {phase3_stats.get('time', 'N/A'):.2f}s" if isinstance(phase3_stats.get('time'), (int, float)) else f"[SKIP] Phase 3 time: N/A")
+                print(f"[SKIP] Precision: {evaluation.get('precision', 'N/A'):.2%}" if isinstance(evaluation.get('precision'), (int, float)) else f"[SKIP] Precision: N/A")
+                print(f"[SKIP] Recall: {evaluation.get('recall', 'N/A'):.2%}" if isinstance(evaluation.get('recall'), (int, float)) else f"[SKIP] Recall: N/A")
+                print(f"{'='*80}\n")
+                return True
+            else:
+                print(f"\n[WARNING] Existing Phase 3 results have invalid structure")
+                print(f"[WARNING] Re-running Phase 3...")
+        except Exception as e:
+            print(f"\n[WARNING] Existing Phase 3 results are corrupted: {e}")
+            print(f"[WARNING] Re-running Phase 3...")
+    
+    # Verify Phase 2 pickle exists before running
+    if not os.path.exists(phase2_pickle):
+        print(f"\n[ERROR] Phase 2 pickle not found: {phase2_pickle}")
+        print(f"[ERROR] Cannot run Phase 3 without Phase 2 data")
+        return False
+    
+    # Run Phase 3 using run_phase3_simple.py
     cmd = [
-        PYTHON_EXECUTABLE, 'run_phase3.py',
+        PYTHON_EXECUTABLE, 'run_phase3_simple.py',
         '--experiment', experiment,
-        '--phase2_pickle', phase2_pickle
+        '--phase2_pickle', phase2_pickle,
+        '--verbose', '1'
     ]
     
     try:
-        success, _ = run_command(cmd, f"Phase 3 ({approach.upper()}): {experiment}")
+        success, _ = run_command(cmd, f"Phase 3 GrowAcq ({approach.upper()}): {experiment}")
     except Exception as e:
         print(f"\n[ERROR] Phase 3 command execution failed: {e}")
         return False
     
     if success:
-        # Phase 3 outputs to "phase3_output" directory by default
-        default_output = "phase3_output"
-
-        # Move outputs to approach-specific directory
-        base_output_dir = f"phase3_output_{approach.lower()}"
-        if config_tag:
-            target_dir = os.path.join(base_output_dir, experiment)
-            results_json_name = f"{experiment}_{config_tag}_phase3_results.json"
-            final_model_name = f"{experiment}_{config_tag}_final_model.pkl"
-        else:
-            target_dir = base_output_dir
-            results_json_name = f"{experiment}_phase3_results.json"
-            final_model_name = f"{experiment}_final_model.pkl"
+        # run_phase3_simple.py outputs to "phase3_simple_output" directory
+        default_output = "phase3_simple_output"
 
         os.makedirs(target_dir, exist_ok=True)
 
+        # Map from run_phase3_simple.py output names to our target names
         file_mapping = {
-            f"{experiment}_phase3_results.json": results_json_name,
-            f"{experiment}_final_model.pkl": final_model_name,
+            f"{experiment}_results.json": results_json_name,
+            f"{experiment}_model.pkl": final_model_name,
         }
 
         for source_name, dest_name in file_mapping.items():
@@ -335,17 +407,43 @@ def load_phase1_pickle(pickle_path):
 
 
 def load_phase3_results(benchmark_name, approach='cop', config_tag=None):
-    """Load Phase 3 JSON results from approach-specific directory."""
+    """Load Phase 3 JSON results from approach-specific directory.
+    
+    Handles both old format (run_phase3.py) and new format (run_phase3_simple.py).
+    """
     output_dir = f"phase3_output_{approach.lower()}"
+    
+    # Try new naming convention first (run_phase3_simple.py)
     if config_tag:
-        json_path = os.path.join(output_dir, benchmark_name, f"{benchmark_name}_{config_tag}_phase3_results.json")
+        json_path = os.path.join(output_dir, benchmark_name, f"{benchmark_name}_{config_tag}_results.json")
     else:
-        json_path = os.path.join(output_dir, f"{benchmark_name}_phase3_results.json")
+        json_path = os.path.join(output_dir, f"{benchmark_name}_results.json")
+    
+    # Fall back to old naming convention (run_phase3.py)
+    if not os.path.exists(json_path):
+        if config_tag:
+            json_path = os.path.join(output_dir, benchmark_name, f"{benchmark_name}_{config_tag}_phase3_results.json")
+        else:
+            json_path = os.path.join(output_dir, f"{benchmark_name}_phase3_results.json")
+    
     if not os.path.exists(json_path):
         return None
+    
     try:
         with open(json_path, 'r') as f:
-            return json.load(f)
+            data = json.load(f)
+        
+        # Normalize the format to handle both old and new structures
+        # New format from run_phase3_simple.py has evaluation at top level
+        # Old format has evaluation.constraint_level and evaluation.solution_level
+        if 'evaluation' in data and 'constraint_level' not in data['evaluation']:
+            # New format - wrap evaluation in constraint_level for compatibility
+            data['evaluation'] = {
+                'constraint_level': data['evaluation'],
+                'solution_level': {}  # Not computed in simple version
+            }
+        
+        return data
     except Exception as e:
         print(f"[ERROR] Failed to load Phase 3 results: {e}")
         return None
@@ -428,9 +526,13 @@ def extract_metrics(
     # Bias: Size of generated bias (excluding decomposed binary constraints from AllDifferent)
     # Clamped to 0 to prevent negative values when learned constraints expand beyond original bias
     if phase3_available:
+        # Handle both old format (phase1.B_fixed_size) and new format (phase3.bias)
         raw_bias = phase3_results.get('phase1', {}).get('B_fixed_size', 0)
+        if raw_bias == 0:
+            # New format from run_phase3_simple.py stores bias directly in phase3
+            raw_bias = phase3_results.get('phase3', {}).get('bias', 0)
         decomposed_binaries = phase3_results.get('phase3', {}).get('initial_cl', 0)
-        metrics['Bias'] = max(0, raw_bias - decomposed_binaries)
+        metrics['Bias'] = max(0, raw_bias - decomposed_binaries) if raw_bias > decomposed_binaries else raw_bias
     else:
         raw_bias = len(phase2_data.get('B_fixed', []))
         # For Phase 2-only results, we don't have decomposed count, so use raw bias
@@ -690,7 +792,7 @@ def aggregate_metrics_across_runs(aggregated_metrics, num_runs):
     return aggregated_results
 
 
-def main(num_runs=10):
+def main(num_runs=1):
     """Run the complete solution variance experiment with parallel execution."""
 
     print(f"\n{'='*80}")
@@ -712,7 +814,7 @@ def main(num_runs=10):
     ]
 
     # Define approaches to compare
-    approaches = ['lion', 'cop']
+    approaches = ['cop', 'lion']
     
     # Determine solution configurations per benchmark
     benchmark_solution_map = {

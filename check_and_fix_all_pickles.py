@@ -2,8 +2,12 @@
 Check and Fix All Phase 2 Pickle Files
 ======================================
 This script scans all output directories for Phase 2 pickle files,
-checks each one for missing binary constraints from the oracle,
-and optionally fixes them by adding missing constraints to B_fixed.
+checks each one for:
+  1. Missing binary constraints from the oracle (not in CL_init or B_fixed)
+  2. Spurious constraints in CL_init (constraints not in the target oracle)
+  3. Completeness: B_fixed + CL_init should equal the target oracle model
+
+If any constraint is missing, it adds them to B_fixed.
 
 Usage:
     # Check only (no modifications):
@@ -119,12 +123,15 @@ def extract_experiment_name(pickle_path):
 
 def check_pickle_file(pickle_path, experiment_name=None, fix=False):
     """
-    Check a single Phase 2 pickle file for missing constraints.
+    Check a single Phase 2 pickle file for:
+      1. Missing constraints from the oracle (not in CL_init or B_fixed)
+      2. Spurious constraints in CL_init (not in the target oracle)
+      3. Completeness: B_fixed + CL_init should equal the target oracle
     
     Args:
         pickle_path: Path to the Phase 2 pickle file
         experiment_name: Name of the experiment (auto-detected if None)
-        fix: If True, add missing constraints and save
+        fix: If True, add missing constraints to B_fixed and save
     
     Returns:
         dict with check results
@@ -168,7 +175,7 @@ def check_pickle_file(pickle_path, experiment_name=None, fix=False):
         
         oracle_global.variables_list = cpm_array(instance_global.X)
         
-        # Create decomposed oracle
+        # Create decomposed oracle (target model)
         decomposed_constraints = []
         non_global_constraints = []
         
@@ -182,19 +189,34 @@ def check_pickle_file(pickle_path, experiment_name=None, fix=False):
         
         unique_binary = list({str(c): c for c in decomposed_constraints}.values())
         all_binary_constraints = unique_binary + non_global_constraints
+        oracle_strs = set(str(c) for c in all_binary_constraints)
         
-        # Decompose C_validated
+        # Decompose C_validated to get CL_init
         CL_init = decompose_global_constraints(C_validated)
         
-        # Find missing constraints
+        # Get string representations
         CL_init_strs = set(str(c) for c in CL_init)
         B_fixed_strs = set(str(c) for c in B_fixed)
+        combined_strs = CL_init_strs | B_fixed_strs  # Union of CL_init and B_fixed
         
+        # CHECK 1: Find missing constraints (in oracle but not in CL_init ∪ B_fixed)
         missing_constraints = []
         for c in all_binary_constraints:
             c_str = str(c)
-            if c_str not in CL_init_strs and c_str not in B_fixed_strs:
+            if c_str not in combined_strs:
                 missing_constraints.append(c)
+        
+        # CHECK 2: Find spurious constraints in CL_init (not in oracle)
+        spurious_constraints = []
+        for c in CL_init:
+            c_str = str(c)
+            if c_str not in oracle_strs:
+                spurious_constraints.append(c)
+        
+        # CHECK 3: Completeness check - B_fixed + CL_init should equal oracle
+        # This is essentially: missing_count == 0 AND spurious_count == 0
+        is_complete = (len(missing_constraints) == 0)
+        has_only_oracle_constraints = (len(spurious_constraints) == 0)
         
         result = {
             'status': 'ok',
@@ -204,23 +226,72 @@ def check_pickle_file(pickle_path, experiment_name=None, fix=False):
             'B_fixed_size': len(B_fixed),
             'CL_init_size': len(CL_init),
             'oracle_size': len(all_binary_constraints),
+            'combined_size': len(combined_strs),
+            # Missing constraints (need to be added to B_fixed)
             'missing_count': len(missing_constraints),
             'missing_constraints': [str(c) for c in missing_constraints],
+            # Spurious constraints (in CL_init but not in oracle)
+            'spurious_count': len(spurious_constraints),
+            'spurious_constraints': [str(c) for c in spurious_constraints],
+            # Completeness status
+            'is_complete': is_complete,
+            'has_only_oracle_constraints': has_only_oracle_constraints,
+            'model_match': is_complete and has_only_oracle_constraints,
         }
         
         # Fix if requested
+        needs_save = False
+        
+        # Fix 1: Add missing constraints to B_fixed
         if fix and len(missing_constraints) > 0:
             print(f"  [FIX] Adding {len(missing_constraints)} missing constraints to B_fixed...")
             B_fixed.extend(missing_constraints)
+            result['fixed_missing'] = True
+            result['B_fixed_size_after'] = len(B_fixed)
+            needs_save = True
+        else:
+            result['fixed_missing'] = False
+        
+        # Fix 2: Remove spurious constraints from C_validated
+        if fix and len(spurious_constraints) > 0:
+            print(f"  [FIX] Removing {len(spurious_constraints)} spurious constraints from C_validated...")
+            spurious_strs = set(str(c) for c in spurious_constraints)
+            # Filter out spurious constraints from C_validated
+            C_validated_cleaned = [c for c in C_validated if str(c) not in spurious_strs]
+            # Also check decomposed form - some constraints might be global that decompose to spurious
+            # We need to be careful here: remove any constraint whose decomposition contains spurious
+            final_cleaned = []
+            for c in C_validated_cleaned:
+                if hasattr(c, 'name') and c.name == "alldifferent":
+                    # Check if any decomposed constraint is spurious
+                    decomposed = c.decompose()
+                    if decomposed and len(decomposed) > 0:
+                        decomposed_strs = set(str(dc) for dc in decomposed[0])
+                        # Keep if all decomposed constraints are in oracle
+                        if decomposed_strs.issubset(oracle_strs):
+                            final_cleaned.append(c)
+                        else:
+                            print(f"    Removing global constraint with spurious decomposition: {c}")
+                    else:
+                        final_cleaned.append(c)
+                else:
+                    # Non-global constraint - check directly
+                    if str(c) in oracle_strs:
+                        final_cleaned.append(c)
             
-            # Save updated pickle
+            phase2_data['C_validated'] = final_cleaned
+            result['fixed_spurious'] = True
+            result['C_validated_size_after'] = len(final_cleaned)
+            needs_save = True
+        else:
+            result['fixed_spurious'] = False
+        
+        result['fixed'] = result['fixed_missing'] or result['fixed_spurious']
+        
+        # Save updated pickle if any fixes were made
+        if needs_save:
             with open(pickle_path, 'wb') as f:
                 pickle.dump(phase2_data, f)
-            
-            result['fixed'] = True
-            result['B_fixed_size_after'] = len(B_fixed)
-        else:
-            result['fixed'] = False
         
         return result
         
@@ -294,6 +365,7 @@ def main():
     # Check each pickle
     results = []
     files_with_missing = []
+    files_with_spurious = []
     files_ok = []
     files_error = []
     
@@ -307,39 +379,72 @@ def main():
         if result['status'] == 'error':
             files_error.append(rel_path)
             print(f"  [ERROR] {result.get('message', 'Unknown error')}")
-        elif result['missing_count'] > 0:
-            files_with_missing.append(rel_path)
-            print(f"  [MISSING] {result['missing_count']} constraints not in CL_init or B_fixed")
-            print(f"    Experiment: {result['experiment']}")
-            print(f"    C_validated: {result['C_validated_size']}, B_fixed: {result['B_fixed_size']}, Oracle: {result['oracle_size']}")
-            
-            # Show missing constraints
-            if result['missing_count'] <= 10:
-                for c in result['missing_constraints']:
-                    print(f"      - {c}")
-            else:
-                for c in result['missing_constraints'][:5]:
-                    print(f"      - {c}")
-                print(f"      ... and {result['missing_count'] - 5} more")
-            
-            if result.get('fixed', False):
-                print(f"  [FIXED] Added to B_fixed. New size: {result['B_fixed_size_after']}")
         else:
-            files_ok.append(rel_path)
-            print(f"  [OK] All {result['oracle_size']} oracle constraints covered")
+            has_issues = False
+            
+            # Check for missing constraints
+            if result['missing_count'] > 0:
+                files_with_missing.append(rel_path)
+                has_issues = True
+                print(f"  [MISSING] {result['missing_count']} constraints not in CL_init or B_fixed")
+                print(f"    Experiment: {result['experiment']}")
+                print(f"    C_validated: {result['C_validated_size']}, B_fixed: {result['B_fixed_size']}, Oracle: {result['oracle_size']}")
+                
+                # Show missing constraints
+                if result['missing_count'] <= 10:
+                    for c in result['missing_constraints']:
+                        print(f"      - {c}")
+                else:
+                    for c in result['missing_constraints'][:5]:
+                        print(f"      - {c}")
+                    print(f"      ... and {result['missing_count'] - 5} more")
+                
+                if result.get('fixed_missing', False):
+                    print(f"  [FIXED] Added to B_fixed. New size: {result['B_fixed_size_after']}")
+            
+            # Check for spurious constraints (in CL_init but not in oracle)
+            if result['spurious_count'] > 0:
+                files_with_spurious.append(rel_path)
+                has_issues = True
+                print(f"  [SPURIOUS] {result['spurious_count']} constraints in CL_init NOT in oracle!")
+                
+                # Show spurious constraints
+                if result['spurious_count'] <= 10:
+                    for c in result['spurious_constraints']:
+                        print(f"      - {c}")
+                else:
+                    for c in result['spurious_constraints'][:5]:
+                        print(f"      - {c}")
+                    print(f"      ... and {result['spurious_count'] - 5} more")
+                
+                if result.get('fixed_spurious', False):
+                    print(f"  [FIXED] Removed spurious from C_validated. New size: {result['C_validated_size_after']}")
+            
+            # Model match status
+            if not has_issues:
+                files_ok.append(rel_path)
+                print(f"  [OK] B_fixed + CL_init = Oracle ({result['oracle_size']} constraints)")
+            else:
+                # Show completeness summary
+                print(f"  [MODEL CHECK] B_fixed({result['B_fixed_size']}) + CL_init({result['CL_init_size']}) = {result['combined_size']} unique | Oracle = {result['oracle_size']}")
     
     # Generate summary report
     print(f"\n\n{'='*80}")
     print(f"SUMMARY REPORT")
     print(f"{'='*80}")
     print(f"Total files checked: {len(all_pickles)}")
-    print(f"  - OK (no missing constraints): {len(files_ok)}")
+    print(f"  - OK (B_fixed + CL_init = Oracle): {len(files_ok)}")
     print(f"  - Has missing constraints: {len(files_with_missing)}")
+    print(f"  - Has spurious constraints (not in oracle): {len(files_with_spurious)}")
     print(f"  - Errors: {len(files_error)}")
     
     if fix_mode:
-        fixed_count = sum(1 for r in results if r.get('fixed', False))
-        print(f"  - Fixed: {fixed_count}")
+        fixed_missing = sum(1 for r in results if r.get('fixed_missing', False))
+        fixed_spurious = sum(1 for r in results if r.get('fixed_spurious', False))
+        total_fixed = sum(1 for r in results if r.get('fixed', False))
+        print(f"  - Fixed total: {total_fixed}")
+        print(f"    - Missing constraints added to B_fixed: {fixed_missing}")
+        print(f"    - Spurious constraints removed from C_validated: {fixed_spurious}")
     
     # Detailed results by experiment
     print(f"\n{'='*80}")
@@ -358,10 +463,14 @@ def main():
         exp_results = by_experiment[exp]
         total = len(exp_results)
         with_missing = sum(1 for r in exp_results if r['missing_count'] > 0)
+        with_spurious = sum(1 for r in exp_results if r['spurious_count'] > 0)
+        model_matches = sum(1 for r in exp_results if r.get('model_match', False))
         
         print(f"\n{exp}:")
         print(f"  Files: {total}")
+        print(f"  Model matches (B_fixed + CL_init = Oracle): {model_matches}/{total}")
         print(f"  With missing constraints: {with_missing}")
+        print(f"  With spurious constraints: {with_spurious}")
         
         if with_missing > 0:
             # Show summary of missing counts
@@ -383,6 +492,27 @@ def main():
                 print(f"    Most common missing constraints:")
                 for c, count in sorted_missing[:5]:
                     print(f"      - {c} (in {count}/{with_missing} files)")
+        
+        if with_spurious > 0:
+            # Show summary of spurious counts
+            spurious_counts = [r['spurious_count'] for r in exp_results if r['spurious_count'] > 0]
+            avg_spurious = sum(spurious_counts) / len(spurious_counts)
+            max_spurious = max(spurious_counts)
+            min_spurious = min(spurious_counts)
+            print(f"    Spurious range: {min_spurious}-{max_spurious} (avg: {avg_spurious:.1f})")
+            
+            # Show which specific constraints are commonly spurious
+            all_spurious = {}
+            for r in exp_results:
+                if r['spurious_count'] > 0:
+                    for c in r['spurious_constraints']:
+                        all_spurious[c] = all_spurious.get(c, 0) + 1
+            
+            if all_spurious:
+                sorted_spurious = sorted(all_spurious.items(), key=lambda x: x[1], reverse=True)
+                print(f"    Most common spurious constraints (NOT in oracle):")
+                for c, count in sorted_spurious[:5]:
+                    print(f"      - {c} (in {count}/{with_spurious} files)")
     
     # Save detailed report
     print(f"\n{'='*80}")
@@ -398,11 +528,17 @@ def main():
         f.write(f"SUMMARY\n")
         f.write(f"{'-'*80}\n")
         f.write(f"Total files checked: {len(all_pickles)}\n")
-        f.write(f"  OK: {len(files_ok)}\n")
+        f.write(f"  OK (B_fixed + CL_init = Oracle): {len(files_ok)}\n")
         f.write(f"  With missing constraints: {len(files_with_missing)}\n")
+        f.write(f"  With spurious constraints: {len(files_with_spurious)}\n")
         f.write(f"  Errors: {len(files_error)}\n")
         if fix_mode:
-            f.write(f"  Fixed: {sum(1 for r in results if r.get('fixed', False))}\n")
+            fixed_missing = sum(1 for r in results if r.get('fixed_missing', False))
+            fixed_spurious = sum(1 for r in results if r.get('fixed_spurious', False))
+            total_fixed = sum(1 for r in results if r.get('fixed', False))
+            f.write(f"  Fixed total: {total_fixed}\n")
+            f.write(f"    - Missing constraints added to B_fixed: {fixed_missing}\n")
+            f.write(f"    - Spurious constraints removed from C_validated: {fixed_spurious}\n")
         f.write(f"\n")
         
         # Details
@@ -419,17 +555,28 @@ def main():
                 f.write(f"  Experiment: {result['experiment']}\n")
                 f.write(f"  C_validated: {result['C_validated_size']}\n")
                 f.write(f"  B_fixed: {result['B_fixed_size']}\n")
-                f.write(f"  CL_init: {result['CL_init_size']}\n")
-                f.write(f"  Oracle total: {result['oracle_size']}\n")
+                f.write(f"  CL_init (decomposed): {result['CL_init_size']}\n")
+                f.write(f"  Combined (B_fixed ∪ CL_init): {result['combined_size']}\n")
+                f.write(f"  Oracle (target model): {result['oracle_size']}\n")
+                f.write(f"  Model match: {result.get('model_match', False)}\n")
                 f.write(f"  Missing: {result['missing_count']}\n")
+                f.write(f"  Spurious: {result['spurious_count']}\n")
                 
                 if result['missing_count'] > 0:
-                    f.write(f"  Missing constraints:\n")
+                    f.write(f"  Missing constraints (to add to B_fixed):\n")
                     for c in result['missing_constraints']:
                         f.write(f"    - {c}\n")
                     
-                    if result.get('fixed', False):
+                    if result.get('fixed_missing', False):
                         f.write(f"  FIXED: B_fixed updated to {result['B_fixed_size_after']}\n")
+                
+                if result['spurious_count'] > 0:
+                    f.write(f"  Spurious constraints (in CL_init but NOT in oracle):\n")
+                    for c in result['spurious_constraints']:
+                        f.write(f"    - {c}\n")
+                    
+                    if result.get('fixed_spurious', False):
+                        f.write(f"  FIXED: Spurious removed, C_validated updated to {result['C_validated_size_after']}\n")
             
             f.write(f"\n")
     
@@ -445,6 +592,15 @@ def main():
         if len(files_with_missing) > 20:
             print(f"  ... and {len(files_with_missing) - 20} more")
     
+    if len(files_with_spurious) > 0:
+        print(f"\n{'='*80}")
+        print(f"FILES WITH SPURIOUS CONSTRAINTS ({len(files_with_spurious)}):")
+        print(f"{'='*80}")
+        for f in files_with_spurious[:20]:
+            print(f"  - {f}")
+        if len(files_with_spurious) > 20:
+            print(f"  ... and {len(files_with_spurious) - 20} more")
+    
     if len(files_error) > 0:
         print(f"\n{'='*80}")
         print(f"FILES WITH ERRORS ({len(files_error)}):")
@@ -454,13 +610,29 @@ def main():
     
     print(f"\n")
     
-    if fix_mode and len(files_with_missing) > 0:
-        print(f"[SUCCESS] Fixed {sum(1 for r in results if r.get('fixed', False))} pickle files")
-    elif len(files_with_missing) > 0:
+    if fix_mode:
+        fixed_missing_count = sum(1 for r in results if r.get('fixed_missing', False))
+        fixed_spurious_count = sum(1 for r in results if r.get('fixed_spurious', False))
+        total_fixed = sum(1 for r in results if r.get('fixed', False))
+        
+        if total_fixed > 0:
+            print(f"[SUCCESS] Fixed {total_fixed} pickle files:")
+            if fixed_missing_count > 0:
+                print(f"  - {fixed_missing_count} files: added missing constraints to B_fixed")
+            if fixed_spurious_count > 0:
+                print(f"  - {fixed_spurious_count} files: removed spurious constraints from C_validated")
+    
+    if len(files_with_missing) > 0 and not fix_mode:
         print(f"[INFO] Found {len(files_with_missing)} files with missing constraints")
-        print(f"[INFO] Run with --fix to update pickle files")
-    else:
-        print(f"[SUCCESS] All pickle files have complete constraint coverage!")
+        print(f"[INFO] Run with --fix to add missing constraints to B_fixed")
+    
+    if len(files_with_spurious) > 0 and not fix_mode:
+        print(f"[WARNING] Found {len(files_with_spurious)} files with spurious constraints in CL_init")
+        print(f"[WARNING] These constraints are NOT in the target oracle model!")
+        print(f"[INFO] Run with --fix to remove spurious constraints from C_validated")
+    
+    if len(files_with_missing) == 0 and len(files_with_spurious) == 0 and len(files_error) == 0:
+        print(f"[SUCCESS] All pickle files satisfy: B_fixed + CL_init = Oracle (target model)!")
 
 
 if __name__ == "__main__":
