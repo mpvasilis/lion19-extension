@@ -140,6 +140,18 @@ def load_phase1_data(pickle_path):
     print(f"  B_fixed (pruned bias): {len(data['B_fixed'])}")
     print(f"  E+ (positive examples): {len(data['E+'])}")
     print(f"  Initial probabilities: {len(data.get('initial_probabilities', {}))}")
+    
+    # Check for oracle and instance
+    oracle = data.get('oracle', None)
+    instance = data.get('instance', None)
+    if oracle is not None:
+        print(f"  Oracle: YES ({len(oracle.constraints)} constraints)")
+    else:
+        print(f"  Oracle: NOT FOUND (will need to reconstruct)")
+    if instance is not None:
+        print(f"  Instance: YES ({len(instance.X)} variables)")
+    else:
+        print(f"  Instance: NOT FOUND (will need to reconstruct)")
 
     return data
 
@@ -1239,7 +1251,27 @@ if __name__ == "__main__":
     print(f"Bias weight: {args.bias_weight}")
     print(f"{'='*60}\n")
 
-    instance, oracle = construct_instance(args.experiment)
+    # Load Phase 1 data first to check for oracle and instance
+    phase1_data = None
+    B_fixed = None
+    oracle = None
+    instance = None
+    
+    if args.phase1_pickle:
+        phase1_data = load_phase1_data(args.phase1_pickle)
+        
+        # Try to load oracle and instance from Phase 1 pickle
+        oracle = phase1_data.get('oracle', None)
+        instance = phase1_data.get('instance', None)
+        
+        if oracle is not None and instance is not None:
+            print(f"\n[INFO] Using oracle and instance from Phase 1 pickle")
+        else:
+            print(f"\n[WARNING] Oracle/instance not found in Phase 1 pickle, reconstructing...")
+            instance, oracle = construct_instance(args.experiment)
+    else:
+        print(f"\n[INFO] No Phase 1 pickle provided, constructing instance...")
+        instance, oracle = construct_instance(args.experiment)
 
     oracle.variables_list = cpm_array(instance.X)
 
@@ -1248,12 +1280,8 @@ if __name__ == "__main__":
     CG = extract_alldifferent_constraints(oracle)
     print(f"\nExtracted {len(CG)} AllDifferent constraints from oracle")
     
-    phase1_data = None
-    B_fixed = None
-    if args.phase1_pickle:
-        phase1_data = load_phase1_data(args.phase1_pickle)
-        
-        
+    if args.phase1_pickle and phase1_data is not None:
+        # Extract B_fixed from already loaded Phase 1 data
         B_fixed = phase1_data.get('B_fixed', None)
         if B_fixed is not None:
             print(f"\nExtracted B_fixed from Phase 1: {len(B_fixed)} binary constraints")

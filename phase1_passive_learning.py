@@ -1467,7 +1467,9 @@ def run_phase1(benchmark_name, output_dir='phase1_output', num_examples=5, num_o
         'B_fixed': B_fixed_pruned,  
         'E+': positive_examples,  
         'variables': instance.X,  
-        'initial_probabilities': initial_probabilities,  
+        'initial_probabilities': initial_probabilities,
+        'oracle': oracle,  # Save oracle for Phase 2 and Phase 3
+        'instance': instance,  # Save instance for Phase 2 and Phase 3
         'metadata': {
             'benchmark': benchmark_name,
             'num_examples': len(positive_examples),
@@ -1509,6 +1511,8 @@ def run_phase1(benchmark_name, output_dir='phase1_output', num_examples=5, num_o
     print(f"  Total CG: {len(CG)} (TARGET COVERAGE: 100%)")
     print(f"  Binary bias (initial): {len(B_fixed)}")
     print(f"  Binary bias (pruned): {len(B_fixed_pruned)}")
+    print(f"  Oracle saved: YES ({len(oracle.constraints)} constraints)")
+    print(f"  Instance saved: YES ({len(instance.X)} variables)")
     print(f"  Phase 1 execution time: {phase1_elapsed_time:.2f} seconds")
     print(f"{'='*70}\n")
     

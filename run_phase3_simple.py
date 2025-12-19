@@ -51,9 +51,14 @@ def load_phase2_pickle(pickle_path):
     # Extract validated constraints
     C_validated = data.get('C_validated', [])
     
-    # Extract phase1 data (contains B_fixed)
-    phase1_data = data.get('phase1_data', {})
-    B_fixed = phase1_data.get('B_fixed', []) if phase1_data else []
+    # Extract B_fixed - first try top-level (Phase 2 updated version), then fallback to phase1_data
+    B_fixed = data.get('B_fixed', None)
+    if B_fixed is None:
+        # Fallback to phase1_data if B_fixed not at top level
+        phase1_data = data.get('phase1_data', {})
+        B_fixed = phase1_data.get('B_fixed', []) if phase1_data else []
+    else:
+        print(f"  - Using Phase 2 updated B_fixed (pruned with Phase 2 positive examples)")
     
     # Extract phase2 stats
     phase2_stats = data.get('phase2_stats', {'queries': 0, 'time': 0})
@@ -65,8 +70,14 @@ def load_phase2_pickle(pickle_path):
     print(f"  - Validated constraints: {len(C_validated)}")
     print(f"  - Bias (B_fixed): {len(B_fixed)}")
     print(f"  - Phase 2 queries: {phase2_stats.get('queries', 0)}")
-    print(f"  - Oracle from pickle: {'YES' if oracle is not None else 'NO'}")
-    print(f"  - Instance from pickle: {'YES' if instance is not None else 'NO'}")
+    if oracle is not None:
+        print(f"  - Oracle from pickle: YES ({len(oracle.constraints)} constraints)")
+    else:
+        print(f"  - Oracle from pickle: NO")
+    if instance is not None:
+        print(f"  - Instance from pickle: YES ({len(instance.X)} variables)")
+    else:
+        print(f"  - Instance from pickle: NO")
     
     return C_validated, B_fixed, phase2_stats, oracle, all_variables, instance
 
@@ -211,39 +222,57 @@ def run_growacq_simple(
     print(f"Experiment: {experiment_name}")
     print(f"{'='*70}\n")
     
-    # 1. Load Phase 2 data (including oracle and instance)
     C_validated, B_fixed, phase2_stats, oracle_from_pickle, variables_from_pickle, instance_from_pickle = load_phase2_pickle(phase2_pickle_path)
     
-    # 2. Use oracle and instance from pickle if available
     if oracle_from_pickle is not None and instance_from_pickle is not None:
-        print(f"Using oracle and instance from Phase 2 pickle (consistent with Phase 2)")
         oracle = oracle_from_pickle
         instance = instance_from_pickle
-    elif oracle_from_pickle is not None:
-        print(f"Using oracle from Phase 2 pickle, constructing instance")
-        oracle = oracle_from_pickle
-        instance, _ = construct_benchmark(experiment_name)
+        print(f"\n[INFO] Using oracle and instance from Phase 2 pickle")
     else:
-        raise Exception("No oracle in pickle")
+        missing = []
+        if oracle_from_pickle is None:
+            missing.append("oracle")
+        if instance_from_pickle is None:
+            missing.append("instance")
+        raise Exception(
+            f"Missing {', '.join(missing)} in Phase 2 pickle. "
+            f"Please ensure Phase 1 and Phase 2 were run with the updated code that saves oracle/instance."
+        )
     
     print(f"\nBenchmark: {experiment_name}")
     print(f"  - Variables: {len(instance.X)}")
     print(f"  - Oracle constraints: {len(oracle.constraints)}")
     
-    # 3. Decompose validated constraints (AllDifferent -> binary !=)
     CL_init = decompose_alldifferent(C_validated)
     print(f"\nInitial CL (decomposed from validated globals): {len(CL_init)}")
     
-    # 4. Use oracle directly from pickle (no decomposition)
-    oracle.variables_list = cpm_array(instance.X)
+    oracle.constraints = [c for c in oracle.constraints if "alldifferent" not in str(c).lower()]
     
-    print(f"Oracle: {len(oracle.constraints)} constraints")
+    print(f"Oracle (after removing AllDifferent): {len(oracle.constraints)} constraints")
+
+    all_learning_constraints = CL_init + B_fixed
+    learning_variables = get_variables(all_learning_constraints)
+    oracle_variables = get_variables(oracle.constraints)
+    # for c in oracle.constraints:
+    #         if c not in set(CL_init) and c not in set(B_fixed):
+    #             B_fixed.append(c)
+    # CL_init_strs = set(str(c) for c in CL_init)
+    # B_fixed_strs = set(str(c) for c in B_fixed)
+
+
+
+    for c in oracle.constraints:
+        if c not in set(CL_init) and c not in set(B_fixed):
+            raise Exception(f"Oracle constraint not in CL_init or B_fixed: {c}")
+
+    print(instance.X)
     
-    # 5. Set up MQuAcq2
-    variables = get_variables(CL_init + B_fixed) if (CL_init or B_fixed) else list(instance.X.flat)
-    
+    for v in oracle_variables:
+        if v not in set(learning_variables):
+            raise Exception(f"Oracle variable not in learning variables: {v}")
+
     ca_instance = ProblemInstance(
-        variables=cpm_array(variables),
+        variables=cpm_array(learning_variables),
         init_cl=CL_init,
         name=f"{experiment_name}_phase3",
         bias=B_fixed
@@ -271,7 +300,7 @@ def run_growacq_simple(
     learned_instance = mquacq2.learn(
         ca_instance,
         oracle=oracle,
-        verbose=verbose
+        verbose=10
     )
     
     phase3_time = time.time() - start_time
