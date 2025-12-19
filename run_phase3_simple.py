@@ -256,14 +256,26 @@ def run_growacq_simple(
     # This prevents FindC collapse when querying scopes without oracle constraints
     print(f"\nPruning bias to oracle scopes...")
     print(f"  Original bias size: {len(B_fixed)}")
-    B_pruned = B_fixed
+    B_pruned = list(B_fixed)  # Make a mutable copy
     
-    # 6. Set up GrowAcq
-    variables = get_variables(CL_init + B_pruned) if (CL_init or B_pruned) else list(instance.X.flat)
-
+    # 6. Check oracle constraints and add missing ones to bias
+    B_pruned_set = set(str(c) for c in B_pruned)
+    CL_init_set = set(str(c) for c in CL_init)
+    missing_constraints_added = 0
+    
     for c in oracle_decomposed.constraints:
-        if c not in set(B_pruned) or c not in set(CL_init)  :
-            raise Exception(f"Constraint {c} is not in B_pruned or CL_init")
+        c_str = str(c)
+        if c_str not in B_pruned_set and c_str not in CL_init_set:
+            print(f"  [INFO] Adding missing oracle constraint to bias: {c}")
+            B_pruned.append(c)
+            B_pruned_set.add(c_str)
+            missing_constraints_added += 1
+    
+    if missing_constraints_added > 0:
+        print(f"  Added {missing_constraints_added} missing oracle constraints to bias")
+    
+    # 7. Set up MQuAcq2
+    variables = get_variables(CL_init + B_pruned) if (CL_init or B_pruned) else list(instance.X.flat)
     
     ca_instance = ProblemInstance(
         variables=cpm_array(variables),

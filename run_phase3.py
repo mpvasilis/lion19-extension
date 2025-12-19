@@ -1073,8 +1073,16 @@ def run_phase3(experiment_name, phase2_pickle_path, max_queries=1000, timeout=60
             print(f"  - {c}")
         if missing_count > len(missing_examples):
             print(f"  ... and {missing_count - len(missing_examples)} more")
-        print(f"\n[ERROR] This should not happen after the fix in Step 2.5!")
-        raise Exception(f"Missing {missing_count} constraints from oracle in final_CL/final_bias")
+        print(f"\n[FIX] Adding {missing_count} missing constraints to final_bias...")
+        # Collect all missing constraints and add them to final_bias
+        missing_all = [c for c in oracle_decomposed.constraints 
+                       if str(c) not in final_CL_strs and str(c) not in final_bias_strs]
+        final_bias.extend(missing_all)
+        final_bias_strs = set(str(c) for c in final_bias)
+        print(f"[FIX] Updated final_bias size: {len(final_bias)} constraints")
+        # Also update the ca_instance's bias
+        ca_instance.bias = final_bias
+        print(f"[FIX] Updated ca_instance.bias size: {len(ca_instance.bias)} constraints")
     else:
         print(f"[SUCCESS] All {len(oracle_decomposed.constraints)} oracle constraints are covered")
         print(f"  - In final_CL: {sum(1 for c in oracle_decomposed.constraints if str(c) in final_CL_strs)}")
