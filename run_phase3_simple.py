@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-Simplified Phase 3: GrowAcq Active Learning
+Simplified Phase 3: MQuAcq2 Active Learning
 
-This script runs GrowAcq using:
+This script runs MQuAcq2 using:
 - Bias from Phase 2 (B_fixed)
 - Decomposed learned AllDifferent constraints as initial CL
 
-No validation checks, no debug output - just straightforward GrowAcq learning.
+No validation checks, no debug output - just straightforward MQuAcq2 learning.
 """
 
 import os
@@ -19,7 +19,7 @@ from datetime import datetime
 
 from cpmpy import Model, cpm_array
 from cpmpy.transformations.get_variables import get_variables
-from pycona import GrowAcq, MQuAcq2, ProblemInstance, ConstraintOracle
+from pycona import MQuAcq2, ProblemInstance, ConstraintOracle
 from pycona.ca_environment import ActiveCAEnv
 from pycona.query_generation import PQGen
 from pycona.find_constraint.findc import FindC
@@ -208,19 +208,19 @@ def run_growacq_simple(
     verbose=1
 ):
     """
-    Simple GrowAcq runner.
+    Simple MQuAcq2 runner.
     
     Args:
         experiment_name: Name of the benchmark
         phase2_pickle_path: Path to phase2 pickle file
-        max_queries: Maximum queries for GrowAcq
+        max_queries: Maximum queries for MQuAcq2
         verbose: Verbosity level (0-3)
     
     Returns:
         dict: Results dictionary
     """
     print(f"\n{'='*70}")
-    print(f"Phase 3: GrowAcq Active Learning (Simple)")
+    print(f"Phase 3: MQuAcq2 Active Learning (Simple)")
     print(f"{'='*70}")
     print(f"Experiment: {experiment_name}")
     print(f"{'='*70}\n")
@@ -272,40 +272,39 @@ def run_growacq_simple(
         bias=B_pruned  # Use pruned bias to prevent FindC collapse
     )
     
-    print(f"\nGrowAcq Setup:")
+    print(f"\nMQuAcq2 Setup:")
     print(f"  - Variables: {len(ca_instance.variables)}")
     print(f"  - Initial CL: {len(ca_instance.cl)}")
     print(f"  - Bias (pruned): {len(ca_instance.bias)}")
     
-    # Create GrowAcq with MQuAcq2 as inner algorithm
+    # Create MQuAcq2 algorithm
     findc = FindC(time_limit=1)
     qgen = PQGen(time_limit=2)
     ca_env = ActiveCAEnv(qgen=qgen, findc=findc)
     
-    inner_mquacq2 = MQuAcq2(ca_env=ca_env)
-    growacq = GrowAcq(ca_env=ca_env, inner_algorithm=inner_mquacq2)
+    mquacq2 = MQuAcq2(ca_env=ca_env)
     
-    # 6. Run GrowAcq
+    # 6. Run MQuAcq2
     print(f"\n{'='*70}")
-    print(f"Starting GrowAcq...")
+    print(f"Starting MQuAcq2...")
     print(f"{'='*70}\n")
     
     start_time = time.time()
     
-    learned_instance = inner_mquacq2.learn(
+    learned_instance = mquacq2.learn(
         ca_instance,
         oracle=oracle_decomposed,
         verbose=verbose
     )
     
     phase3_time = time.time() - start_time
-    phase3_queries = inner_mquacq2.env.metrics.total_queries
+    phase3_queries = mquacq2.env.metrics.total_queries
     
     # 7. Results
     learned_constraints = learned_instance.cl
     
     print(f"\n{'='*70}")
-    print(f"GrowAcq Complete")
+    print(f"MQuAcq2 Complete")
     print(f"{'='*70}")
     print(f"  - Queries: {phase3_queries}")
     print(f"  - Time: {phase3_time:.2f}s")
@@ -409,7 +408,7 @@ def run_growacq_simple(
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description='Simple Phase 3: GrowAcq with decomposed AllDifferent CL'
+        description='Simple Phase 3: MQuAcq2 with decomposed AllDifferent CL'
     )
     parser.add_argument(
         '--experiment', type=str, default='sudoku',
@@ -421,7 +420,7 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         '--max_queries', type=int, default=1000,
-        help='Max queries for GrowAcq'
+        help='Max queries for MQuAcq2'
     )
     parser.add_argument(
         '--verbose', type=int, default=1,

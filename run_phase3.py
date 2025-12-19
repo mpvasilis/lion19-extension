@@ -1610,7 +1610,7 @@ if __name__ == "__main__":
     parser.add_argument('--phase2_pickle', type=str, default=None, help='Path to Phase 2 pickle file (auto-constructed if not provided)')
     parser.add_argument('--max_queries', type=int, default=1000, help='Maximum queries for active learning algorithm')
     parser.add_argument('--timeout', type=int, default=600, help='Timeout in seconds')
-    parser.add_argument('--algorithm', type=str, default='growacq', choices=['mquacq2', 'growacq'], 
+    parser.add_argument('--algorithm', type=str, default='mquacq2', choices=['mquacq2', 'growacq'], 
                         help='Active learning algorithm to use: mquacq2 or growacq (default: mquacq2)')
     
     args = parser.parse_args()
