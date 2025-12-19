@@ -19,7 +19,7 @@ from datetime import datetime
 
 from cpmpy import Model, cpm_array
 from cpmpy.transformations.get_variables import get_variables
-from pycona import MQuAcq2, ProblemInstance, ConstraintOracle
+from pycona import MQuAcq2, ProblemInstance
 from pycona.ca_environment import ActiveCAEnv
 from pycona.query_generation import PQGen
 from pycona.find_constraint.findc import FindC
@@ -134,24 +134,6 @@ def decompose_alldifferent(constraints):
     return list(unique.values())
 
 
-def create_decomposed_oracle(oracle):
-    """Create an oracle with decomposed binary constraints."""
-    decomposed_constraints = []
-    non_global = []
-    
-    for c in oracle.constraints:
-        if hasattr(c, 'name') and c.name == 'alldifferent':
-            decomposed = c.decompose()
-            if decomposed and len(decomposed) > 0:
-                decomposed_constraints.extend(decomposed[0])
-        else:
-            non_global.append(c)
-    
-    # Deduplicate
-    unique_binary = list({str(c): c for c in decomposed_constraints}.values())
-    all_constraints = unique_binary + non_global
-    
-    return ConstraintOracle(all_constraints)
 
 
 def get_scope(constraint):
@@ -246,11 +228,10 @@ def run_growacq_simple(
     CL_init = decompose_alldifferent(C_validated)
     print(f"\nInitial CL (decomposed from validated globals): {len(CL_init)}")
     
-    # 4. Create decomposed oracle for active learning
-    oracle_decomposed = create_decomposed_oracle(oracle)
-    oracle_decomposed.variables_list = cpm_array(instance.X)
+    # 4. Use oracle directly from pickle (no decomposition)
+    oracle.variables_list = cpm_array(instance.X)
     
-    print(f"Oracle (decomposed): {len(oracle_decomposed.constraints)} constraints")
+    print(f"Oracle: {len(oracle.constraints)} constraints")
     
     # 5. Set up MQuAcq2
     variables = get_variables(CL_init + B_fixed) if (CL_init or B_fixed) else list(instance.X.flat)
@@ -283,7 +264,7 @@ def run_growacq_simple(
     
     learned_instance = mquacq2.learn(
         ca_instance,
-        oracle=oracle_decomposed,
+        oracle=oracle,
         verbose=verbose
     )
     
@@ -301,7 +282,7 @@ def run_growacq_simple(
     print(f"  - Learned constraints: {len(learned_constraints)}")
     
     # 8. Evaluate against oracle
-    target_strs = set(str(c) for c in oracle_decomposed.constraints)
+    target_strs = set(str(c) for c in oracle.constraints)
     learned_strs = set(str(c) for c in learned_constraints)
     
     correct = len(target_strs & learned_strs)
@@ -309,11 +290,11 @@ def run_growacq_simple(
     spurious = len(learned_strs - target_strs)
     
     precision = correct / len(learned_constraints) if learned_constraints else 0
-    recall = correct / len(oracle_decomposed.constraints) if oracle_decomposed.constraints else 0
+    recall = correct / len(oracle.constraints) if oracle.constraints else 0
     f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0
     
     print(f"\nEvaluation:")
-    print(f"  - Target constraints: {len(oracle_decomposed.constraints)}")
+    print(f"  - Target constraints: {len(oracle.constraints)}")
     print(f"  - Learned constraints: {len(learned_constraints)}")
     print(f"  - Correct: {correct}")
     print(f"  - Missing: {missing}")
@@ -353,7 +334,7 @@ def run_growacq_simple(
             'time': total_time
         },
         'evaluation': {
-            'target_size': len(oracle_decomposed.constraints),
+            'target_size': len(oracle.constraints),
             'learned_size': len(learned_constraints),
             'correct': correct,
             'missing': missing,
