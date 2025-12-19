@@ -229,29 +229,35 @@ def run_phase2(
 ):
     """Run Phase 2 with the given Phase 1 pickle using specified approach (cop or lion)."""
     
-    # TEMPORARILY DISABLED: Phase 2 pickle cache check for k-fold validation
-    # For COP approach, check if Phase 2 pickle already exists in solution_variance_output/
-    # if approach.lower() == 'cop' and config_tag:
-    #     existing_pickle_dir = os.path.join("solution_variance_output", experiment)
-    #     existing_pickle_name = f"{experiment}_{config_tag}_phase2.pkl"
-    #     existing_pickle_path = os.path.join(existing_pickle_dir, existing_pickle_name)
-    #     
-    #     if os.path.exists(existing_pickle_path):
-    #         # Verify the pickle is valid
-    #         try:
-    #             with open(existing_pickle_path, 'rb') as f:
-    #                 phase2_data = pickle.load(f)
-    #             
-    #             print(f"\n{'='*80}")
-    #             print(f"[SKIP] Phase 2 COP pickle already exists: {existing_pickle_path}")
-    #             print(f"[SKIP] Reusing existing Phase 2 COP results")
-    #             print(f"{'='*80}\n")
-    #             
-    #             # Return success with the existing pickle path
-    #             return True, existing_pickle_path
-    #         except Exception as e:
-    #             print(f"\n[WARNING] Existing Phase 2 COP pickle is corrupted: {e}")
-    #             print(f"[WARNING] Re-running Phase 2 COP...")
+    # Check if Phase 2 pickle already exists - skip if so
+    if config_tag:
+        existing_pickle_dir = os.path.join("solution_variance_output", experiment)
+        file_suffix_map = {
+            'cop': 'phase2.pkl',
+            'lion': 'lion19_phase2.pkl'
+        }
+        if run_number is not None:
+            existing_pickle_name = f"{experiment}_{config_tag}_run{run_number}_{file_suffix_map[approach.lower()]}"
+        else:
+            existing_pickle_name = f"{experiment}_{config_tag}_{file_suffix_map[approach.lower()]}"
+        existing_pickle_path = os.path.join(existing_pickle_dir, existing_pickle_name)
+        
+        if os.path.exists(existing_pickle_path):
+            # Verify the pickle is valid
+            try:
+                with open(existing_pickle_path, 'rb') as f:
+                    phase2_data = pickle.load(f)
+                
+                print(f"\n{'='*80}")
+                print(f"[SKIP] Phase 2 {approach.upper()} pickle already exists: {existing_pickle_path}")
+                print(f"[SKIP] Reusing existing Phase 2 {approach.upper()} results")
+                print(f"{'='*80}\n")
+                
+                # Return success with the existing pickle path
+                return True, existing_pickle_path
+            except Exception as e:
+                print(f"\n[WARNING] Existing Phase 2 {approach.upper()} pickle is corrupted: {e}")
+                print(f"[WARNING] Re-running Phase 2 {approach.upper()}...")
     
     # Select the appropriate script based on approach
     script_map = {
@@ -320,23 +326,23 @@ def run_phase2(
 
 
 def run_phase3(experiment, phase2_pickle, *, approach='cop', config_tag=None, run_number=None):
-    """Run Phase 3 with the given Phase 2 pickle."""
+    """Run Phase 3 with the given Phase 2 pickle using simplified run_phase3_simple.py."""
     
     cmd = [
-        PYTHON_EXECUTABLE, 'run_phase3.py',
+        PYTHON_EXECUTABLE, 'run_phase3_simple.py',
         '--experiment', experiment,
         '--phase2_pickle', phase2_pickle
     ]
     
     try:
-        success, _ = run_command(cmd, f"Phase 3 ({approach.upper()}): {experiment}")
+        success, _ = run_command(cmd, f"Phase 3 Simple ({approach.upper()}): {experiment}")
     except Exception as e:
         print(f"\n[ERROR] Phase 3 command execution failed: {e}")
         return False
     
     if success:
-        # Phase 3 outputs to "phase3_output" directory by default
-        default_output = "phase3_output"
+        # run_phase3_simple.py outputs to "phase3_simple_output" directory by default
+        default_output = "phase3_simple_output"
 
         # Move outputs to solution_variance_output to keep everything organized
         if config_tag:
@@ -359,9 +365,10 @@ def run_phase3(experiment, phase2_pickle, *, approach='cop', config_tag=None, ru
         with file_ops_lock:
             os.makedirs(target_dir, exist_ok=True)
 
+            # run_phase3_simple.py outputs: {experiment}_results.json and {experiment}_model.pkl
             file_mapping = {
-                f"{experiment}_phase3_results.json": results_json_name,
-                f"{experiment}_final_model.pkl": final_model_name,
+                f"{experiment}_results.json": results_json_name,
+                f"{experiment}_model.pkl": final_model_name,
             }
 
             for source_name, dest_name in file_mapping.items():
@@ -390,7 +397,10 @@ def load_phase1_pickle(pickle_path):
 
 
 def load_phase3_results(benchmark_name, approach='cop', config_tag=None, run_number=None):
-    """Load Phase 3 JSON results from solution_variance_output directory."""
+    """Load Phase 3 JSON results from solution_variance_output directory.
+    
+    Handles both old format (from run_phase3.py) and new format (from run_phase3_simple.py).
+    """
     if config_tag:
         if run_number is not None:
             json_path = os.path.join("solution_variance_output", benchmark_name, f"{benchmark_name}_{config_tag}_run{run_number}_phase3_results.json")
@@ -400,11 +410,33 @@ def load_phase3_results(benchmark_name, approach='cop', config_tag=None, run_num
         # Fallback for backward compatibility
         output_dir = f"phase3_output_{approach.lower()}"
         json_path = os.path.join(output_dir, f"{benchmark_name}_phase3_results.json")
+    
     if not os.path.exists(json_path):
         return None
+    
     try:
         with open(json_path, 'r') as f:
-            return json.load(f)
+            results = json.load(f)
+        
+        # Handle both old and new format from run_phase3_simple.py
+        # Old format has: phase1, phase2, phase3, evaluation
+        # New format has: phase3_stats, evaluation, phase1_data, phase2_stats
+        if 'phase3' in results and 'evaluation' in results:
+            # Already in expected format
+            return results
+        elif 'phase3_stats' in results:
+            # Normalize from run_phase3_simple.py format
+            normalized = {
+                'phase3': results.get('phase3_stats', {}),
+                'evaluation': results.get('evaluation', {}),
+                'phase1': results.get('phase1_data', {}),
+                'phase2': results.get('phase2_stats', {})
+            }
+            return normalized
+        else:
+            # Return as-is and let extract_metrics handle it
+            return results
+            
     except Exception as e:
         print(f"[ERROR] Failed to load Phase 3 results: {e}")
         return None
@@ -488,7 +520,9 @@ def extract_metrics(
     # Bias: Size of generated bias (excluding decomposed binary constraints from AllDifferent)
     # Clamped to 0 to prevent negative values when learned constraints expand beyond original bias
     if phase3_available:
-        raw_bias = phase3_results.get('phase1', {}).get('B_fixed_size', 0)
+        # Handle both old format (phase1.B_fixed_size) and new format (phase3.bias_original)
+        raw_bias = phase3_results.get('phase3', {}).get('bias_original', 
+                   phase3_results.get('phase1', {}).get('B_fixed_size', 0))
         decomposed_binaries = phase3_results.get('phase3', {}).get('initial_cl', 0)
         metrics['Bias'] = max(0, raw_bias - decomposed_binaries)
     else:
@@ -535,8 +569,9 @@ def extract_metrics(
     # First try Phase 3 evaluation (more complete), then Phase 2 target_comparison
     if phase3_available:
         eval_data = phase3_results.get('evaluation', {})
+        # Handle both old format (constraint_level.missing) and new flat format (missing)
         constraint_level = eval_data.get('constraint_level', {})
-        metrics['Missing'] = constraint_level.get('missing', 0)
+        metrics['Missing'] = eval_data.get('missing', constraint_level.get('missing', 0))
     else:
         # Try to get from Phase 2 target_comparison
         target_comparison = phase2_stats.get('target_comparison', {})
@@ -545,13 +580,20 @@ def extract_metrics(
     # Evaluation metrics
     if phase3_available:
         eval_data = phase3_results.get('evaluation', {})
+        # Handle both old format (constraint_level/solution_level) and new flat format
         constraint_level = eval_data.get('constraint_level', {})
         solution_level = eval_data.get('solution_level', {})
         
-        metrics['precision'] = round(constraint_level.get('precision', 0) * 100, 2)
-        metrics['recall'] = round(constraint_level.get('recall', 0) * 100, 2)
-        metrics['s_precision'] = round(solution_level.get('s_precision', 0) * 100, 2)
-        metrics['s_recall'] = round(solution_level.get('s_recall', 0) * 100, 2)
+        # Try new flat format first, then old nested format
+        precision = eval_data.get('precision', constraint_level.get('precision', 0))
+        recall = eval_data.get('recall', constraint_level.get('recall', 0))
+        s_precision = solution_level.get('s_precision', 0)
+        s_recall = solution_level.get('s_recall', 0)
+        
+        metrics['precision'] = round(precision * 100, 2)
+        metrics['recall'] = round(recall * 100, 2)
+        metrics['s_precision'] = round(s_precision * 100, 2)
+        metrics['s_recall'] = round(s_recall * 100, 2)
     else:
         metrics['precision'] = 0.0
         metrics['recall'] = 0.0
