@@ -878,6 +878,13 @@ def main():
     E_plus_original = phase1_data.get("E+", []) if phase1_data else []
     E_plus_all = list(E_plus_original) + E_plus_new if E_plus_original else E_plus_new
     
+    # Get B_fixed from Phase 1 data (LION doesn't modify B_fixed during refinement)
+    B_fixed_to_store = phase1_data.get("B_fixed", []) if phase1_data else []
+    if B_fixed_to_store:
+        print(f"\n[INFO] Storing B_fixed with {len(B_fixed_to_store)} constraints for Phase 3")
+    else:
+        print(f"\n[WARNING] B_fixed is empty or not found in Phase 1 data")
+    
     phase2_output = {
         "C_validated": final_constraints,
         "C_validated_strs": [str(c) for c in final_constraints],
@@ -889,7 +896,7 @@ def main():
         "E_plus": E_plus_original,  # Original training examples
         "E_plus_new": E_plus_new,    # Accumulated positive examples from refinement
         "E_plus_all": E_plus_all,    # Combined: E+ ∪ E^+_new
-        "B_fixed": phase1_data.get("B_fixed", None) if phase1_data else None,
+        "B_fixed": B_fixed_to_store,  # Store B_fixed at top level for Phase 3
         "all_variables": oracle_variables,
         "oracle": oracle,  # Store oracle for Phase 3 to load
         "instance": instance,  # Store instance for Phase 3 to load

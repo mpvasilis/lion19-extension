@@ -1514,14 +1514,17 @@ if __name__ == "__main__":
     # B_fixed has already been pruned incrementally during Phase 2 whenever 
     # a positive example was found. We use the already-pruned B_fixed.
     # Note: B_fixed was modified in place during cop_refinement_recursive
-    B_fixed_updated = B_fixed
-    if B_fixed_updated is not None:
-        original_size = len(phase1_data.get('B_fixed', []))
+    # Ensure B_fixed is a list (not None) for Phase 3 compatibility
+    B_fixed_updated = B_fixed if B_fixed is not None else []
+    
+    if B_fixed_updated:
+        original_size = len(phase1_data.get('B_fixed', [])) if phase1_data else 0
         print(f"\n{'='*60}")
         print(f"B_fixed Status After Incremental Pruning")
         print(f"{'='*60}")
         print(f"B_fixed: {original_size} -> {len(B_fixed_updated)} constraints")
         print(f"  (Pruned incrementally during Phase 2 when positive examples were found)")
+        print(f"[INFO] Storing B_fixed with {len(B_fixed_updated)} constraints for Phase 3")
         
         # DEBUG: Check for target > constraints at Phase 2 end
         target_gt = [
@@ -1533,6 +1536,8 @@ if __name__ == "__main__":
             present = any(str(c) == tgt for c in B_fixed_updated)
             status = "PRESENT" if present else "REMOVED"
             print(f"  {tgt}: {status}")
+    else:
+        print(f"\n[WARNING] B_fixed is empty after Phase 2 pruning")
     
     phase2_output = {
         'C_validated': C_validated,  

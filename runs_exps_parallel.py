@@ -530,18 +530,14 @@ def extract_metrics(
     # CT: Target constraint count
     metrics['CT'] = TARGET_CONSTRAINTS.get(benchmark_name, 'N/A')
     
-    # Bias: Size of generated bias (excluding decomposed binary constraints from AllDifferent)
-    # Clamped to 0 to prevent negative values when learned constraints expand beyond original bias
+    # Bias: Size of B_fixed (binary constraints remaining after Phase 1 pruning)
     if phase3_available:
-        # Handle both old format (phase1.B_fixed_size) and new format (phase3.bias_original)
-        raw_bias = phase3_results.get('phase3', {}).get('bias_original', 
-                   phase3_results.get('phase1', {}).get('B_fixed_size', 0))
-        decomposed_binaries = phase3_results.get('phase3', {}).get('initial_cl', 0)
-        metrics['Bias'] = max(0, raw_bias - decomposed_binaries)
+        # Phase 3 results store bias as 'bias' in the 'phase3' section
+        metrics['Bias'] = phase3_results.get('phase3', {}).get('bias', 0)
     else:
-        raw_bias = len(phase2_data.get('B_fixed', []))
-        # For Phase 2-only results, we don't have decomposed count, so use raw bias
-        metrics['Bias'] = raw_bias
+        # Fallback to Phase 2 data - B_fixed is a list of constraints
+        B_fixed = phase2_data.get('B_fixed', [])
+        metrics['Bias'] = len(B_fixed) if B_fixed is not None else 0
     
     # ViolQ: Violation queries from Phase 2
     metrics['ViolQ'] = phase3_results.get('phase2', {}).get('queries', phase2_stats.get('queries', 0)) if phase3_available else phase2_stats.get('queries', 0)
